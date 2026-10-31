@@ -11117,5 +11117,8 @@ settingsSession: {
         coordinator: 'Coordinator',
         pickCoordinator: 'Pick the coordinator session',
         pickHint: 'Start one with: claude --agent coordinator -n coordinator',
+        contextToCompact: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} before auto-compact`,
+        contextOfWindow: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} context`,
+        contextWindow: ({ size }: { size: string }) => `Model window ${size}`,
     },
 } as const;

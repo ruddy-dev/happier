@@ -8,6 +8,7 @@ import { Typography } from '@/constants/Typography';
 import { useAllSessions } from '@/sync/store/hooks';
 import { t } from '@/text';
 
+import { ContextMeter } from './ContextMeter';
 import { MaskFace } from './MaskFace';
 import { collectWaits } from './WaitingPanel';
 
@@ -18,6 +19,7 @@ import { collectWaits } from './WaitingPanel';
 export function CoordinatorPane({ sessionId }: { sessionId: string }) {
     const { theme } = useUnistyles();
     const sessions = useAllSessions();
+    const coordinator = React.useMemo(() => sessions.find((s) => s.id === sessionId) ?? null, [sessions, sessionId]);
     const waiting = React.useMemo(() => {
         const { items, unloaded } = collectWaits(sessions);
         return items.length + unloaded.length > 0;
@@ -30,6 +32,7 @@ export function CoordinatorPane({ sessionId }: { sessionId: string }) {
                 <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
                     {t('ignorePrevious.coordinator')}
                 </Text>
+                <View style={{ marginLeft: 'auto' }}>{coordinator ? <ContextMeter session={coordinator} /> : null}</View>
             </View>
             <View style={{ flex: 1 }}>
                 <SessionView

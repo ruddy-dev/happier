@@ -66,6 +66,18 @@ All overlay text lives in the `ignorePrevious` block of `en.ts`. Happier's integ
 
 The overlay is English-only by design. `apps/ui/sources/text/i18n.integrity.test.ts` lists `ignorePrevious.` among its allowed untranslated prefixes, so the English copies don't fail the untranslated-strings check.
 
+## Build settings
+
+Optional, in `apps/ui/.env.local` (gitignored). Restart `yarn web` after changing them.
+
+| Variable | Meaning |
+|---|---|
+| `EXPO_PUBLIC_IP_COORDINATOR_PATH` | Folder the coordinator session runs in. The desk picks the newest active session there when you haven't chosen one. |
+| `EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE` | Tokens at which Claude Code auto-compacts (its `autoCompactWindow`, e.g. `220000`). The context bars fill towards this. |
+| `EXPO_PUBLIC_IP_AUTOCOMPACT_CODEX` | The same for Codex (`model_auto_compact_token_limit`, e.g. `150000`). |
+
+Without an auto-compact value, the bars measure against the model's context window.
+
 ## Patched upstream files
 
 Filled in from `upstreamCheck.mjs` once the overlay is complete.

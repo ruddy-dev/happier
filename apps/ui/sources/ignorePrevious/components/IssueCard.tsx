@@ -80,6 +80,11 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                           >
                               {worker.permissionMode}
                           </Text>
+                          {typeof worker.contextPercent === 'number' ? (
+                              <Text testID={`ip-worker-context-${worker.sessionId}`} style={secondary}>
+                                  {worker.contextPercent}%
+                              </Text>
+                          ) : null}
                           <Pressable
                               testID={`ip-open-worker-${worker.sessionId}`}
                               accessibilityRole="button"

@@ -13,6 +13,7 @@ import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { issueKeyFromBranch, issueKeyFromPath } from '../model/issueKey';
 import { bulbColour, useIpColours } from '../palette';
+import { sessionContextMeter } from './ContextMeter';
 import { IssueCard } from './IssueCard';
 
 type Branches = Readonly<Record<string, string | null>>;
@@ -31,15 +32,19 @@ const BranchProbe = React.memo(function BranchProbe({
 });
 
 function toWorkerRows(sessions: readonly Session[], branches: Branches): WorkerRow[] {
-    return sessions.map((session) => ({
-        sessionId: session.id,
-        title: getSessionName(session),
-        // The branch names the issue more reliably than the folder; the folder covers sessions with no git status yet.
-        issueKey: issueKeyFromBranch(branches[session.id] ?? null) ?? issueKeyFromPath(session.metadata?.path ?? ''),
-        bulb: bulbFromSessionState(getSessionStatus(session).state),
-        permissionMode: session.permissionMode ?? 'default',
-        updatedAt: session.updatedAt,
-    }));
+    return sessions.map((session) => {
+        const meter = sessionContextMeter(session);
+        return {
+            sessionId: session.id,
+            title: getSessionName(session),
+            // The branch names the issue more reliably than the folder; the folder covers sessions with no git status yet.
+            issueKey: issueKeyFromBranch(branches[session.id] ?? null) ?? issueKeyFromPath(session.metadata?.path ?? ''),
+            bulb: bulbFromSessionState(getSessionStatus(session).state),
+            permissionMode: session.permissionMode ?? 'default',
+            updatedAt: session.updatedAt,
+            contextPercent: meter ? Math.round(meter.ratio * 100) : null,
+        };
+    });
 }
 
 const COUNTED: readonly { bulb: Bulb; label: () => string }[] = [

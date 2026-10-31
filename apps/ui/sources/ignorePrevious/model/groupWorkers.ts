@@ -7,6 +7,8 @@ export type WorkerRow = {
     bulb: Bulb;
     permissionMode: string;
     updatedAt: number;
+    /** How close to auto-compact, 0–100; absent until the session has reported its context. */
+    contextPercent?: number | null;
 };
 
 export type IssueGroup = {

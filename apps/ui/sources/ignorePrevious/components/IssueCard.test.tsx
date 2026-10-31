@@ -22,7 +22,7 @@ const group: IssueGroup = {
     bulb: 'turn',
     workers: [
         { sessionId: 's1', title: 'Builder', issueKey: 'ATR-6', bulb: 'turn', permissionMode: 'default', updatedAt: 20 },
-        { sessionId: 's2', title: 'Reviewer', issueKey: 'ATR-6', bulb: 'working', permissionMode: 'acceptEdits', updatedAt: 10 },
+        { sessionId: 's2', title: 'Reviewer', issueKey: 'ATR-6', bulb: 'working', permissionMode: 'acceptEdits', updatedAt: 10, contextPercent: 64 },
     ],
 };
 
@@ -51,6 +51,8 @@ describe('IssueCard', () => {
         expect(text).toContain('Reviewer');
         expect(text).toContain('default');
         expect(text).toContain('acceptEdits');
+        expect(screen.findByTestId('ip-worker-context-s2')?.props.children).toEqual([64, '%']);
+        expect(screen.findByTestId('ip-worker-context-s1')).toBeNull();
         await screen.pressByTestIdAsync('ip-open-worker-s2');
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s2(\?|$)/);
     });
