@@ -190,8 +190,9 @@ function ResumeControl({ sessionId }: { sessionId: string }) {
 
 /** What you can do to one worker from the desk: change its mode, stop its turn, or open it to resume. */
 export function WorkerActions({ worker }: { worker: WorkerRow }) {
+    if (!worker.permissionMode && !worker.canStop && !worker.inactive) return null;
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingLeft: 18 }}>
             {worker.permissionMode ? <PermissionModeControl sessionId={worker.sessionId} mode={worker.permissionMode} /> : null}
             {worker.canStop ? <StopControl sessionId={worker.sessionId} /> : null}
             {worker.inactive ? <ResumeControl sessionId={worker.sessionId} /> : null}
