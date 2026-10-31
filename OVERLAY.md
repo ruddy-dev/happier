@@ -1,6 +1,6 @@
 # The Ignore Previous overlay
 
-This fork is Happier's latest stable release plus a small overlay: the `/desk` screen, an "Ignore Previous" theme, and one strings namespace. Upstream code is changed as little as possible, so each new stable release merges in with few conflicts.
+This fork is Happier's latest stable release plus a small overlay: the `/desk` screen (working name **Sleeper Agents**, by Ignore Previous), an "Ignore Previous" theme, and one strings namespace. Upstream code is changed as little as possible, so each new stable release merges in with few conflicts.
 
 ## Where the overlay lives
 

@@ -11536,7 +11536,7 @@ settingsSession: {
         countStuck: 'Stuck',
         countWorking: 'Working',
         countIdle: 'Idle',
-        screenTitle: 'Ignore Previous',
+        screenTitle: 'Sleeper Agents',
         coordinator: 'Coordinator',
         coordinatorNickname: 'Shog',
         pickCoordinator: 'Pick the coordinator session',
