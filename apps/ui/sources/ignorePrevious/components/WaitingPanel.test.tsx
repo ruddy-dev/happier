@@ -93,10 +93,11 @@ describe('WaitingPanel', () => {
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
     });
 
-    it('folds away when nothing needs you', async () => {
+    it('says so when nothing needs you', async () => {
         state.sessions = [sessionWithRequest('s2', null)];
         const screen = await renderPanel();
         expect(screen.findByTestId('ip-waiting')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-empty')).toBeTruthy();
     });
 
     it('leaves out archived sessions', async () => {

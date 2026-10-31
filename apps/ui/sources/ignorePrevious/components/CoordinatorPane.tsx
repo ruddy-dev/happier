@@ -17,7 +17,7 @@ import { collectWaits } from './WaitingPanel';
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit
  * embeds it. The mask's bulb lights when anything is waiting on you. "Shog" is the coordinator's quiet nickname.
  */
-export function CoordinatorPane({ sessionId }: { sessionId: string }) {
+export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: React.ReactNode }) {
     const { theme } = useUnistyles();
     const sessions = useAllSessions();
     const coordinator = React.useMemo(() => sessions.find((s) => s.id === sessionId) ?? null, [sessions, sessionId]);
@@ -34,7 +34,10 @@ export function CoordinatorPane({ sessionId }: { sessionId: string }) {
                     {t('ignorePrevious.coordinator')}
                 </Text>
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 13 }}>{t('ignorePrevious.coordinatorNickname')}</Text>
-                <View style={{ marginLeft: 'auto' }}>{coordinator ? <ContextMeter session={coordinator} /> : null}</View>
+                <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    {coordinator ? <ContextMeter session={coordinator} /> : null}
+                    {headerAccessory}
+                </View>
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>

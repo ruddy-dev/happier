@@ -14,14 +14,33 @@ export function setStoredCoordinatorId(id: string | null): void {
     else mmkv.delete(KEY);
 }
 
-const MINIMISED_KEY = 'ignorePrevious.deskMinimised';
+// Key kept from the earlier "minimise panels" toggle, which also collapsed the Work panel.
+const WORK_COLLAPSED_KEY = 'ignorePrevious.deskMinimised';
+const APPROVALS_OPEN_KEY = 'ignorePrevious.approvalsOpen';
 
-/** Whether the Waiting and Work panels are shrunk to a thin rail beside the coordinator. */
-export function getDeskMinimised(): boolean {
-    return mmkv.getString(MINIMISED_KEY) === '1';
+// Flags are stored as strings: Happier's shared MMKV test stub has no getBoolean.
+function getFlag(key: string): boolean {
+    return mmkv.getString(key) === '1';
 }
 
-export function setDeskMinimised(minimised: boolean): void {
-    // Stored as a string: Happier's shared MMKV test stub has no getBoolean.
-    mmkv.set(MINIMISED_KEY, minimised ? '1' : '0');
+function setFlag(key: string, on: boolean): void {
+    mmkv.set(key, on ? '1' : '0');
+}
+
+/** Whether the Work panel is collapsed to a thin rail of issue labels. */
+export function getWorkCollapsed(): boolean {
+    return getFlag(WORK_COLLAPSED_KEY);
+}
+
+export function setWorkCollapsed(collapsed: boolean): void {
+    setFlag(WORK_COLLAPSED_KEY, collapsed);
+}
+
+/** Whether the approvals drawer (what waits on you) is open beside the coordinator. */
+export function getApprovalsOpen(): boolean {
+    return getFlag(APPROVALS_OPEN_KEY);
+}
+
+export function setApprovalsOpen(open: boolean): void {
+    setFlag(APPROVALS_OPEN_KEY, open);
 }

@@ -10813,8 +10813,11 @@ settingsSession: {
         contextToCompact: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} before auto-compact`,
         contextOfWindow: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} context`,
         contextWindow: ({ size }: { size: string }) => `Model window ${size}`,
-        minimise: 'Minimise panels',
-        expand: 'Show panels',
+        collapseWork: 'Collapse Work',
+        expandWork: 'Show Work',
+        openApprovals: ({ count }: { count: number }) => `Show what waits on you, ${count}`,
+        closeApprovals: 'Hide what waits on you',
+        nothingWaits: 'Nothing waits on you.',
         walkWaiting: ({ count }: { count: number }) => `Go through what's waiting (${count})`,
         walkWaitingShown: "Go through what's waiting with me",
         walkWaitingPrompt: ({ list }: { list: string }) =>

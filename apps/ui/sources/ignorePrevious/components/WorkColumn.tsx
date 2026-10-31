@@ -14,8 +14,8 @@ import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { issueKeyFromBranch, issueKeyFromPath } from '../model/issueKey';
 import { bulbColour, useIpColours } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
+import { BulbLabel, bulbWord } from './BulbLabel';
 import { IssueCard } from './IssueCard';
-import { MaskFace } from './MaskFace';
 
 type Branches = Readonly<Record<string, string | null>>;
 
@@ -48,12 +48,7 @@ function toWorkerRows(sessions: readonly Session[], branches: Branches): WorkerR
     });
 }
 
-const COUNTED: readonly { bulb: Bulb; label: () => string }[] = [
-    { bulb: 'turn', label: () => t('ignorePrevious.countTurn') },
-    { bulb: 'stuck', label: () => t('ignorePrevious.countStuck') },
-    { bulb: 'working', label: () => t('ignorePrevious.countWorking') },
-    { bulb: 'idle', label: () => t('ignorePrevious.countIdle') },
-];
+const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'idle'];
 
 /** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
 function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
@@ -80,15 +75,15 @@ function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
             {tile('all', rows.length, t('ignorePrevious.countAll'), null)}
-            {COUNTED.map(({ bulb, label }) => tile(bulb, counts[bulb], label(), bulbColour(colours, bulb)))}
+            {COUNTED.map((bulb) => tile(bulb, counts[bulb], bulbWord(bulb), bulbColour(colours, bulb)))}
         </View>
     );
 }
 
 /**
  * Every unarchived session grouped by the issue it works on. Faces shows folded cards you open one
- * at a time; Details opens them all. `compact` draws just one small face per issue, in a column
- * (the desk's minimised rail) or a row (its narrow-screen strip).
+ * at a time; Details opens them all. `compact` draws just each issue's key and state, in a column
+ * (the desk's collapsed rail) or a row (its narrow-screen strip).
  */
 export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     const { theme } = useUnistyles();
@@ -133,18 +128,20 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
 
     if (compact) {
         return (
-            <View style={{ flexDirection: compact, flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <View style={{ flexDirection: compact, flexWrap: 'wrap', alignItems: compact === 'row' ? 'center' : 'flex-start', gap: compact === 'row' ? 16 : 8 }}>
                 {probes}
                 {groups.map((group) => {
                     const label = group.issueKey ?? t('ignorePrevious.noIssue');
                     return (
                         <View
                             key={group.issueKey ?? 'no-issue'}
-                            testID={`ip-rail-face-${group.issueKey ?? 'none'}`}
-                            accessible
-                            accessibilityLabel={label}
+                            testID={`ip-rail-issue-${group.issueKey ?? 'none'}`}
+                            style={{ gap: 2, paddingVertical: 4 }}
                         >
-                            <MaskFace size={28} bulb={group.bulb} sleepy={group.bulb !== 'turn'} />
+                            <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }} numberOfLines={1}>
+                                {label}
+                            </Text>
+                            <BulbLabel bulb={group.bulb} size={8} />
                         </View>
                     );
                 })}
