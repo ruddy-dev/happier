@@ -4,7 +4,7 @@ import { MMKV } from 'react-native-mmkv';
 const mmkv = new MMKV();
 const KEY = 'ignorePrevious.coordinatorSessionId';
 
-/** The session Luke picked as coordinator on this device. */
+/** The session the user picked as coordinator on this device. */
 export function getStoredCoordinatorId(): string | null {
     return mmkv.getString(KEY) ?? null;
 }

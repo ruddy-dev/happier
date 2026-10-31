@@ -263,10 +263,12 @@ describe('Theme profile settings screen', () => {
             'githubDark',
             'darkModern',
             'graphiteDark',
+            'ignorePrevious',
             'premiumLight',
             'paperLight',
             'catppuccinLatte',
             'githubLight',
+            'ignorePreviousLight',
         ]);
     });
 
