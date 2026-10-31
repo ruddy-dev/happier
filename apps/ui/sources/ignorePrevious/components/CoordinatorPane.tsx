@@ -15,7 +15,7 @@ import { collectWaits } from './WaitingPanel';
 
 /**
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit
- * embeds it. The mask's bulb lights when anything is waiting on you.
+ * embeds it. The mask's bulb lights when anything is waiting on you. "Shog" is the coordinator's quiet nickname.
  */
 export function CoordinatorPane({ sessionId }: { sessionId: string }) {
     const { theme } = useUnistyles();
@@ -33,6 +33,7 @@ export function CoordinatorPane({ sessionId }: { sessionId: string }) {
                 <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
                     {t('ignorePrevious.coordinator')}
                 </Text>
+                <Text style={{ color: theme.colors.text.secondary, fontSize: 13 }}>{t('ignorePrevious.coordinatorNickname')}</Text>
                 <View style={{ marginLeft: 'auto' }}>{coordinator ? <ContextMeter session={coordinator} /> : null}</View>
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
