@@ -169,7 +169,7 @@ function StopControl({ sessionId }: { sessionId: string }) {
 /**
  * An inactive worker. Its own session view does the resuming, so this opens it; when the machine
  * is offline it says so instead. Whether it can be resumed at all is the session actions' rule
- * (`canResume`), the one the header menu and the sidebar use; otherwise it is a plain open.
+ * (`canResume`), the one the session header menu uses; otherwise it is a plain open.
  */
 function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume: boolean }) {
     const { theme } = useUnistyles();
