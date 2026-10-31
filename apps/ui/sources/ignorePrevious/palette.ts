@@ -17,11 +17,15 @@ export type IpColours = Readonly<{
     ink: string;
     bone: string;
     visor: string;
+    /** The placeholder shoggoth behind the mask (ShogView): its body, outline and unlit eyes. */
+    flesh: string;
+    fleshEdge: string;
+    paleEye: string;
 }>;
 
 export const ipPalette: Readonly<{ light: IpColours; dark: IpColours }> = {
-    dark: { yellow: '#ffcf1f', red: '#e0301e', work: '#c9c2b0', off: '#3a3e49', ink: '#14161c', bone: '#f3ecd8', visor: '#ffffff' },
-    light: { yellow: '#ffcf1f', red: '#c9230f', work: '#6f6a5e', off: '#cfc7b0', ink: '#14161c', bone: '#14161c', visor: '#ffffff' },
+    dark: { yellow: '#ffcf1f', red: '#e0301e', work: '#c9c2b0', off: '#3a3e49', ink: '#14161c', bone: '#f3ecd8', visor: '#ffffff', flesh: '#3b4a3f', fleshEdge: '#5c7262', paleEye: '#e8e2cf' },
+    light: { yellow: '#ffcf1f', red: '#c9230f', work: '#6f6a5e', off: '#cfc7b0', ink: '#14161c', bone: '#14161c', visor: '#ffffff', flesh: '#55695a', fleshEdge: '#2f3b33', paleEye: '#f3ecd8' },
 };
 
 export function useIpColours(): IpColours {

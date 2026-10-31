@@ -9,7 +9,7 @@ import { setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../d
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const state = vi.hoisted(() => ({ sessions: [] as unknown[] }));
+const state = vi.hoisted(() => ({ sessions: [] as unknown[], showModal: vi.fn() }));
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -19,6 +19,11 @@ vi.mock('@expo/vector-icons', async () => {
 vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
     return createExpoRouterMock().module;
+});
+
+vi.mock('@/modal', async () => {
+    const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');
+    return createModalModuleMock({ spies: { show: state.showModal } }).module;
 });
 
 vi.mock('@/sync/store/hooks', async (importOriginal) => {
@@ -130,6 +135,15 @@ describe('DeskScreen', () => {
         await screen.unmount();
         screen = await renderDesk();
         expect(screen.findByTestId('ip-waiting')).toBeNull();
+    });
+
+    it('opens Shog up close from the mask in the coordinator header', async () => {
+        state.sessions = [session('s1')];
+        setStoredCoordinatorId('s1');
+        const screen = await renderDesk();
+        await screen.pressByTestIdAsync('ip-shog-open');
+        const { ShogView } = await import('../components/ShogView');
+        expect(state.showModal).toHaveBeenCalledWith(expect.objectContaining({ component: ShogView }));
     });
 
     it('opens the chat of the session picked in the picker and remembers it', async () => {

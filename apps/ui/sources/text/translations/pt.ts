@@ -11652,6 +11652,12 @@ settingsSession: {
         openApprovals: ({ count }: { count: number }) => `Show what waits on you, ${count}`,
         closeApprovals: 'Hide what waits on you',
         nothingWaits: 'Nothing waits on you.',
+        shogTitle: 'Shog',
+        openShog: 'Show Shog up close',
+        shogCalm: 'All eyes pale: nothing waits on you.',
+        shogWaiting: ({ count }: { count: number }) => (count === 1 ? 'One red eye: one thing waits on you.' : `Red eyes: ${count} things wait on you.`),
+        shogPause: 'Pause',
+        shogReplay: 'Replay',
         walkWaiting: ({ count }: { count: number }) => `Go through what's waiting (${count})`,
         walkWaitingShown: "Go through what's waiting with me",
         walkWaitingPrompt: ({ list }: { list: string }) =>
