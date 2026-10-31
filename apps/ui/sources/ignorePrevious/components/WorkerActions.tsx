@@ -4,6 +4,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
 
 import { DEFAULT_AGENT_ID, resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
+import { createSessionActionTarget } from '@/components/sessions/actions/sessionActionContext';
 import { useSessionMachineReachability } from '@/components/sessions/model/useSessionMachineReachability';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
@@ -13,7 +14,7 @@ import { applyPermissionModeSelection } from '@/sync/domains/permissions/permiss
 import { getPermissionModeOptionsForSession, normalizePermissionModeForAgentType } from '@/sync/domains/permissions/permissionModeOptions';
 import type { PermissionMode } from '@/sync/domains/permissions/permissionTypes';
 import type { Session } from '@/sync/domains/state/storageTypes';
-import { storage, useSession, useSetting } from '@/sync/domains/state/storage';
+import { storage, useSession, useSetting, useSettings } from '@/sync/domains/state/storage';
 import { sessionAbort } from '@/sync/ops';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
@@ -167,13 +168,24 @@ function StopControl({ sessionId }: { sessionId: string }) {
 
 /**
  * An inactive worker. Its own session view does the resuming, so this opens it; when the machine
- * is offline it says so instead.
+ * is offline it says so instead. Whether it can be resumed at all is the session actions' rule
+ * (`canResume`), the one the header menu and the sidebar use; otherwise it is a plain open.
  */
-function ResumeControl({ sessionId }: { sessionId: string }) {
+function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume: boolean }) {
     const { theme } = useUnistyles();
     const { machineReachable } = useSessionMachineReachability(sessionId);
     const navigateToSession = useNavigateToSession();
 
+    if (!canResume) {
+        return (
+            <RowButton
+                testID={`ip-open-${sessionId}`}
+                label={t('ignorePrevious.openSession')}
+                accessibilityLabel={t('ignorePrevious.openWorker')}
+                onPress={() => void navigateToSession(sessionId)}
+            />
+        );
+    }
     if (!machineReachable) {
         return (
             <Text testID={`ip-offline-${sessionId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
@@ -194,6 +206,13 @@ function ResumeControl({ sessionId }: { sessionId: string }) {
 /** What you can do to one worker from the desk: change its mode, stop its turn, or open it to resume. */
 export function WorkerActions({ worker }: { worker: WorkerRow }) {
     const session = useSession(worker.sessionId);
+    const settings = useSettings();
+    const canResume = React.useMemo(
+        () => (session && worker.inactive
+            ? createSessionActionTarget({ session, resumeCapabilityOptions: { accountSettings: settings } }).canResume
+            : false),
+        [session, settings, worker.inactive],
+    );
     // Write access as SessionView decides it: a session you can only view shows its mode and nothing to press.
     const canWrite = Boolean(session) && (!session?.accessLevel || session.accessLevel === 'edit' || session.accessLevel === 'admin');
     const canStop = Boolean(worker.canStop) && canWrite;
@@ -204,7 +223,7 @@ export function WorkerActions({ worker }: { worker: WorkerRow }) {
                 <PermissionModeControl sessionId={worker.sessionId} mode={worker.permissionMode} metadata={session?.metadata ?? null} canChange={canWrite} />
             ) : null}
             {canStop ? <StopControl sessionId={worker.sessionId} /> : null}
-            {worker.inactive ? <ResumeControl sessionId={worker.sessionId} /> : null}
+            {worker.inactive ? <ResumeControl sessionId={worker.sessionId} canResume={canResume} /> : null}
         </View>
     );
 }

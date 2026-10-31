@@ -129,4 +129,19 @@ describe('WorkerActions', () => {
         await pressTestInstanceAsync(screen.findByTestId('ip-resume-nap')!);
         expect(JSON.stringify(state.navigate.mock.calls)).toContain('nap');
     });
+
+    it('offers a plain open, not resume, when the session cannot be resumed by you', async () => {
+        storage.getState().applyMachines([createMachineFixture({ id: 'machine-1', active: true, activeAt: Date.now() })]);
+        seedSession('peek', { active: false, accessLevel: 'view' } as Partial<Session>);
+        const screen = await renderActions(worker('peek', { inactive: true }));
+        expect(screen.findByTestId('ip-resume-peek')).toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-open-peek')!);
+        expect(JSON.stringify(state.navigate.mock.calls)).toContain('peek');
+    });
+
+    it('promises no resume before the session record has loaded', async () => {
+        const screen = await renderActions(worker('ghost', { inactive: true }));
+        expect(screen.findByTestId('ip-resume-ghost')).toBeNull();
+        expect(screen.findByTestId('ip-open-ghost')).not.toBeNull();
+    });
 });

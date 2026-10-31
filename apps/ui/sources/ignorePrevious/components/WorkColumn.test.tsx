@@ -48,7 +48,7 @@ function session(id: string, path: string, extra: Partial<Session> = {}): Sessio
     return createSessionFixture({
         id,
         updatedAt: 10,
-        metadata: { path, host: 'h', homeDir: '/home/u', machineId: 'm', summary: { text: `Title ${id}`, updatedAt: 1 } } as Session['metadata'],
+        metadata: { path, host: 'h', homeDir: '/home/u', machineId: 'm', flavor: 'claude', summary: { text: `Title ${id}`, updatedAt: 1 } } as Session['metadata'],
         ...extra,
     });
 }
