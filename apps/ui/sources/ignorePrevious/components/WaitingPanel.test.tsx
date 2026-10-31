@@ -93,6 +93,15 @@ describe('WaitingPanel', () => {
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
     });
 
+    it('closes the approvals card when it opens a session from it', async () => {
+        const { ApprovalsCard } = await import('./Approvals');
+        const onClose = vi.fn();
+        const screen = await renderScreen(<ApprovalsCard onClose={onClose} />);
+        await pressTestInstanceAsync(button(screen as Awaited<ReturnType<typeof renderPanel>>, 'Open session'));
+        expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
+        expect(onClose).toHaveBeenCalled();
+    });
+
     it('says so when nothing needs you', async () => {
         state.sessions = [sessionWithRequest('s2', null)];
         const screen = await renderPanel();

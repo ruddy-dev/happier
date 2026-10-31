@@ -52,9 +52,10 @@ export function useWaitingCount(): number {
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
  * answer in their session. The body of the desk's approvals drawer, which carries the title.
- * Approving here is the same call the session's own footer makes.
+ * Approving here is the same call the session's own footer makes. `onOpenSession` runs after it
+ * opens a session, so a card holding the panel can get out of the way.
  */
-export function WaitingPanel() {
+export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } = {}) {
     const sessions = useAllSessions();
     const { items, unloaded } = React.useMemo(() => collectWaits(sessions), [sessions]);
     const { theme } = useUnistyles();
@@ -80,7 +81,10 @@ export function WaitingPanel() {
     const secondary = { color: theme.colors.text.secondary, fontSize: 13 };
 
     const openButton = (sessionId: string) => (
-        <Pressable accessibilityRole="button" style={buttonStyle} onPress={() => void navigateToSession(sessionId)}>
+        <Pressable accessibilityRole="button" style={buttonStyle} onPress={() => {
+            void navigateToSession(sessionId);
+            onOpenSession?.();
+        }}>
             <Text style={buttonText}>{t('ignorePrevious.openSession')}</Text>
         </Pressable>
     );

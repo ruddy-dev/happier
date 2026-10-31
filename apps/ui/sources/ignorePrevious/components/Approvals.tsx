@@ -48,7 +48,7 @@ export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () 
  * The same list as a card, for layouts with no room for a drawer: a phone, or multi-pane panels
  * switched off. The card chrome carries the title and the close button.
  */
-export function ApprovalsCard({ setChrome }: CustomModalInjectedProps) {
+export function ApprovalsCard({ onClose, setChrome }: CustomModalInjectedProps) {
     const chrome = React.useMemo(() => ({
         kind: 'card' as const,
         title: t('ignorePrevious.title'),
@@ -59,7 +59,7 @@ export function ApprovalsCard({ setChrome }: CustomModalInjectedProps) {
     useModalCardChrome(setChrome, chrome);
     return (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-            <WaitingPanel />
+            <WaitingPanel onOpenSession={onClose} />
         </ScrollView>
     );
 }
