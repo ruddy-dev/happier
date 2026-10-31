@@ -10,8 +10,8 @@ import { Icon, type IconName } from '@/components/ui/icons/Icon';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import type { Session } from '@/sync/domains/state/storageTypes';
-import { useAllSessions } from '@/sync/store/hooks';
+import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { useIsDataReady } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 
@@ -27,15 +27,16 @@ import {
     setWorkCollapsed,
 } from '../deskPrefs';
 import { pickCoordinatorSessionId } from '../model/coordinator';
+import { useDeskSessions } from '../useDeskSessions';
 
 const WIDE = 1100;
 const SCOPE_ID = 'ignorePrevious:desk';
 const COORDINATOR_PATH = process.env.EXPO_PUBLIC_IP_COORDINATOR_PATH ?? null;
 
-function CoordinatorPicker({ sessions, onPick }: { sessions: readonly Session[]; onPick: (id: string) => void }) {
+function CoordinatorPicker({ sessions, onPick }: { sessions: readonly SessionListRenderableSession[]; onPick: (id: string) => void }) {
     const { theme } = useUnistyles();
     const choices = React.useMemo(
-        () => sessions.filter((s) => !s.archivedAt).sort((a, b) => b.updatedAt - a.updatedAt),
+        () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
         [sessions],
     );
     return (
@@ -118,7 +119,9 @@ function useApprovalsDrawer() {
 export function DeskScreen() {
     const { theme } = useUnistyles();
     const { width, height } = useWindowDimensions();
-    const sessions = useAllSessions();
+    const { list: sessions } = useDeskSessions();
+    // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
+    const dataReady = useIsDataReady();
     const [storedId, setStoredId] = React.useState(getStoredCoordinatorId);
     const [workCollapsed, setCollapsed] = React.useState(getWorkCollapsed);
     const collapseWork = React.useCallback((next: boolean) => {
@@ -153,7 +156,7 @@ export function DeskScreen() {
     ) : (
         <ScrollView contentContainerStyle={{ gap: 8 }}>
             <View style={{ alignSelf: 'flex-end', padding: 12 }}>{approvalsButton}</View>
-            <CoordinatorPicker sessions={sessions} onPick={pick} />
+            {dataReady ? <CoordinatorPicker sessions={sessions} onPick={pick} /> : null}
         </ScrollView>
     );
 

@@ -68,18 +68,20 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                           <Text style={{ color: theme.colors.text.primary, fontSize: 14, flexShrink: 1 }} numberOfLines={1}>
                               {worker.title}
                           </Text>
-                          <Text
-                              style={{
-                                  ...secondary,
-                                  ...Typography.mono(),
-                                  paddingHorizontal: 6,
-                                  paddingVertical: 2,
-                                  borderRadius: 6,
-                                  backgroundColor: theme.colors.surface.inset,
-                              }}
-                          >
-                              {worker.permissionMode}
-                          </Text>
+                          {worker.permissionMode ? (
+                              <Text
+                                  style={{
+                                      ...secondary,
+                                      ...Typography.mono(),
+                                      paddingHorizontal: 6,
+                                      paddingVertical: 2,
+                                      borderRadius: 6,
+                                      backgroundColor: theme.colors.surface.inset,
+                                  }}
+                              >
+                                  {worker.permissionMode}
+                              </Text>
+                          ) : null}
                           {typeof worker.contextPercent === 'number' ? (
                               <Text testID={`ip-worker-context-${worker.sessionId}`} style={secondary}>
                                   {worker.contextPercent}%

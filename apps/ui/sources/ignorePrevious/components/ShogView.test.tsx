@@ -2,17 +2,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react-test-renderer';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const state = vi.hoisted(() => ({ sessions: [] as unknown[], reducedMotion: false }));
+/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+function seed(sessions: Session[]) {
+    state.sessions = sessions;
+    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+}
+
+const state = vi.hoisted(() => ({ sessions: [] as unknown[], list: [] as unknown[], reducedMotion: false }));
 
 vi.mock('@/sync/store/hooks', async (importOriginal) => {
     const { createStoreHooksModuleMock } = await import('@/dev/testkit/mocks/storage');
     return createStoreHooksModuleMock({
         importOriginal,
-        overrides: { useAllSessions: (() => state.sessions) as never },
+        overrides: {
+            useAllSessions: (() => state.sessions) as never,
+            useAllSessionListRenderables: (() => state.list) as never,
+        },
     });
 });
 
@@ -47,7 +57,7 @@ function redEyes(screen: Awaited<ReturnType<typeof renderShog>>): number {
 describe('ShogView', () => {
     beforeEach(() => {
         vi.useFakeTimers();
-        state.sessions = [];
+        seed([]);
         state.reducedMotion = false;
     });
     afterEach(() => {
@@ -91,12 +101,12 @@ describe('ShogView', () => {
     });
 
     it('has one red eye for each thing that waits on you, up to eight', async () => {
-        state.sessions = [waitingSession('a'), waitingSession('b'), waitingSession('c')];
+        seed([waitingSession('a'), waitingSession('b'), waitingSession('c')]);
         let screen = await renderShog();
         expect(redEyes(screen)).toBe(3);
         await screen.unmount();
 
-        state.sessions = Array.from({ length: 11 }, (_, i) => waitingSession(`s${i}`));
+        seed(Array.from({ length: 11 }, (_, i) => waitingSession(`s${i}`)));
         screen = await renderShog();
         expect(redEyes(screen)).toBe(8);
     });

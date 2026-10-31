@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 import { setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const state = vi.hoisted(() => ({ sessions: [] as unknown[], showModal: vi.fn(), multiPane: true }));
+const state = vi.hoisted(() => ({ sessions: [] as unknown[], list: [] as unknown[], dataReady: true, showModal: vi.fn(), multiPane: true }));
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -32,6 +33,8 @@ vi.mock('@/sync/store/hooks', async (importOriginal) => {
         importOriginal,
         overrides: {
             useAllSessions: (() => state.sessions) as never,
+            useAllSessionListRenderables: (() => state.list) as never,
+            useIsDataReady: (() => state.dataReady) as never,
             useSessionScmStatus: (() => null) as never,
         },
     });
@@ -63,6 +66,12 @@ function session(id: string, extra: Partial<Session> = {}): Session {
     });
 }
 
+/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+function seed(sessions: Session[]) {
+    state.sessions = sessions;
+    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+}
+
 // The desk's approvals drawer is a Happier pane, so it needs the app's pane provider above it.
 function Panes({ children }: { children?: React.ReactNode }) {
     return <AppPaneProvider>{children}</AppPaneProvider>;
@@ -79,18 +88,28 @@ describe('DeskScreen', () => {
         setWorkCollapsed(false);
         setApprovalsOpen(false);
         state.multiPane = true;
+        state.dataReady = true;
         state.showModal.mockClear();
     });
 
     it('asks for a coordinator when there are no sessions', async () => {
-        state.sessions = [];
+        seed([]);
         const screen = await renderDesk();
         expect(screen.getTextContent()).toContain('Pick the coordinator session');
         expect(screen.getTextContent()).toContain('claude --agent coordinator');
     });
 
+    it('waits for the session list before asking for a coordinator', async () => {
+        state.dataReady = false;
+        seed([]);
+        setStoredCoordinatorId('s1');
+        const screen = await renderDesk();
+        expect(screen.getTextContent()).not.toContain('Pick the coordinator session');
+        expect(screen.findByTestId('ip-approvals-open')).toBeTruthy();
+    });
+
     it('still shows the picker when the stored coordinator was archived', async () => {
-        state.sessions = [session('s9', { archivedAt: 5 } as Partial<Session>), session('s1')];
+        seed([session('s9', { archivedAt: 5 } as Partial<Session>), session('s1')]);
         setStoredCoordinatorId('s9');
         const screen = await renderDesk();
         expect(screen.getTextContent()).toContain('Pick the coordinator session');
@@ -98,7 +117,7 @@ describe('DeskScreen', () => {
     });
 
     it('shows the coordinator chat beside the Work panel, with approvals closed', async () => {
-        state.sessions = [session('s1'), session('s2')];
+        seed([session('s1'), session('s2')]);
         setStoredCoordinatorId('s1');
         const screen = await renderDesk();
         expect(screen.findByTestId('session-view-s1')).toBeTruthy();
@@ -107,10 +126,10 @@ describe('DeskScreen', () => {
     });
 
     it('collapses the Work panel to a rail and keeps it collapsed after a reload', async () => {
-        state.sessions = [
+        seed([
             session('s1'),
             session('s2', { metadata: { path: '/home/u/dev/wt/atr-6-a', host: 'h', homeDir: '/home/u', machineId: 'm' } as Session['metadata'] }),
-        ];
+        ]);
         setStoredCoordinatorId('s1');
         let screen = await renderDesk();
         await screen.pressByTestIdAsync('ip-work-collapse');
@@ -128,7 +147,7 @@ describe('DeskScreen', () => {
 
     it('opens what waits on you in a drawer from the coordinator header, and remembers it', async () => {
         const bash = { tool: 'Bash', arguments: { command: 'ls' }, createdAt: 1 };
-        state.sessions = [session('s1'), session('s2', { agentState: { requests: { r1: bash } } as unknown as Session['agentState'] })];
+        seed([session('s1'), session('s2', { agentState: { requests: { r1: bash } } as unknown as Session['agentState'] })]);
         setStoredCoordinatorId('s1');
         let screen = await renderDesk();
         expect(screen.findByTestId('ip-waiting')).toBeNull();
@@ -151,7 +170,7 @@ describe('DeskScreen', () => {
 
     it('opens what waits on you in a card where no drawer can be drawn', async () => {
         state.multiPane = false;
-        state.sessions = [session('s1')];
+        seed([session('s1')]);
         setStoredCoordinatorId('s1');
         setApprovalsOpen(true);
         const screen = await renderDesk();
@@ -166,7 +185,7 @@ describe('DeskScreen', () => {
     });
 
     it('opens Shog up close from the mask in the coordinator header', async () => {
-        state.sessions = [session('s1')];
+        seed([session('s1')]);
         setStoredCoordinatorId('s1');
         const screen = await renderDesk();
         await screen.pressByTestIdAsync('ip-shog-open');
@@ -174,8 +193,22 @@ describe('DeskScreen', () => {
         expect(state.showModal).toHaveBeenCalledWith(expect.objectContaining({ component: ShogView }));
     });
 
+    it('reads the sidebar list on a cold load, before any session record has loaded', async () => {
+        const bash = { tool: 'Bash', arguments: { command: 'ls' }, createdAt: 1 };
+        const s1 = session('s1');
+        const s2 = session('s2', { agentState: { requests: { r1: bash } } as unknown as Session['agentState'] });
+        state.list = [s1, s2].map((s) => buildSessionListRenderableFromSession(s));
+        state.sessions = [];
+        setStoredCoordinatorId('s1');
+        const screen = await renderDesk();
+        expect(screen.findByTestId('session-view-s1')).toBeTruthy();
+        expect(screen.findByTestId('ip-count-all')?.props.children).toBe(2);
+        // s2's request lives in a record not loaded yet, so it counts as one thing to look at.
+        expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe(1);
+    });
+
     it('opens the chat of the session picked in the picker and remembers it', async () => {
-        state.sessions = [session('s1'), session('s2', { updatedAt: 20 })];
+        seed([session('s1'), session('s2', { updatedAt: 20 })]);
         const screen = await renderDesk();
         await screen.pressByTestIdAsync('ip-pick-s2');
         expect(screen.findByTestId('session-view-s2')).toBeTruthy();

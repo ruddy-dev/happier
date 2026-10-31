@@ -4,8 +4,9 @@ import { useUnistyles } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
+import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
-import { useAllSessions, useSessionScmStatus } from '@/sync/store/hooks';
+import { useSessionScmStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { getSessionName, getSessionStatus } from '@/utils/sessions/sessionUtils';
 
@@ -16,6 +17,7 @@ import { bulbColour, useIpColours } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { IssueCard } from './IssueCard';
+import { useDeskSessions } from '../useDeskSessions';
 
 type Branches = Readonly<Record<string, string | null>>;
 
@@ -32,17 +34,23 @@ const BranchProbe = React.memo(function BranchProbe({
     return null;
 });
 
-function toWorkerRows(sessions: readonly Session[], branches: Branches): WorkerRow[] {
-    return sessions.map((session) => {
-        const meter = sessionContextMeter(session);
+function toWorkerRows(
+    list: readonly SessionListRenderableSession[],
+    lookup: ReadonlyMap<string, Session>,
+    branches: Branches,
+): WorkerRow[] {
+    return list.map((row) => {
+        // Mode and context size live on the full record, so they show once it has loaded.
+        const loaded = lookup.get(row.id);
+        const meter = loaded ? sessionContextMeter(loaded) : null;
         return {
-            sessionId: session.id,
-            title: getSessionName(session),
+            sessionId: row.id,
+            title: getSessionName(row),
             // The branch names the issue more reliably than the folder; the folder covers sessions with no git status yet.
-            issueKey: issueKeyFromBranch(branches[session.id] ?? null) ?? issueKeyFromPath(session.metadata?.path ?? ''),
-            bulb: bulbFromSessionState(getSessionStatus(session).state),
-            permissionMode: session.permissionMode ?? 'default',
-            updatedAt: session.updatedAt,
+            issueKey: issueKeyFromBranch(branches[row.id] ?? null) ?? issueKeyFromPath(row.metadata?.path ?? ''),
+            bulb: bulbFromSessionState(getSessionStatus(row).state),
+            permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
+            updatedAt: row.updatedAt,
             contextPercent: meter ? Math.round(meter.ratio * 100) : null,
         };
     });
@@ -87,8 +95,7 @@ function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
  */
 export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     const { theme } = useUnistyles();
-    const sessions = useAllSessions();
-    const live = React.useMemo(() => sessions.filter((session) => !session.archivedAt), [sessions]);
+    const { list: live, lookup } = useDeskSessions();
     const [branches, setBranches] = React.useState<Branches>({});
     const [details, setDetails] = React.useState(false);
     const [openKeys, setOpenKeys] = React.useState<ReadonlySet<string>>(() => new Set());
@@ -97,7 +104,7 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
         setBranches((prev) => (prev[sessionId] === branch ? prev : { ...prev, [sessionId]: branch }));
     }, []);
 
-    const rows = React.useMemo(() => toWorkerRows(live, branches), [live, branches]);
+    const rows = React.useMemo(() => toWorkerRows(live, lookup, branches), [live, lookup, branches]);
     const groups = React.useMemo(() => groupWorkersByIssue(rows), [rows]);
 
     const toggle = React.useCallback((key: string) => {
