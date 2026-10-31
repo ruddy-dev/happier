@@ -11638,7 +11638,7 @@ settingsSession: {
         countWorking: 'Working',
         countIdle: 'Idle',
         screenTitle: 'Ignore Previous',
-        coordinator: 'Coordinator',
+        coordinator: 'Shoggrates',
         pickCoordinator: 'Pick the coordinator session',
         pickHint: 'Start one with: claude --agent coordinator -n coordinator',
         contextToCompact: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} before auto-compact`,
