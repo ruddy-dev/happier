@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
+import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
@@ -106,6 +107,7 @@ describe('WorkColumn', () => {
 
     it('offers Stop on a busy worker and the resume control on an inactive one', async () => {
         state.branches = {};
+        storage.getState().applyMachines([createMachineFixture({ id: 'm', active: true, activeAt: Date.now() })]);
         seed([
             session('busy', '/home/u/dev/wt/atr-13-a', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('asleep', '/home/u/dev/wt/atr-13-b', { active: false }),
