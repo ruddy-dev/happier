@@ -9,6 +9,7 @@ import { useAllSessions } from '@/sync/store/hooks';
 import { t } from '@/text';
 
 import { ContextMeter } from './ContextMeter';
+import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
 import { collectWaits } from './WaitingPanel';
 
@@ -34,6 +35,7 @@ export function CoordinatorPane({ sessionId }: { sessionId: string }) {
                 </Text>
                 <View style={{ marginLeft: 'auto' }}>{coordinator ? <ContextMeter session={coordinator} /> : null}</View>
             </View>
+            <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
                 <SessionView
                     id={sessionId}
