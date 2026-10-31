@@ -61,7 +61,12 @@ vi.mock('@/sync/domains/state/storage', async (importOriginal) => {
 // SessionView is Happier's whole chat surface (transcript, composer, sockets); the desk only places it.
 vi.mock('@/components/sessions/shell/SessionView', async () => {
     const { View } = await import('react-native');
-    return { SessionView: ({ id }: { id: string }) => <View testID={`session-view-${id}`} /> };
+    // It shows its own loading, retrying and missing states from the hydration state it is given.
+    return {
+        SessionView: ({ id, routeHydrationState }: { id: string; routeHydrationState?: { kind: string } | null }) => (
+            <View testID={`session-view-${id}`} accessibilityHint={routeHydrationState?.kind ?? 'none'} />
+        ),
+    };
 });
 
 // Fetching a session record the store doesn't hold yet goes over the network; the route uses the same hook.
@@ -220,10 +225,9 @@ describe('DeskScreen', () => {
         state.hydration = 'loading';
         setStoredCoordinatorId('s1');
         const screen = await renderDesk();
-        // The coordinator's own record is fetched; until it arrives the pane waits instead of saying it's gone.
+        // The coordinator's own record is fetched, and the chat is told it is on its way rather than gone.
         expect(state.hydrated).toContain('s1');
-        expect(screen.findByTestId('ip-coordinator-loading')).toBeTruthy();
-        expect(screen.findByTestId('session-view-s1')).toBeNull();
+        expect(screen.findByTestId('session-view-s1')?.props.accessibilityHint).toBe('loading');
         expect(screen.findByTestId('ip-count-all')?.props.children).toBe(2);
         // s2's request lives in a record not loaded yet, so it counts as one thing to look at.
         expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe(1);

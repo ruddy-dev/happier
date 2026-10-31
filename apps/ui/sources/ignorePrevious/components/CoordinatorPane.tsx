@@ -3,7 +3,6 @@ import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { SessionView } from '@/components/sessions/shell/SessionView';
-import { ActivitySpinner, HERO_SPINNER_SIZE } from '@/components/ui/feedback/ActivitySpinner';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { useHydrateSessionForRoute } from '@/hooks/session/useHydrateSessionForRoute';
@@ -31,7 +30,8 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     // The meter needs the full record; it appears once the coordinator's record has loaded.
     const coordinator = useSession(sessionId);
     // On a cold load the desk knows the coordinator from the sidebar's list before its record has
-    // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does.
+    // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does,
+    // and hand SessionView the state so it shows loading or retrying instead of "isn't available".
     const hydration = useHydrateSessionForRoute(sessionId, 'IgnorePrevious.CoordinatorPane');
     const waiting = useWaitingCount() > 0;
 
@@ -58,20 +58,15 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
-                {hydration.kind === 'loading' && !coordinator ? (
-                    <View testID="ip-coordinator-loading" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                        <ActivitySpinner size={HERO_SPINNER_SIZE} />
-                    </View>
-                ) : (
-                    <SessionView
-                        id={sessionId}
-                        routeAnchorOverride={true}
-                        surfaceFocusedOverride={true}
-                        safeAreaTopMode="internal"
-                        headerSafeAreaTopMode="internal"
-                        chatBottomSpacing="none"
-                    />
-                )}
+                <SessionView
+                    id={sessionId}
+                    routeHydrationState={hydration}
+                    routeAnchorOverride={true}
+                    surfaceFocusedOverride={true}
+                    safeAreaTopMode="internal"
+                    headerSafeAreaTopMode="internal"
+                    chatBottomSpacing="none"
+                />
             </View>
         </View>
     );
