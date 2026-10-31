@@ -80,4 +80,19 @@ Without an auto-compact value, the bars measure against the model's context wind
 
 ## Patched upstream files
 
-Filled in from `upstreamCheck.mjs` once the overlay is complete.
+Everything else the overlay adds lives in new files under `apps/ui/sources/ignorePrevious/`, the `/desk` route,
+`ignorePreviousThemeProfile.ts` and `scripts/overlay/`, so it can't conflict with upstream. These upstream files
+are edited and are where a merge can conflict. From `node scripts/overlay/upstreamCheck.mjs` against
+`ui-web-v0.2.19` (17 files):
+
+| File | Why |
+|---|---|
+| `README.md` | Overlay notice, licence and AI disclosure at the top. |
+| `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | The `ignorePrevious` string block (see Strings). |
+| `apps/ui/sources/text/i18n.integrity.test.ts` | Allows the English-only `ignorePrevious.` prefix. |
+| `apps/ui/sources/theme/profiles/themeProfileTypes.ts` | Adds `ignorePrevious` and `ignorePreviousLight` to the preset id union. |
+| `apps/ui/sources/theme/profiles/builtInThemeProfiles.ts` | Registers the two presets (one per mode, as upstream's pickers only offer a preset in its own mode's slot). |
+| `apps/ui/sources/theme/profiles/builtInThemeProfiles.test.ts` | Upstream's exact preset-list assertion gains the two ids. |
+| `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
+
+When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.
