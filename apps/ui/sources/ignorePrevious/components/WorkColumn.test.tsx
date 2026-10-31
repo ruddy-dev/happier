@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { renderScreen } from '@/dev/testkit';
+import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
@@ -85,6 +85,20 @@ describe('WorkColumn', () => {
         expect(count('idle')).toBe(1);
         expect(count('turn')).toBe(0);
         expect(count('stuck')).toBe(0);
+    });
+
+    it('shows a worker before its record loads, without a mode or context it does not know yet', async () => {
+        state.branches = {};
+        const s1 = session('s1', '/home/u/dev/wt/atr-6-a', { permissionMode: 'acceptEdits' } as Partial<Session>);
+        state.list = [buildSessionListRenderableFromSession(s1)];
+        state.sessions = [];
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        const text = screen.getTextContent();
+        expect(text).toContain('Title s1');
+        expect(text).not.toContain('acceptEdits');
+        expect(text).not.toContain('default');
+        expect(screen.findByTestId('ip-worker-context-s1')).toBeNull();
     });
 
     it('prefers the session branch over the folder name', async () => {
