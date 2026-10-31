@@ -10,7 +10,15 @@ import { setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../d
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const state = vi.hoisted(() => ({ sessions: [] as unknown[], list: [] as unknown[], dataReady: true, showModal: vi.fn(), multiPane: true }));
+const state = vi.hoisted(() => ({
+    sessions: [] as unknown[],
+    list: [] as unknown[],
+    dataReady: true,
+    showModal: vi.fn(),
+    multiPane: true,
+    hydration: 'available' as 'available' | 'loading',
+    hydrated: [] as string[],
+}));
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -56,6 +64,14 @@ vi.mock('@/components/sessions/shell/SessionView', async () => {
     return { SessionView: ({ id }: { id: string }) => <View testID={`session-view-${id}`} /> };
 });
 
+// Fetching a session record the store doesn't hold yet goes over the network; the route uses the same hook.
+vi.mock('@/hooks/session/useHydrateSessionForRoute', () => ({
+    useHydrateSessionForRoute: (sessionId: string) => {
+        state.hydrated.push(sessionId);
+        return { kind: state.hydration, sessionId };
+    },
+}));
+
 function session(id: string, extra: Partial<Session> = {}): Session {
     return createSessionFixture({
         id,
@@ -89,6 +105,8 @@ describe('DeskScreen', () => {
         setApprovalsOpen(false);
         state.multiPane = true;
         state.dataReady = true;
+        state.hydration = 'available';
+        state.hydrated = [];
         state.showModal.mockClear();
     });
 
@@ -199,9 +217,13 @@ describe('DeskScreen', () => {
         const s2 = session('s2', { agentState: { requests: { r1: bash } } as unknown as Session['agentState'] });
         state.list = [s1, s2].map((s) => buildSessionListRenderableFromSession(s));
         state.sessions = [];
+        state.hydration = 'loading';
         setStoredCoordinatorId('s1');
         const screen = await renderDesk();
-        expect(screen.findByTestId('session-view-s1')).toBeTruthy();
+        // The coordinator's own record is fetched; until it arrives the pane waits instead of saying it's gone.
+        expect(state.hydrated).toContain('s1');
+        expect(screen.findByTestId('ip-coordinator-loading')).toBeTruthy();
+        expect(screen.findByTestId('session-view-s1')).toBeNull();
         expect(screen.findByTestId('ip-count-all')?.props.children).toBe(2);
         // s2's request lives in a record not loaded yet, so it counts as one thing to look at.
         expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe(1);
