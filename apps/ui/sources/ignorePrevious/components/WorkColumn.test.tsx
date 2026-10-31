@@ -101,6 +101,20 @@ describe('WorkColumn', () => {
         expect(screen.findByTestId('ip-worker-context-s1')).toBeNull();
     });
 
+    it('offers Stop on a busy worker and the resume control on an inactive one', async () => {
+        state.branches = {};
+        seed([
+            session('busy', '/home/u/dev/wt/atr-13-a', { active: true, thinking: true, thinkingAt: Date.now() }),
+            session('asleep', '/home/u/dev/wt/atr-13-b', { active: false }),
+        ]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.findByTestId('ip-stop-busy')).not.toBeNull();
+        expect(screen.findByTestId('ip-stop-asleep')).toBeNull();
+        expect(screen.findByTestId('ip-resume-asleep') ?? screen.findByTestId('ip-offline-asleep')).not.toBeNull();
+        expect(screen.findByTestId('ip-resume-busy')).toBeNull();
+    });
+
     it('prefers the session branch over the folder name', async () => {
         state.branches = { s2: 'hub-59-store-skill' };
         seed([session('s2', '/home/u/dev')]);
