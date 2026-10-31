@@ -1,7 +1,9 @@
 import { createBuiltInProfile } from './builtInThemeProfileFactory';
 
 /**
- * Ignore Previous overlay theme: the mask's ink and yellow on a warm bone/paper ground.
+ * Ignore Previous overlay themes: the mask's ink and yellow, on ink (dark) or warm bone paper (light).
+ * One preset per mode, like upstream's paired presets: the theme pickers only offer a preset in the
+ * slot matching its preferredMode.
  * Brand colours match `sources/ignorePrevious/palette.ts`. Text colours are chosen for at least
  * 4.5:1 against their surfaces (checked in `sources/ignorePrevious/theme.test.ts`); the dark error
  * red is lighter than the antenna-bulb red for that reason.
@@ -49,6 +51,11 @@ export const ignorePreviousProfile = createBuiltInProfile('ignorePrevious', 'Ign
         'message.user.background': '#232733',
         'message.user.foreground': '#f3ecd8',
     },
+    light: {},
+});
+
+export const ignorePreviousLightProfile = createBuiltInProfile('ignorePreviousLight', 'Ignore Previous Light', 'light', {
+    dark: {},
     light: {
         'background.canvas': '#e9e3d0',
         'surface.base': '#f6f1e3',

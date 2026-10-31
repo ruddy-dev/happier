@@ -1,7 +1,7 @@
 import { COMMUNITY_BUILT_IN_THEME_PROFILES } from './communityBuiltInThemeProfiles';
 import { createBuiltInProfile } from './builtInThemeProfileFactory';
 import { classicDarkProfile } from './classicDarkThemeProfile';
-import { ignorePreviousProfile } from './ignorePreviousThemeProfile';
+import { ignorePreviousLightProfile, ignorePreviousProfile } from './ignorePreviousThemeProfile';
 import { pitchDarkProfile, premiumDarkProfile, sunsetDarkProfile, tokyoNightProfile } from './builtInDarkThemeProfiles';
 import type { BuiltInThemeProfileDefinition, BuiltInThemeProfilePresetId } from './themeProfileTypes';
 
@@ -215,6 +215,15 @@ export const BUILT_IN_THEME_PROFILES: readonly BuiltInThemeProfileDefinition[] =
         editable: false,
         deletable: false,
         profile: ignorePreviousProfile,
+    },
+    {
+        presetId: 'ignorePreviousLight',
+        translationKey: 'ignorePrevious.themeNameLight',
+        preferredMode: 'light',
+        cloneable: true,
+        editable: false,
+        deletable: false,
+        profile: ignorePreviousLightProfile,
     },
 ] as const;
 

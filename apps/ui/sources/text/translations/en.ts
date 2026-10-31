@@ -10831,6 +10831,7 @@ settingsSession: {
     ignorePrevious: {
         title: 'Your turn',
         themeName: 'Ignore Previous',
+        themeNameLight: 'Ignore Previous Light',
         allow: ({ tool }: { tool: string }) => `Allow ${tool}`,
         deny: 'Deny',
         openSession: 'Open session',

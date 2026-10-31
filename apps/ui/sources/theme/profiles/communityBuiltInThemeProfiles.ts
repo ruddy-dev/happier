@@ -2,7 +2,7 @@ import type { BuiltInThemeProfileDefinition, BuiltInThemeProfilePresetId, ThemeP
 import { createBuiltInProfile } from './builtInThemeProfileFactory';
 
 // The Ignore Previous overlay preset has its own translation key, outside settingsAppearance.themeProfiles.presets.
-type CommunityPresetId = Exclude<BuiltInThemeProfilePresetId, 'ignorePrevious'>;
+type CommunityPresetId = Exclude<BuiltInThemeProfilePresetId, 'ignorePrevious' | 'ignorePreviousLight'>;
 
 type CuratedThemePalette = Readonly<{
     canvas: string;

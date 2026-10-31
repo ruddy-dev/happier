@@ -51,7 +51,8 @@ export type BuiltInThemeProfilePresetId =
     | 'paperLight'
     | 'catppuccinLatte'
     | 'githubLight'
-    | 'ignorePrevious';
+    | 'ignorePrevious'
+    | 'ignorePreviousLight';
 
 export type BuiltInThemeProfileDefinition = Readonly<{
     profile: ThemeProfileV1;

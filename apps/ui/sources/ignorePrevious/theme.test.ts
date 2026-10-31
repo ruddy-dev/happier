@@ -8,12 +8,21 @@ const contrast = (ink: string | undefined, background: string | undefined): numb
     return themeContrastRatio(parseThemeColor(ink), parseThemeColor(background));
 };
 
+const tokensFor = (mode: 'dark' | 'light'): Record<string, string | undefined> => {
+    const presetId = mode === 'dark' ? 'ignorePrevious' : 'ignorePreviousLight';
+    return getBuiltInThemeProfileDefinition(presetId)?.profile.overrides[mode] ?? {};
+};
+
 describe('Ignore Previous theme profile', () => {
-    it('is a read-only, cloneable dark-first preset', () => {
-        expect(BUILT_IN_THEME_PROFILES.map((definition) => definition.presetId)).toContain('ignorePrevious');
-        expect(getBuiltInThemeProfileDefinition('ignorePrevious')).toMatchObject({
-            translationKey: 'ignorePrevious.themeName',
-            preferredMode: 'dark',
+    // The theme pickers only offer a preset in the slot matching its preferredMode, so each mode needs its own preset.
+    it.each([
+        ['ignorePrevious', 'ignorePrevious.themeName', 'dark'],
+        ['ignorePreviousLight', 'ignorePrevious.themeNameLight', 'light'],
+    ] as const)('offers %s as a read-only, cloneable %s preset', (presetId, translationKey, preferredMode) => {
+        expect(BUILT_IN_THEME_PROFILES.map((definition) => definition.presetId)).toContain(presetId);
+        expect(getBuiltInThemeProfileDefinition(presetId)).toMatchObject({
+            translationKey,
+            preferredMode,
             cloneable: true,
             editable: false,
             deletable: false,
@@ -21,15 +30,14 @@ describe('Ignore Previous theme profile', () => {
     });
 
     it('uses the brand ink and yellow', () => {
-        const overrides = getBuiltInThemeProfileDefinition('ignorePrevious')?.profile.overrides;
-        expect(overrides?.dark).toMatchObject({
+        expect(tokensFor('dark')).toMatchObject({
             'background.canvas': '#0b0b0e',
             'surface.base': '#14161c',
             'text.primary': '#f3ecd8',
             'state.warning.foreground': '#ffcf1f',
             'state.danger.foreground': '#ff5a45',
         });
-        expect(overrides?.light).toMatchObject({
+        expect(tokensFor('light')).toMatchObject({
             'background.canvas': '#e9e3d0',
             'surface.base': '#f6f1e3',
             'text.primary': '#14161c',
@@ -38,7 +46,7 @@ describe('Ignore Previous theme profile', () => {
     });
 
     it.each(['dark', 'light'] as const)('keeps body text readable in %s mode', (mode) => {
-        const tokens = getBuiltInThemeProfileDefinition('ignorePrevious')?.profile.overrides[mode] ?? {};
+        const tokens = tokensFor(mode);
         expect(contrast(tokens['text.primary'], tokens['background.canvas'])).toBeGreaterThanOrEqual(4.5);
         expect(contrast(tokens['text.secondary'], tokens['surface.base'])).toBeGreaterThanOrEqual(4.5);
         expect(contrast(tokens['state.danger.foreground'], tokens['surface.base'])).toBeGreaterThanOrEqual(4.5);
@@ -47,7 +55,7 @@ describe('Ignore Previous theme profile', () => {
     // The wide "Start New Session" button paints fab.background but labels it with the primary-button
     // foreground, so both backgrounds must carry that label.
     it.each(['dark', 'light'] as const)('keeps primary-button labels readable on buttons and the wide FAB in %s mode', (mode) => {
-        const tokens = getBuiltInThemeProfileDefinition('ignorePrevious')?.profile.overrides[mode] ?? {};
+        const tokens = tokensFor(mode);
         const label = tokens['control.button.primary.foreground'];
         expect(contrast(label, tokens['control.button.primary.background'])).toBeGreaterThanOrEqual(4.5);
         expect(contrast(label, tokens['control.fab.background'])).toBeGreaterThanOrEqual(4.5);
