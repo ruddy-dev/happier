@@ -42,7 +42,7 @@ export function collectWaits(sessions: readonly Session[]): { items: WaitingItem
 
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
- * answer in their session. Approving here is the same call the session's own footer makes.
+ * answer in their session. Renders nothing when nothing waits. Approving here is the same call the session's own footer makes.
  */
 export function WaitingPanel() {
     const sessions = useAllSessions();
@@ -75,14 +75,14 @@ export function WaitingPanel() {
         </Pressable>
     );
 
+    // Folds away when nothing waits: the Work counts and the coordinator's bulb already say so.
+    if (items.length === 0 && unloaded.length === 0) return null;
+
     return (
-        <View style={{ gap: 12 }}>
+        <View testID="ip-waiting" style={{ gap: 12 }}>
             <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
                 {t('ignorePrevious.title')}
             </Text>
-            {items.length === 0 && unloaded.length === 0 ? (
-                <Text style={secondary}>{t('ignorePrevious.nothing')}</Text>
-            ) : null}
             {items.map((item) => (
                 <View
                     key={item.key}

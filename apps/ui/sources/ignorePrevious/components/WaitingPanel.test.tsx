@@ -93,10 +93,10 @@ describe('WaitingPanel', () => {
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
     });
 
-    it('says nothing needs you when there are no requests', async () => {
+    it('folds away when nothing needs you', async () => {
         state.sessions = [sessionWithRequest('s2', null)];
         const screen = await renderPanel();
-        expect(screen.getTextContent()).toContain('Nothing needs you');
+        expect(screen.findByTestId('ip-waiting')).toBeNull();
     });
 
     it('leaves out archived sessions', async () => {
@@ -104,7 +104,7 @@ describe('WaitingPanel', () => {
             sessionWithRequest('s1', { tool: 'Bash', arguments: { command: 'ls' }, createdAt: 1 }, { archivedAt: 5 } as Partial<Session>),
         ];
         const screen = await renderPanel();
-        expect(screen.getTextContent()).toContain('Nothing needs you');
+        expect(screen.findByTestId('ip-waiting')).toBeNull();
     });
 
     it('shows an error when the request was already answered', async () => {
@@ -135,7 +135,7 @@ describe('WaitingPanel', () => {
             sessionWithRequest('s3', null, { pendingPermissionRequestCount: 1 } as Partial<Session>),
         ];
         const screen = await renderPanel();
-        expect(screen.getTextContent()).not.toContain('Nothing needs you');
+        expect(screen.findByTestId('ip-waiting')).toBeTruthy();
         expect(screen.getTextContent()).not.toContain('Allow');
         await pressTestInstanceAsync(button(screen, 'Open session'));
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s3(\?|$)/);

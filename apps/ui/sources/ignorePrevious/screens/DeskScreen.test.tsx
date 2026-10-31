@@ -74,7 +74,7 @@ describe('DeskScreen', () => {
         setStoredCoordinatorId('s1');
         const screen = await renderDesk();
         expect(screen.findByTestId('session-view-s1')).toBeTruthy();
-        expect(screen.getTextContent()).toContain('Nothing needs you');
+        expect(screen.findByTestId('ip-waiting')).toBeNull();
         expect(screen.findByTestId('ip-count-all')).toBeTruthy();
     });
 
