@@ -6,6 +6,8 @@ export type WaitingItem = {
     requestId: string;
     sessionTitle: string;
     tool: string;
+    /** Questions (`user_action`) are answered in the session, so they get no Allow/Deny. */
+    kind: SessionPendingRequest['kind'];
     summary: string;
     /** The agent's own description of the request: a claim, shown labelled as the agent's. */
     agentNote: string | null;
@@ -37,6 +39,7 @@ export function toWaitingItems(
             requestId: request.id,
             sessionTitle,
             tool: request.tool,
+            kind: request.kind,
             summary: summariseRequest(request.tool, request.arguments),
             agentNote: stringField(request.arguments, 'description'),
             createdAt: request.createdAt,

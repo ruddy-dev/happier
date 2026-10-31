@@ -11514,6 +11514,18 @@ settingsSession: {
       cancel: "Cancelar",
     },
   },
+    ignorePrevious: {
+        title: 'Your turn',
+        nothing: 'Nothing needs you',
+        allow: ({ tool }: { tool: string }) => `Allow ${tool}`,
+        deny: 'Deny',
+        openSession: 'Open session',
+        agentSays: ({ name }: { name: string }) => `${name} says:`,
+        allowFailed: 'That request was already answered or has expired.',
+        allowFailedTitle: 'Answer not sent',
+        question: 'Has a question for you',
+        needsLook: 'Waiting on you. Open the session to see what.',
+    },
 } as const;
 
 export type TranslationsEs = typeof es;

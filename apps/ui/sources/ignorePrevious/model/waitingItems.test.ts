@@ -41,7 +41,7 @@ describe('toWaitingItems', () => {
             },
         ]);
         expect(items.map((i) => i.key)).toEqual(['s2:r3', 's1:r1', 's1:r2']);
-        expect(items[1]).toMatchObject({ sessionId: 's1', requestId: 'r1', sessionTitle: 'Builder', summary: 'ls', agentNote: 'List files' });
+        expect(items[1]).toMatchObject({ sessionId: 's1', requestId: 'r1', sessionTitle: 'Builder', summary: 'ls', agentNote: 'List files', kind: 'permission' });
         expect(items[2].agentNote).toBeNull();
     });
 });

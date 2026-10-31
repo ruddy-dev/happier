@@ -70,3 +70,26 @@ test('adds the missing comma after the previous last key', () => {
     assert.match(out, /    },\n    ignorePrevious: \{\n/);
     assert.match(out, /    },\n};\n$/);
 });
+
+test('leaves a derived locale (no object literal) unchanged', () => {
+    const derived = `import { zhHans } from './zh-Hans';
+export const zhHant: TranslationStructure = deepMerge(zhHans, zhHantOverrides);
+`;
+    assert.equal(syncOverlayStrings(en, derived), derived);
+});
+
+test('ignores column-0 inner closers and inserts before the real end', () => {
+    const messy = `export const ca: TranslationStructure = {
+    errors: {
+        a: 'x',
+},
+
+deps: {
+        b: 'y',
+    },
+} as const;
+`;
+    const out = syncOverlayStrings(en, messy);
+    assert.match(out, /deps: \{\n        b: 'y',\n    },\n    ignorePrevious: \{/);
+    assert.match(out, /    },\n\} as const;\n$/);
+});

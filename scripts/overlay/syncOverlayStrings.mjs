@@ -19,8 +19,9 @@ function findBlock(lines) {
 
 function findMainObjectClose(lines) {
     const open = lines.findIndex((line) => /^export const [A-Za-z]+(: \w+)? = \{$/.test(line));
-    if (open < 0) throw new Error('no "export const <locale> = {" line');
-    const close = lines.findIndex((line, i) => i > open && /^\}/.test(line));
+    if (open < 0) return -1;
+    // Only `};` or `} as const;` ends the object: some upstream locales put inner `},` at column 0.
+    const close = lines.findIndex((line, i) => i > open && /^\}( as const)?;\s*$/.test(line));
     if (close < 0) throw new Error('main locale object never closes');
     return close;
 }
@@ -38,6 +39,8 @@ export function syncOverlayStrings(enSource, localeSource) {
         return lines.join('\n');
     }
     const close = findMainObjectClose(lines);
+    // A locale built from another (zh-Hant = deepMerge(zhHans, overrides)) inherits the block.
+    if (close < 0) return localeSource;
     let prev = close - 1;
     while (prev >= 0 && lines[prev].trim() === '') prev--;
     if (prev >= 0 && !lines[prev].endsWith(',') && !lines[prev].endsWith('{')) lines[prev] += ',';
