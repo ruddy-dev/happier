@@ -22,7 +22,7 @@ import { toWaitingItems, type WaitingItem } from '../model/waitingItems';
 /** A session that says it is waiting on you, but whose requests live in a transcript not loaded here. */
 type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string }>;
 
-function collectWaits(sessions: readonly Session[]): { items: WaitingItem[]; unloaded: UnloadedWait[] } {
+export function collectWaits(sessions: readonly Session[]): { items: WaitingItem[]; unloaded: UnloadedWait[] } {
     const live = sessions.filter((session) => !session.archivedAt);
     const input = live.map((session) => {
         const permissions = listPendingPermissionRequests(session);

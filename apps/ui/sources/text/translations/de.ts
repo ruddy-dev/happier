@@ -10817,6 +10817,10 @@ settingsSession: {
         countStuck: 'Stuck',
         countWorking: 'Working',
         countIdle: 'Idle',
+        screenTitle: 'Ignore Previous',
+        coordinator: 'Coordinator',
+        pickCoordinator: 'Pick the coordinator session',
+        pickHint: 'Start one with: claude --agent coordinator -n coordinator',
     },
 };
 
