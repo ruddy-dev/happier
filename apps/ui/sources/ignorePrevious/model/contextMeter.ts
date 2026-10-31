@@ -10,7 +10,7 @@ export type ContextMeter = Readonly<{
 
 /**
  * How full a session's context is. Claude Code compacts at its own `autoCompactWindow`
- * (220k for Luke), well before a 1M window fills, so that limit is the one worth watching.
+ * (220k on the author's setup), well before a 1M window fills, so that limit is the one worth watching.
  */
 export function contextMeter(input: { used: number; windowTokens: number | null; compactAt: number | null }): ContextMeter | null {
     const { used, windowTokens, compactAt } = input;

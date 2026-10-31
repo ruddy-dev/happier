@@ -55,7 +55,7 @@ Upstream marks stable releases with immutable tags such as `ui-web-v0.2.19`, plu
    node scripts/overlay/syncOverlayStrings.mjs
    node --test scripts/overlay/*.test.mjs
    cd apps/ui && yarn typecheck
-   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text
+   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles
    ```
 
 4. Open a draft PR into `overlay` and try `/desk` in the browser before merging.
@@ -83,7 +83,7 @@ Without an auto-compact value, the bars measure against the model's context wind
 Everything else the overlay adds lives in new files under `apps/ui/sources/ignorePrevious/`, the `/desk` route,
 `ignorePreviousThemeProfile.ts` and `scripts/overlay/`, so it can't conflict with upstream. These upstream files
 are edited and are where a merge can conflict. From `node scripts/overlay/upstreamCheck.mjs` against
-`ui-web-v0.2.19` (17 files):
+`ui-web-v0.2.19` (18 files):
 
 | File | Why |
 |---|---|
@@ -91,8 +91,9 @@ are edited and are where a merge can conflict. From `node scripts/overlay/upstre
 | `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | The `ignorePrevious` string block (see Strings). |
 | `apps/ui/sources/text/i18n.integrity.test.ts` | Allows the English-only `ignorePrevious.` prefix. |
 | `apps/ui/sources/theme/profiles/themeProfileTypes.ts` | Adds `ignorePrevious` and `ignorePreviousLight` to the preset id union. |
-| `apps/ui/sources/theme/profiles/builtInThemeProfiles.ts` | Registers the two presets (one per mode, as upstream's pickers only offer a preset in its own mode's slot). |
+| `apps/ui/sources/theme/profiles/builtInThemeProfiles.ts` | Registers the two presets (one per mode, as upstream's pickers only offer a preset in its own mode's slot): the dark one after the dark community presets, the light one at the end. |
 | `apps/ui/sources/theme/profiles/builtInThemeProfiles.test.ts` | Upstream's exact preset-list assertion gains the two ids. |
+| `apps/ui/sources/components/settings/appearance/themeProfiles/themeProfileSettingsScreens.test.tsx` | Upstream's exact list of the theme dropdown's ids gains the two ids. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.

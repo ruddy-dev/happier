@@ -7,7 +7,7 @@ export type CoordinatorCandidate = {
 };
 
 /**
- * The session shown in the coordinator pane: Luke's stored choice while it still exists,
+ * The session shown in the coordinator pane: the user's stored choice while it still exists,
  * else the newest active session started in the coordinator folder, else none (the desk shows a picker).
  */
 export function pickCoordinatorSessionId(

@@ -41,15 +41,22 @@ describe('Ignore Previous theme profile', () => {
             'background.canvas': '#e9e3d0',
             'surface.base': '#f6f1e3',
             'text.primary': '#14161c',
-            'state.danger.foreground': '#c9230f',
+            'state.danger.foreground': '#b51f0d',
         });
     });
 
-    it.each(['dark', 'light'] as const)('keeps body text readable in %s mode', (mode) => {
+    // Every text colour the preset sets must read at 4.5:1 or better on every surface text sits on.
+    it.each(['dark', 'light'] as const)('keeps every text colour readable on every surface in %s mode', (mode) => {
         const tokens = tokensFor(mode);
-        expect(contrast(tokens['text.primary'], tokens['background.canvas'])).toBeGreaterThanOrEqual(4.5);
-        expect(contrast(tokens['text.secondary'], tokens['surface.base'])).toBeGreaterThanOrEqual(4.5);
-        expect(contrast(tokens['state.danger.foreground'], tokens['surface.base'])).toBeGreaterThanOrEqual(4.5);
+        const inks = Object.keys(tokens).filter((key) => key.startsWith('text.') || /^state\.\w+\.foreground$/.test(key));
+        const surfaces = ['background.canvas', 'surface.base', 'surface.inset', 'surface.elevated', 'control.input.background'];
+        expect(inks.length).toBeGreaterThan(5);
+        const unreadable = inks.flatMap((ink) =>
+            surfaces
+                .filter((surface) => contrast(tokens[ink], tokens[surface]) < 4.5)
+                .map((surface) => `${ink} on ${surface}`),
+        );
+        expect(unreadable).toEqual([]);
     });
 
     // The wide "Start New Session" button paints fab.background but labels it with the primary-button

@@ -5,8 +5,8 @@ import { createBuiltInProfile } from './builtInThemeProfileFactory';
  * One preset per mode, like upstream's paired presets: the theme pickers only offer a preset in the
  * slot matching its preferredMode.
  * Brand colours match `sources/ignorePrevious/palette.ts`. Text colours are chosen for at least
- * 4.5:1 against their surfaces (checked in `sources/ignorePrevious/theme.test.ts`); the dark error
- * red is lighter than the antenna-bulb red for that reason.
+ * 4.5:1 against every surface text sits on (checked in `sources/ignorePrevious/theme.test.ts`); the
+ * error reds differ from the antenna-bulb reds for that reason.
  */
 export const ignorePreviousProfile = createBuiltInProfile('ignorePrevious', 'Ignore Previous', 'dark', {
     dark: {
@@ -27,7 +27,7 @@ export const ignorePreviousProfile = createBuiltInProfile('ignorePrevious', 'Ign
         'text.tertiary': '#8a857a',
         'text.link': '#ffcf1f',
         'text.destructive': '#ff5a45',
-        'text.placeholder': '#7d776b',
+        'text.placeholder': '#8a857a',
         'state.active.foreground': '#ffcf1f',
         'state.active.background': 'rgba(255,207,31,0.10)',
         'state.active.border': 'rgba(255,207,31,0.32)',
@@ -47,7 +47,7 @@ export const ignorePreviousProfile = createBuiltInProfile('ignorePrevious', 'Ign
         'control.radio.active': '#ffcf1f',
         'control.input.background': '#0f1015',
         'control.input.foreground': '#f3ecd8',
-        'control.input.placeholder': '#7d776b',
+        'control.input.placeholder': '#8a857a',
         'message.user.background': '#232733',
         'message.user.foreground': '#f3ecd8',
     },
@@ -71,19 +71,19 @@ export const ignorePreviousLightProfile = createBuiltInProfile('ignorePreviousLi
         'chrome.header.foreground': '#14161c',
         'text.primary': '#14161c',
         'text.secondary': '#5b5850',
-        'text.tertiary': '#6f6a5e',
+        'text.tertiary': '#625d52',
         'text.link': '#7a5c00',
-        'text.destructive': '#c9230f',
-        'text.placeholder': '#6f6a5e',
+        'text.destructive': '#b51f0d',
+        'text.placeholder': '#625d52',
         'state.active.foreground': '#7a5c00',
         'state.active.background': 'rgba(255,207,31,0.22)',
         'state.active.border': 'rgba(122,92,0,0.32)',
         'state.warning.foreground': '#7a5c00',
         'state.warning.background': 'rgba(255,207,31,0.22)',
         'state.warning.border': 'rgba(122,92,0,0.28)',
-        'state.danger.foreground': '#c9230f',
-        'state.danger.background': 'rgba(201,35,15,0.10)',
-        'state.danger.border': 'rgba(201,35,15,0.26)',
+        'state.danger.foreground': '#b51f0d',
+        'state.danger.background': 'rgba(181,31,13,0.10)',
+        'state.danger.border': 'rgba(181,31,13,0.26)',
         'state.success.foreground': '#2f6f45',
         'control.button.primary.background': '#14161c',
         'control.button.primary.foreground': '#ffcf1f',
@@ -94,7 +94,7 @@ export const ignorePreviousLightProfile = createBuiltInProfile('ignorePreviousLi
         'control.radio.active': '#14161c',
         'control.input.background': '#fbf8ef',
         'control.input.foreground': '#14161c',
-        'control.input.placeholder': '#6f6a5e',
+        'control.input.placeholder': '#625d52',
         'message.user.background': '#e2dbc5',
         'message.user.foreground': '#14161c',
     },
