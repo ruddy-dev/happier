@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -10,6 +11,8 @@ import type { Session } from '@/sync/domains/state/storageTypes';
 function seed(sessions: Session[]) {
     state.sessions = sessions;
     state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+    // The row's actions read the record from the real store.
+    storage.getState().applySessions(sessions);
 }
 
 const state = vi.hoisted(() => ({
@@ -111,7 +114,7 @@ describe('WorkColumn', () => {
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
         expect(screen.findByTestId('ip-stop-busy')).not.toBeNull();
         expect(screen.findByTestId('ip-stop-asleep')).toBeNull();
-        expect(screen.findByTestId('ip-resume-asleep') ?? screen.findByTestId('ip-offline-asleep')).not.toBeNull();
+        expect(screen.findByTestId('ip-resume-asleep')).not.toBeNull();
         expect(screen.findByTestId('ip-resume-busy')).toBeNull();
     });
 

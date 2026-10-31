@@ -81,6 +81,20 @@ describe('WorkerActions', () => {
         expect(idle.findByTestId('ip-stop-idle')).toBeNull();
     });
 
+    it('offers no stop on a busy session you can only view', async () => {
+        seedSession('watched', { accessLevel: 'view' } as Partial<Session>);
+        const screen = await renderActions(worker('watched', { canStop: true }));
+        expect(screen.findByTestId('ip-stop-watched')).toBeNull();
+    });
+
+    it('marks the option the stored mode means, as the composer does', async () => {
+        seedSession('planner', { permissionMode: 'plan' } as Partial<Session>);
+        const screen = await renderActions(worker('planner', { permissionMode: 'plan' }));
+        await pressTestInstanceAsync(screen.findByTestId('ip-mode-planner')!);
+        expect(screen.findByTestId('ip-mode-option-planner-read-only')!.props.accessibilityState).toEqual({ selected: true });
+        expect(screen.findByTestId('ip-mode-option-planner-default')!.props.accessibilityState).toEqual({ selected: false });
+    });
+
     it('changes the permission mode through the shared apply path', async () => {
         seedSession('w1', { permissionMode: 'default' } as Partial<Session>);
         const screen = await renderActions(worker('w1'));
@@ -113,6 +127,6 @@ describe('WorkerActions', () => {
         const screen = await renderActions(worker('nap', { inactive: true }));
         expect(screen.findByTestId('ip-offline-nap')).toBeNull();
         await pressTestInstanceAsync(screen.findByTestId('ip-resume-nap')!);
-        expect(state.navigate).toHaveBeenCalled();
+        expect(JSON.stringify(state.navigate.mock.calls)).toContain('nap');
     });
 });

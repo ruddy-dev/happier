@@ -10,8 +10,9 @@ import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { useHappyAction } from '@/hooks/ui/useHappyAction';
 import { applyPermissionModeSelection } from '@/sync/domains/permissions/permissionModeApply';
-import { getPermissionModeOptionsForSession } from '@/sync/domains/permissions/permissionModeOptions';
+import { getPermissionModeOptionsForSession, normalizePermissionModeForAgentType } from '@/sync/domains/permissions/permissionModeOptions';
 import type { PermissionMode } from '@/sync/domains/permissions/permissionTypes';
+import type { Session } from '@/sync/domains/state/storageTypes';
 import { storage, useSession, useSetting } from '@/sync/domains/state/storage';
 import { sessionAbort } from '@/sync/ops';
 import { sync } from '@/sync/sync';
@@ -61,19 +62,20 @@ function RowButton({
  * The worker's permission mode. With write access it opens the agent's modes; choosing one goes
  * through `applyPermissionModeSelection`, the same path the session composer uses.
  */
-function PermissionModeControl({ sessionId, mode }: { sessionId: string; mode: string }) {
+function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessionId: string; mode: string; metadata: Session['metadata'] | null; canChange: boolean }) {
     const { theme } = useUnistyles();
-    const session = useSession(sessionId);
     const applyTiming = useSetting('sessionPermissionModeApplyTiming');
     const [open, setOpen] = React.useState(false);
 
-    const metadata = session?.metadata ?? null;
-    const canChange = Boolean(session) && (!session?.accessLevel || session.accessLevel === 'edit' || session.accessLevel === 'admin');
-    const options = React.useMemo(() => {
-        if (!open) return [];
+    // A stored alias such as 'plan' is marked as the option it means, as in the composer.
+    const { options, selected } = React.useMemo(() => {
+        if (!open) return { options: [], selected: null };
         const agentId = resolveAgentIdFromSessionMetadata(metadata) ?? resolveAgentIdFromFlavor(metadata?.flavor) ?? DEFAULT_AGENT_ID;
-        return getPermissionModeOptionsForSession(agentId, metadata);
-    }, [open, metadata]);
+        return {
+            options: getPermissionModeOptionsForSession(agentId, metadata),
+            selected: normalizePermissionModeForAgentType(mode as PermissionMode, agentId),
+        };
+    }, [open, metadata, mode]);
 
     const choose = React.useCallback(
         (next: PermissionMode) => {
@@ -117,6 +119,7 @@ function PermissionModeControl({ sessionId, mode }: { sessionId: string; mode: s
                 testID={`ip-mode-${sessionId}`}
                 accessibilityRole="button"
                 accessibilityLabel={t('ignorePrevious.changeMode')}
+                accessibilityValue={{ text: mode }}
                 accessibilityState={{ expanded: open }}
                 onPress={() => setOpen((value) => !value)}
             >
@@ -129,13 +132,13 @@ function PermissionModeControl({ sessionId, mode }: { sessionId: string; mode: s
                             key={option.value}
                             testID={`ip-mode-option-${sessionId}-${option.value}`}
                             accessibilityRole="button"
-                            accessibilityState={{ selected: option.value === mode }}
+                            accessibilityState={{ selected: option.value === selected }}
                             onPress={() => choose(option.value)}
                             style={{
                                 paddingHorizontal: 8,
                                 paddingVertical: 4,
                                 borderRadius: 8,
-                                backgroundColor: option.value === mode ? theme.colors.surface.inset : 'transparent',
+                                backgroundColor: option.value === selected ? theme.colors.surface.inset : 'transparent',
                                 borderWidth: 1,
                                 borderColor: theme.colors.border.default,
                             }}
@@ -190,11 +193,17 @@ function ResumeControl({ sessionId }: { sessionId: string }) {
 
 /** What you can do to one worker from the desk: change its mode, stop its turn, or open it to resume. */
 export function WorkerActions({ worker }: { worker: WorkerRow }) {
-    if (!worker.permissionMode && !worker.canStop && !worker.inactive) return null;
+    const session = useSession(worker.sessionId);
+    // Write access as SessionView decides it: a session you can only view shows its mode and nothing to press.
+    const canWrite = Boolean(session) && (!session?.accessLevel || session.accessLevel === 'edit' || session.accessLevel === 'admin');
+    const canStop = Boolean(worker.canStop) && canWrite;
+    if (!worker.permissionMode && !canStop && !worker.inactive) return null;
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingLeft: 18 }}>
-            {worker.permissionMode ? <PermissionModeControl sessionId={worker.sessionId} mode={worker.permissionMode} /> : null}
-            {worker.canStop ? <StopControl sessionId={worker.sessionId} /> : null}
+            {worker.permissionMode ? (
+                <PermissionModeControl sessionId={worker.sessionId} mode={worker.permissionMode} metadata={session?.metadata ?? null} canChange={canWrite} />
+            ) : null}
+            {canStop ? <StopControl sessionId={worker.sessionId} /> : null}
             {worker.inactive ? <ResumeControl sessionId={worker.sessionId} /> : null}
         </View>
     );
