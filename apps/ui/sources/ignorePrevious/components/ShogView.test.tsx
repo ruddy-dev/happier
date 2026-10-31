@@ -64,15 +64,23 @@ describe('ShogView', () => {
         expect(screen.findByTestId('ip-shog-replay')).toBeTruthy();
     });
 
-    it('pauses, and replays from the start', async () => {
+    it('pauses, and replays from the start with a fresh six seconds', async () => {
         const screen = await renderShog();
+        await act(async () => {
+            vi.advanceTimersByTime(3000);
+        });
         await screen.pressByTestIdAsync('ip-shog-pause');
         expect(screen.findByTestId('ip-shog-replay')).toBeTruthy();
-        await act(async () => {
-            vi.advanceTimersByTime(10000);
-        });
         await screen.pressByTestIdAsync('ip-shog-replay');
+        await act(async () => {
+            vi.advanceTimersByTime(4000);
+        });
+        // The first play's timer would have ended it here; Replay starts the six seconds again.
         expect(screen.findByTestId('ip-shog-pause')).toBeTruthy();
+        await act(async () => {
+            vi.advanceTimersByTime(2000);
+        });
+        expect(screen.findByTestId('ip-shog-replay')).toBeTruthy();
     });
 
     it('stands still from the start when the system asks for reduced motion', async () => {

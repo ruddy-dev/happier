@@ -29,7 +29,7 @@ export const BulbLabel = React.memo(function BulbLabel({ bulb, size = 10 }: { bu
     return (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <View
-                testID={`ip-bulb-${bulb}`}
+                testID={`ip-bulb-dot-${bulb}`}
                 style={{
                     width: size,
                     height: size,

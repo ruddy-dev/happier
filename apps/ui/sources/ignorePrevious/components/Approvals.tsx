@@ -5,6 +5,8 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Icon } from '@/components/ui/icons/Icon';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
+import { type CustomModalInjectedProps } from '@/modal';
+import { useModalCardChrome } from '@/modal/components/card/useModalCardChrome';
 import { t } from '@/text';
 
 import { useWaitingCount, WaitingPanel } from './WaitingPanel';
@@ -19,7 +21,7 @@ export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () 
             testID="ip-approvals-open"
             accessibilityRole="button"
             accessibilityState={{ expanded: open }}
-            accessibilityLabel={open ? t('ignorePrevious.closeApprovals') : t('ignorePrevious.openApprovals', { count })}
+            accessibilityLabel={open ? t('ignorePrevious.closeApprovals', { count }) : t('ignorePrevious.openApprovals', { count })}
             onPress={onPress}
             hitSlop={6}
             style={{
@@ -42,6 +44,26 @@ export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () 
     );
 }
 
+/**
+ * The same list as a card, for layouts with no room for a drawer: a phone, or multi-pane panels
+ * switched off. The card chrome carries the title and the close button.
+ */
+export function ApprovalsCard({ setChrome }: CustomModalInjectedProps) {
+    const chrome = React.useMemo(() => ({
+        kind: 'card' as const,
+        title: t('ignorePrevious.title'),
+        testID: 'ip-approvals-card',
+        closeButtonTestID: 'ip-approvals-card-close',
+        dimensions: { width: 480, maxHeightRatio: 0.85, size: 'dialog' as const },
+    }), []);
+    useModalCardChrome(setChrome, chrome);
+    return (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+            <WaitingPanel />
+        </ScrollView>
+    );
+}
+
 /** The drawer beside the coordinator: everything that waits on you, with Allow and Deny. */
 export function ApprovalsDrawer({ onClose }: { onClose: () => void }) {
     const { theme } = useUnistyles();
@@ -57,7 +79,7 @@ export function ApprovalsDrawer({ onClose }: { onClose: () => void }) {
                 <Pressable
                     testID="ip-approvals-close"
                     accessibilityRole="button"
-                    accessibilityLabel={t('ignorePrevious.closeApprovals')}
+                    accessibilityLabel={t('common.close')}
                     onPress={onClose}
                     hitSlop={8}
                     style={{ marginLeft: 'auto', padding: 6, borderRadius: 8 }}

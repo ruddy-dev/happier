@@ -54,9 +54,12 @@ export function ShogView({ onClose, setChrome }: CustomModalInjectedProps) {
             return () => clearTimeout(timer);
         }
         cancelAnimation(breath);
-        if (playback === 'still') breath.value = 0;
+        // Settle back to rest rather than snapping; Pause holds the pose where it is.
+        if (playback === 'still') breath.value = reducedMotion ? 0 : withTiming(0, { duration: 200 });
         return undefined;
-    }, [playback, breath]);
+    }, [playback, breath, reducedMotion]);
+
+    React.useEffect(() => () => cancelAnimation(breath), [breath]);
 
     const bodyStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: -4 * breath.value }, { scale: 1 + 0.03 * breath.value }],
@@ -99,7 +102,15 @@ export function ShogView({ onClose, setChrome }: CustomModalInjectedProps) {
                     <MaskFace size={100} bulb={redEyes > 0 ? 'turn' : 'rest'} sleepy={false} />
                 </View>
             </View>
-            <Text style={{ color: theme.colors.text.primary, fontSize: 15, textAlign: 'center' }}>{summary}</Text>
+            {/* The image above already announces the summary. */}
+            <Text
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                aria-hidden
+                style={{ color: theme.colors.text.primary, fontSize: 15, textAlign: 'center' }}
+            >
+                {summary}
+            </Text>
             <View style={{ flexDirection: 'row', gap: 12 }}>
                 {reducedMotion ? null : playback === 'playing' ? (
                     <ShogButton testID="ip-shog-pause" label={t('ignorePrevious.shogPause')} onPress={() => setPlayback('paused')} />

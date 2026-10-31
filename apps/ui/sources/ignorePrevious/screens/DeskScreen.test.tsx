@@ -9,7 +9,7 @@ import { setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../d
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const state = vi.hoisted(() => ({ sessions: [] as unknown[], showModal: vi.fn() }));
+const state = vi.hoisted(() => ({ sessions: [] as unknown[], showModal: vi.fn(), multiPane: true }));
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -34,6 +34,16 @@ vi.mock('@/sync/store/hooks', async (importOriginal) => {
             useAllSessions: (() => state.sessions) as never,
             useSessionScmStatus: (() => null) as never,
         },
+    });
+});
+
+// The multi-pane switch is a local device setting; with it off no pane can be drawn.
+vi.mock('@/sync/domains/state/storage', async (importOriginal) => {
+    const { createPartialStorageModuleMock } = await import('@/dev/testkit/mocks/storage');
+    const actual = await importOriginal<typeof import('@/sync/domains/state/storage')>();
+    return createPartialStorageModuleMock(importOriginal, {
+        useLocalSetting: ((key: string) =>
+            key === 'uiMultiPanePanelsEnabled' ? state.multiPane : (actual.useLocalSetting as (k: string) => unknown)(key)) as never,
     });
 });
 
@@ -68,6 +78,8 @@ describe('DeskScreen', () => {
         setStoredCoordinatorId(null);
         setWorkCollapsed(false);
         setApprovalsOpen(false);
+        state.multiPane = true;
+        state.showModal.mockClear();
     });
 
     it('asks for a coordinator when there are no sessions', async () => {
@@ -135,6 +147,22 @@ describe('DeskScreen', () => {
         await screen.unmount();
         screen = await renderDesk();
         expect(screen.findByTestId('ip-waiting')).toBeNull();
+    });
+
+    it('opens what waits on you in a card where no drawer can be drawn', async () => {
+        state.multiPane = false;
+        state.sessions = [session('s1')];
+        setStoredCoordinatorId('s1');
+        setApprovalsOpen(true);
+        const screen = await renderDesk();
+        expect(screen.findByTestId('ip-approvals-open')?.props.accessibilityState).toEqual({ expanded: false });
+
+        await screen.pressByTestIdAsync('ip-approvals-open');
+        const { ApprovalsCard } = await import('../components/Approvals');
+        expect(state.showModal).toHaveBeenCalledWith(expect.objectContaining({ component: ApprovalsCard }));
+        expect(screen.findByTestId('ip-approvals-drawer')).toBeNull();
+        const { getApprovalsOpen } = await import('../deskPrefs');
+        expect(getApprovalsOpen()).toBe(true);
     });
 
     it('opens Shog up close from the mask in the coordinator header', async () => {

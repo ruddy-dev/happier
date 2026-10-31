@@ -4,16 +4,19 @@ import { useUnistyles } from 'react-native-unistyles';
 
 import { AppPaneScopeHost } from '@/components/appShell/panes/AppPaneScopeHost';
 import { useAppPaneScope } from '@/components/appShell/panes/hooks/useAppPaneScope';
+import { canLayoutHostSessionPane } from '@/components/sessions/panes/open/sessionOpenTarget';
+import { useSessionOpenLayout } from '@/components/sessions/panes/open/useSessionOpenLayout';
 import { Icon, type IconName } from '@/components/ui/icons/Icon';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
+import { Modal } from '@/modal';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { useAllSessions } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 
 import { CoordinatorPane } from '../components/CoordinatorPane';
-import { ApprovalsButton, ApprovalsDrawer } from '../components/Approvals';
+import { ApprovalsButton, ApprovalsCard, ApprovalsDrawer } from '../components/Approvals';
 import { WorkColumn } from '../components/WorkColumn';
 import {
     getApprovalsOpen,
@@ -83,20 +86,27 @@ function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: I
  */
 function useApprovalsDrawer() {
     const { scopeState, openRight, closeRight } = useAppPaneScope(SCOPE_ID);
-    const open = Boolean(scopeState?.right.isOpen);
+    // Where no pane can be drawn (a phone, or multi-pane switched off) the list opens as a card
+    // instead, and the stored choice waits for a layout that has room for the drawer.
+    const canDraw = canLayoutHostSessionPane(useSessionOpenLayout(), 'right');
+    const open = canDraw && Boolean(scopeState?.right.isOpen);
 
     React.useEffect(() => {
-        if (getApprovalsOpen()) openRight();
-    }, [openRight]);
+        if (canDraw && getApprovalsOpen()) openRight();
+    }, [canDraw, openRight]);
 
     const previous = React.useRef(open);
     React.useEffect(() => {
         if (previous.current === open) return;
         previous.current = open;
-        if (getApprovalsOpen() !== open) setApprovalsOpen(open);
-    }, [open]);
+        if (canDraw && getApprovalsOpen() !== open) setApprovalsOpen(open);
+    }, [open, canDraw]);
 
-    const toggle = React.useCallback(() => (open ? closeRight() : openRight()), [open, openRight, closeRight]);
+    const toggle = React.useCallback(() => {
+        if (!canDraw) Modal.show({ component: ApprovalsCard });
+        else if (open) closeRight();
+        else openRight();
+    }, [canDraw, open, openRight, closeRight]);
     return { open, toggle, close: closeRight };
 }
 

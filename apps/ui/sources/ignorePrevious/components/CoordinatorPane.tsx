@@ -13,7 +13,7 @@ import { ContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
 import { ShogView } from './ShogView';
-import { collectWaits } from './WaitingPanel';
+import { useWaitingCount } from './WaitingPanel';
 
 /**
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit
@@ -28,10 +28,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const { theme } = useUnistyles();
     const sessions = useAllSessions();
     const coordinator = React.useMemo(() => sessions.find((s) => s.id === sessionId) ?? null, [sessions, sessionId]);
-    const waiting = React.useMemo(() => {
-        const { items, unloaded } = collectWaits(sessions);
-        return items.length + unloaded.length > 0;
-    }, [sessions]);
+    const waiting = useWaitingCount() > 0;
 
     return (
         <View style={{ flex: 1, minHeight: 480 }}>

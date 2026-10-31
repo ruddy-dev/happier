@@ -11547,7 +11547,7 @@ settingsSession: {
         collapseWork: 'Collapse Work',
         expandWork: 'Show Work',
         openApprovals: ({ count }: { count: number }) => `Show what waits on you, ${count}`,
-        closeApprovals: 'Hide what waits on you',
+        closeApprovals: ({ count }: { count: number }) => `Hide what waits on you, ${count}`,
         nothingWaits: 'Nothing waits on you.',
         shogTitle: 'Shog',
         openShog: 'Show Shog up close',
