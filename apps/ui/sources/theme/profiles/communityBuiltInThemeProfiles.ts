@@ -1,6 +1,9 @@
 import type { BuiltInThemeProfileDefinition, BuiltInThemeProfilePresetId, ThemeProfileColorOverrides, ThemeProfileMode, ThemeProfileV1 } from './themeProfileTypes';
 import { createBuiltInProfile } from './builtInThemeProfileFactory';
 
+// The Ignore Previous overlay preset has its own translation key, outside settingsAppearance.themeProfiles.presets.
+type CommunityPresetId = Exclude<BuiltInThemeProfilePresetId, 'ignorePrevious'>;
+
 type CuratedThemePalette = Readonly<{
     canvas: string;
     base: string;
@@ -176,7 +179,7 @@ const createCuratedThemeOverrides = (palette: CuratedThemePalette): ThemeProfile
 });
 
 const createCuratedBuiltInProfile = (
-    presetId: BuiltInThemeProfilePresetId,
+    presetId: CommunityPresetId,
     name: string,
     preferredMode: ThemeProfileMode,
     overrides: ThemeProfileV1['overrides'],
@@ -190,11 +193,11 @@ const createCuratedBuiltInProfile = (
     profile: createBuiltInProfile(presetId, name, preferredMode, overrides),
 });
 
-const createDarkProfile = (presetId: BuiltInThemeProfilePresetId, name: string, palette: CuratedThemePalette): BuiltInThemeProfileDefinition => (
+const createDarkProfile = (presetId: CommunityPresetId, name: string, palette: CuratedThemePalette): BuiltInThemeProfileDefinition => (
     createCuratedBuiltInProfile(presetId, name, 'dark', { light: {}, dark: createCuratedThemeOverrides(palette) })
 );
 
-const createLightProfile = (presetId: BuiltInThemeProfilePresetId, name: string, palette: CuratedThemePalette): BuiltInThemeProfileDefinition => (
+const createLightProfile = (presetId: CommunityPresetId, name: string, palette: CuratedThemePalette): BuiltInThemeProfileDefinition => (
     createCuratedBuiltInProfile(presetId, name, 'light', { light: createCuratedThemeOverrides(palette), dark: {} })
 );
 

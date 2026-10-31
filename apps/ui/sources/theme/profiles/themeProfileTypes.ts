@@ -50,7 +50,8 @@ export type BuiltInThemeProfilePresetId =
     | 'premiumLight'
     | 'paperLight'
     | 'catppuccinLatte'
-    | 'githubLight';
+    | 'githubLight'
+    | 'ignorePrevious';
 
 export type BuiltInThemeProfileDefinition = Readonly<{
     profile: ThemeProfileV1;

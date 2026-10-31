@@ -412,6 +412,7 @@ describe('built-in theme profiles', () => {
             'paperLight',
             'catppuccinLatte',
             'githubLight',
+            'ignorePrevious',
         ]);
         expect(getBuiltInThemeProfileDefinition('premiumDark')).toMatchObject({ cloneable: true, editable: false, deletable: false, preferredMode: 'dark' });
         expect(getBuiltInThemeProfileDefinition('premiumLight')).toMatchObject({ cloneable: true, editable: false, deletable: false, preferredMode: 'light' });

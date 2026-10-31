@@ -10702,6 +10702,7 @@ settingsSession: {
     },
     ignorePrevious: {
         title: 'Your turn',
+        themeName: 'Ignore Previous',
         allow: ({ tool }: { tool: string }) => `Allow ${tool}`,
         deny: 'Deny',
         openSession: 'Open session',
