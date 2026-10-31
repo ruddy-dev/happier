@@ -18,6 +18,7 @@ import {
 } from '@/utils/sessions/sessionUtils';
 
 import { toWaitingItems, type WaitingItem } from '../model/waitingItems';
+import { MaskFace } from './MaskFace';
 
 /** A session that says it is waiting on you, but whose requests live in a transcript not loaded here. */
 type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string }>;
@@ -44,7 +45,7 @@ export function collectWaits(sessions: readonly Session[]): { items: WaitingItem
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
  * answer in their session. Renders nothing when nothing waits. Approving here is the same call the session's own footer makes.
  */
-export function WaitingPanel() {
+export function WaitingPanel({ compact = false }: { compact?: boolean }) {
     const sessions = useAllSessions();
     const { items, unloaded } = React.useMemo(() => collectWaits(sessions), [sessions]);
     const { theme } = useUnistyles();
@@ -77,6 +78,17 @@ export function WaitingPanel() {
 
     // Folds away when nothing waits: the Work counts and the coordinator's bulb already say so.
     if (items.length === 0 && unloaded.length === 0) return null;
+
+    if (compact) {
+        return (
+            <View accessible accessibilityLabel={t('ignorePrevious.title')} style={{ alignItems: 'center', gap: 2 }}>
+                <MaskFace size={32} bulb="turn" sleepy={false} />
+                <Text testID="ip-rail-waiting" style={{ color: theme.colors.text.primary, fontSize: 15, ...Typography.default('semiBold') }}>
+                    {items.length + unloaded.length}
+                </Text>
+            </View>
+        );
+    }
 
     return (
         <View testID="ip-waiting" style={{ gap: 12 }}>

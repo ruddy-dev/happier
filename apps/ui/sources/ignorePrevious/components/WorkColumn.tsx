@@ -15,6 +15,7 @@ import { issueKeyFromBranch, issueKeyFromPath } from '../model/issueKey';
 import { bulbColour, useIpColours } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { IssueCard } from './IssueCard';
+import { MaskFace } from './MaskFace';
 
 type Branches = Readonly<Record<string, string | null>>;
 
@@ -86,9 +87,10 @@ function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
 
 /**
  * Every unarchived session grouped by the issue it works on. Faces shows folded cards you open one
- * at a time; Details opens them all.
+ * at a time; Details opens them all. `compact` draws just one small face per issue, in a column
+ * (the desk's minimised rail) or a row (its narrow-screen strip).
  */
-export function WorkColumn() {
+export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     const { theme } = useUnistyles();
     const sessions = useAllSessions();
     const live = React.useMemo(() => sessions.filter((session) => !session.archivedAt), [sessions]);
@@ -127,11 +129,32 @@ export function WorkColumn() {
         </Pressable>
     );
 
+    const probes = live.map((session) => <BranchProbe key={session.id} sessionId={session.id} onBranch={onBranch} />);
+
+    if (compact) {
+        return (
+            <View style={{ flexDirection: compact, flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                {probes}
+                {groups.map((group) => {
+                    const label = group.issueKey ?? t('ignorePrevious.noIssue');
+                    return (
+                        <View
+                            key={group.issueKey ?? 'no-issue'}
+                            testID={`ip-rail-face-${group.issueKey ?? 'none'}`}
+                            accessible
+                            accessibilityLabel={label}
+                        >
+                            <MaskFace size={28} bulb={group.bulb} sleepy={group.bulb !== 'turn'} />
+                        </View>
+                    );
+                })}
+            </View>
+        );
+    }
+
     return (
         <View style={{ gap: 12 }}>
-            {live.map((session) => (
-                <BranchProbe key={session.id} sessionId={session.id} onBranch={onBranch} />
-            ))}
+            {probes}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
                     {t('ignorePrevious.work')}
