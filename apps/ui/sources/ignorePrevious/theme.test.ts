@@ -43,4 +43,14 @@ describe('Ignore Previous theme profile', () => {
         expect(contrast(tokens['text.secondary'], tokens['surface.base'])).toBeGreaterThanOrEqual(4.5);
         expect(contrast(tokens['state.danger.foreground'], tokens['surface.base'])).toBeGreaterThanOrEqual(4.5);
     });
+
+    // The wide "Start New Session" button paints fab.background but labels it with the primary-button
+    // foreground, so both backgrounds must carry that label.
+    it.each(['dark', 'light'] as const)('keeps primary-button labels readable on buttons and the wide FAB in %s mode', (mode) => {
+        const tokens = getBuiltInThemeProfileDefinition('ignorePrevious')?.profile.overrides[mode] ?? {};
+        const label = tokens['control.button.primary.foreground'];
+        expect(contrast(label, tokens['control.button.primary.background'])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(label, tokens['control.fab.background'])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(tokens['control.fab.foreground'], tokens['control.fab.background'])).toBeGreaterThanOrEqual(4.5);
+    });
 });
