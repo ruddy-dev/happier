@@ -10794,6 +10794,16 @@ settingsSession: {
         allowFailedTitle: 'Answer not sent',
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
+        work: 'Work',
+        noIssue: 'No issue',
+        faces: 'Faces',
+        details: 'Details',
+        openWorker: 'Open worker session',
+        countAll: 'Agents',
+        countTurn: 'Your turn',
+        countStuck: 'Stuck',
+        countWorking: 'Working',
+        countIdle: 'Idle',
     },
 };
 

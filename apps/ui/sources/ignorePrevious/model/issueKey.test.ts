@@ -22,6 +22,12 @@ describe('issueKeyFromPath', () => {
         expect(issueKeyFromPath('/home/u/dev/mvp-80-a/wt/atr-6-b')).toBe('ATR-6');
     });
 
+    it('reads a key at the end of a <repo>-<proj>-<n> worktree folder', () => {
+        expect(issueKeyFromPath('/home/u/dev/unclank-hub-59')).toBe('HUB-59');
+        expect(issueKeyFromPath('/home/u/dev/unclank-hub-59-review/src')).toBe('HUB-59');
+        expect(issueKeyFromPath('/home/u/dev/neural-network-playground')).toBeNull();
+    });
+
     it('returns null for plain project folders', () => {
         expect(issueKeyFromPath('/home/u/dev')).toBeNull();
         expect(issueKeyFromPath('')).toBeNull();
