@@ -42,6 +42,17 @@ describe('issueKeyFromTitle', () => {
         expect(issueKeyFromTitle('ATR-6')).toBe('ATR-6');
     });
 
+    it('A7 reads an id in brackets or followed by a comma, full stop or slash', () => {
+        expect(issueKeyFromTitle('[ATR-6] build')).toBe('ATR-6');
+        expect(issueKeyFromTitle('ATR-6, build')).toBe('ATR-6');
+        expect(issueKeyFromTitle('ATR-6. build')).toBe('ATR-6');
+        expect(issueKeyFromTitle('ATR-6/ATR-7 merge')).toBe('ATR-6');
+    });
+
+    it('must not read a version number as an id with a full stop', () => {
+        expect(issueKeyFromTitle('ATR-6.5 release')).toBeNull();
+    });
+
     it('must not read an id glued to a word, buried in the title, or from nothing', () => {
         expect(issueKeyFromTitle('ATR-6build')).toBeNull();
         expect(issueKeyFromTitle('Fix ATR-6 build')).toBeNull();
