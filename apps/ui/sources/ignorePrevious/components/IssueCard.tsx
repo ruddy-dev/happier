@@ -10,6 +10,7 @@ import { t } from '@/text';
 import type { IssueGroup } from '../model/groupWorkers';
 import { bulbColour, useIpColours } from '../palette';
 import { BulbLabel } from './BulbLabel';
+import { WorkerActions } from './WorkerActions';
 
 export type IssueCardProps = Readonly<{
     group: IssueGroup;
@@ -61,48 +62,38 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
             </Pressable>
             {open
                 ? group.workers.map((worker) => (
-                      <View key={worker.sessionId} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <View
-                              style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: bulbColour(colours, worker.bulb) }}
-                          />
-                          <Text style={{ color: theme.colors.text.primary, fontSize: 14, flexShrink: 1 }} numberOfLines={1}>
-                              {worker.title}
-                          </Text>
-                          {worker.permissionMode ? (
-                              <Text
+                      <View key={worker.sessionId} style={{ gap: 4 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <View
+                                  style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: bulbColour(colours, worker.bulb) }}
+                              />
+                              <Text style={{ color: theme.colors.text.primary, fontSize: 14, flexShrink: 1 }} numberOfLines={1}>
+                                  {worker.title}
+                              </Text>
+                              {typeof worker.contextPercent === 'number' ? (
+                                  <Text testID={`ip-worker-context-${worker.sessionId}`} style={secondary}>
+                                      {worker.contextPercent}%
+                                  </Text>
+                              ) : null}
+                              <Pressable
+                                  testID={`ip-open-worker-${worker.sessionId}`}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={t('ignorePrevious.openWorker')}
+                                  onPress={() => void navigateToSession(worker.sessionId)}
                                   style={{
-                                      ...secondary,
-                                      ...Typography.mono(),
-                                      paddingHorizontal: 6,
-                                      paddingVertical: 2,
-                                      borderRadius: 6,
-                                      backgroundColor: theme.colors.surface.inset,
+                                      marginLeft: 'auto',
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 4,
+                                      borderRadius: 8,
+                                      borderWidth: 1,
+                                      borderColor: theme.colors.border.default,
                                   }}
                               >
-                                  {worker.permissionMode}
-                              </Text>
-                          ) : null}
-                          {typeof worker.contextPercent === 'number' ? (
-                              <Text testID={`ip-worker-context-${worker.sessionId}`} style={secondary}>
-                                  {worker.contextPercent}%
-                              </Text>
-                          ) : null}
-                          <Pressable
-                              testID={`ip-open-worker-${worker.sessionId}`}
-                              accessibilityRole="button"
-                              accessibilityLabel={t('ignorePrevious.openWorker')}
-                              onPress={() => void navigateToSession(worker.sessionId)}
-                              style={{
-                                  marginLeft: 'auto',
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 4,
-                                  borderRadius: 8,
-                                  borderWidth: 1,
-                                  borderColor: theme.colors.border.default,
-                              }}
-                          >
-                              <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }}>{'>_'}</Text>
-                          </Pressable>
+                                  <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }}>{'>_'}</Text>
+                              </Pressable>
+                          </View>
+                          {/* On their own line so the title keeps the row's width in a narrow column. */}
+                          <WorkerActions worker={worker} />
                       </View>
                   ))
                 : null}

@@ -10,6 +10,10 @@ export type WorkerRow = {
     updatedAt: number;
     /** How close to auto-compact, 0–100; absent until the session has reported its context. */
     contextPercent?: number | null;
+    /** The worker is mid-turn or held at a prompt, so its turn can be stopped. */
+    canStop?: boolean;
+    /** The worker's session isn't running; opening it lets its session view resume it. */
+    inactive?: boolean;
 };
 
 export type IssueGroup = {

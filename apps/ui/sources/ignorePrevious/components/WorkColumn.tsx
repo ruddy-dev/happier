@@ -8,7 +8,7 @@ import type { SessionListRenderableSession } from '@/sync/domains/session/listin
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { useSessionScmStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
-import { getSessionName, getSessionStatus } from '@/utils/sessions/sessionUtils';
+import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState } from '@/utils/sessions/sessionUtils';
 
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
@@ -43,15 +43,18 @@ function toWorkerRows(
         // Mode and context size live on the full record, so they show once it has loaded.
         const loaded = lookup.get(row.id);
         const meter = loaded ? sessionContextMeter(loaded) : null;
+        const state = getSessionStatus(row).state;
         return {
             sessionId: row.id,
             title: getSessionName(row),
             // The branch names the issue more reliably than the folder; the folder covers sessions with no git status yet.
             issueKey: issueKeyFromBranch(branches[row.id] ?? null) ?? issueKeyFromPath(row.metadata?.path ?? ''),
-            bulb: bulbFromSessionState(getSessionStatus(row).state),
+            bulb: bulbFromSessionState(state),
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
             contextPercent: meter ? Math.round(meter.ratio * 100) : null,
+            canStop: shouldShowAbortButtonForSessionState(state),
+            inactive: row.active !== true,
         };
     });
 }

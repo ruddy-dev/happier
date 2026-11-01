@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
+import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -10,6 +12,8 @@ import type { Session } from '@/sync/domains/state/storageTypes';
 function seed(sessions: Session[]) {
     state.sessions = sessions;
     state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+    // The row's actions read the record from the real store.
+    storage.getState().applySessions(sessions);
 }
 
 const state = vi.hoisted(() => ({
@@ -44,7 +48,7 @@ function session(id: string, path: string, extra: Partial<Session> = {}): Sessio
     return createSessionFixture({
         id,
         updatedAt: 10,
-        metadata: { path, host: 'h', homeDir: '/home/u', machineId: 'm', summary: { text: `Title ${id}`, updatedAt: 1 } } as Session['metadata'],
+        metadata: { path, host: 'h', homeDir: '/home/u', machineId: 'm', flavor: 'claude', summary: { text: `Title ${id}`, updatedAt: 1 } } as Session['metadata'],
         ...extra,
     });
 }
@@ -99,6 +103,21 @@ describe('WorkColumn', () => {
         expect(text).not.toContain('acceptEdits');
         expect(text).not.toContain('default');
         expect(screen.findByTestId('ip-worker-context-s1')).toBeNull();
+    });
+
+    it('offers Stop on a busy worker and the resume control on an inactive one', async () => {
+        state.branches = {};
+        storage.getState().applyMachines([createMachineFixture({ id: 'm', active: true, activeAt: Date.now() })]);
+        seed([
+            session('busy', '/home/u/dev/wt/atr-13-a', { active: true, thinking: true, thinkingAt: Date.now() }),
+            session('asleep', '/home/u/dev/wt/atr-13-b', { active: false }),
+        ]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.findByTestId('ip-stop-busy')).not.toBeNull();
+        expect(screen.findByTestId('ip-stop-asleep')).toBeNull();
+        expect(screen.findByTestId('ip-resume-asleep')).not.toBeNull();
+        expect(screen.findByTestId('ip-resume-busy')).toBeNull();
     });
 
     it('prefers the session branch over the folder name', async () => {
