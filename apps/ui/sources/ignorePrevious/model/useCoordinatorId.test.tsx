@@ -1,11 +1,11 @@
 import { act } from 'react-test-renderer';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderHook, standardCleanup } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 
-import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
+import { getStoredCoordinatorId, setStoredCoordinatorId, subscribeStoredCoordinatorId } from '../deskPrefs';
 import { useCoordinatorId } from './useCoordinatorId';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -17,12 +17,8 @@ function row(id: string, archivedAt?: number) {
 const list = [row('s1'), row('s2')];
 
 async function renderCoordinatorId(rows = list) {
-    let renders = 0;
-    const hook = await renderHook(() => {
-        renders += 1;
-        return useCoordinatorId(rows);
-    });
-    return { hook, renders: () => renders };
+    const hook = await renderHook(() => useCoordinatorId(rows));
+    return { hook };
 }
 
 describe('useCoordinatorId', () => {
@@ -56,13 +52,14 @@ describe('useCoordinatorId', () => {
         expect(archived.hook.getCurrent()).not.toBe('s2');
     });
 
-    it('unsubscribes on unmount', async () => {
-        const { hook, renders } = await renderCoordinatorId();
-        await hook.unmount();
-        const count = renders();
-        await act(async () => {
-            setStoredCoordinatorId('s2');
-        });
-        expect(renders()).toBe(count);
+    it('the unsubscribe it is handed stops further picks reaching the listener', () => {
+        // useSyncExternalStore calls this unsubscribe on unmount; an unmounted hook can't show a missed one.
+        const listener = vi.fn();
+        const unsubscribe = subscribeStoredCoordinatorId(listener);
+        setStoredCoordinatorId('s2');
+        expect(listener).toHaveBeenCalledTimes(1);
+        unsubscribe();
+        setStoredCoordinatorId('s1');
+        expect(listener).toHaveBeenCalledTimes(1);
     });
 });
