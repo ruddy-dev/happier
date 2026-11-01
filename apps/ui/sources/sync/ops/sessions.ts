@@ -595,7 +595,8 @@ export async function sessionAbort(sessionId: string): Promise<void> {
 
 /**
  * Outcome of answering a permission request. The CLI answers `{ok:true}` or `{ok:false, ...}`
- * (mirrors `sessionPermissionRpcRouter` in apps/cli, which the UI cannot import).
+ * (mirrors `sessionPermissionRpcRouter` in apps/cli, which the UI cannot import). A CLI error
+ * reply (`{error, errorCode?}`, no `ok`) becomes `errorCode: 'unknown'` with the error text.
  */
 export type SessionPermissionResult =
     | { ok: true }
