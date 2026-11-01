@@ -771,6 +771,8 @@ const IGNORED_UNTRANSLATED_KEYS_BY_LOCALE: Readonly<Record<string, ReadonlySet<s
     ]),
 };
 const IGNORED_UNTRANSLATED_KEY_PREFIXES = [
+    // Ignore Previous overlay: English-only by design; other locales carry the English text (OVERLAY.md).
+    'ignorePrevious.',
     'settingsAppearance.themeProfiles.',
     'settingsKeyboard.',
     'settingsSession.sessionCreation.',

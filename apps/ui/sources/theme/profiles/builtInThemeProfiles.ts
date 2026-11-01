@@ -1,6 +1,7 @@
 import { COMMUNITY_BUILT_IN_THEME_PROFILES } from './communityBuiltInThemeProfiles';
 import { createBuiltInProfile } from './builtInThemeProfileFactory';
 import { classicDarkProfile } from './classicDarkThemeProfile';
+import { ignorePreviousLightProfile, ignorePreviousProfile } from './ignorePreviousThemeProfile';
 import { pitchDarkProfile, premiumDarkProfile, sunsetDarkProfile, tokyoNightProfile } from './builtInDarkThemeProfiles';
 import type { BuiltInThemeProfileDefinition, BuiltInThemeProfilePresetId } from './themeProfileTypes';
 
@@ -175,6 +176,16 @@ export const BUILT_IN_THEME_PROFILES: readonly BuiltInThemeProfileDefinition[] =
         profile: classicDarkProfile,
     },
     ...COMMUNITY_BUILT_IN_THEME_PROFILES.slice(0, 8),
+    // Ignore Previous overlay: the dark preset sits with the dark presets, the light one at the end.
+    {
+        presetId: 'ignorePrevious',
+        translationKey: 'ignorePrevious.themeName',
+        preferredMode: 'dark',
+        cloneable: true,
+        editable: false,
+        deletable: false,
+        profile: ignorePreviousProfile,
+    },
     {
         presetId: 'premiumLight',
         translationKey: 'settingsAppearance.themeProfiles.presets.premiumLight',
@@ -206,6 +217,15 @@ export const BUILT_IN_THEME_PROFILES: readonly BuiltInThemeProfileDefinition[] =
         }),
     },
     ...COMMUNITY_BUILT_IN_THEME_PROFILES.slice(8),
+    {
+        presetId: 'ignorePreviousLight',
+        translationKey: 'ignorePrevious.themeNameLight',
+        preferredMode: 'light',
+        cloneable: true,
+        editable: false,
+        deletable: false,
+        profile: ignorePreviousLightProfile,
+    },
 ] as const;
 
 export const getBuiltInThemeProfileDefinition = (presetId: BuiltInThemeProfilePresetId): BuiltInThemeProfileDefinition | undefined => (

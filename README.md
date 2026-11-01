@@ -1,3 +1,19 @@
+# Ignore Previous (a personal overlay of Happier)
+
+This fork adds one screen, `/desk`, to [Happier](https://github.com/happier-dev/happier)'s web app. It shows a coordinator agent's chat, everything waiting on the human ("Your turn"), and the worker sessions grouped by issue. It also adds an "Ignore Previous" theme. Nothing else changes: the server, CLI and packages are upstream's, and the app signs in to Happier's hosted relay as normal.
+
+The overlay is built on Happier's latest stable web release, not its development branch. [OVERLAY.md](OVERLAY.md) explains the branches, how each new stable release is merged in, and which upstream files the overlay touches.
+
+This is a personal project and is not affiliated with or endorsed by the Happier project. For Happier itself, use the upstream repository.
+
+**Licence.** Happier is MIT-licensed, and its copyright notices in [LICENCE](LICENCE) and [apps/ui/LICENSE](apps/ui/LICENSE) are unchanged. The overlay's additions are released under the same MIT licence.
+
+**AI use.** Most of the overlay code was written by AI coding agents (Claude and Codex) under human direction and review.
+
+The rest of this README is upstream's.
+
+---
+
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/logotype-white.svg" />

@@ -408,10 +408,12 @@ describe('built-in theme profiles', () => {
             'githubDark',
             'darkModern',
             'graphiteDark',
+            'ignorePrevious',
             'premiumLight',
             'paperLight',
             'catppuccinLatte',
             'githubLight',
+            'ignorePreviousLight',
         ]);
         expect(getBuiltInThemeProfileDefinition('premiumDark')).toMatchObject({ cloneable: true, editable: false, deletable: false, preferredMode: 'dark' });
         expect(getBuiltInThemeProfileDefinition('premiumLight')).toMatchObject({ cloneable: true, editable: false, deletable: false, preferredMode: 'light' });
