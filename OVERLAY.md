@@ -11,6 +11,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | Theme profile | `apps/ui/sources/theme/profiles/ignorePreviousThemeProfile.ts` (new), registered in two upstream files |
 | Strings | an `ignorePrevious: { … }` block at the end of every locale in `apps/ui/sources/text/translations/` |
 | Upkeep tooling | `scripts/overlay/` (new) |
+| Composer seam | `apps/ui/sources/components/sessions/model/{sessionComposerOverrides,composerRequests}.ts` (new), wired into `SessionView.tsx` |
 
 ## Branches
 
@@ -55,7 +56,7 @@ Upstream marks stable releases with immutable tags such as `ui-web-v0.2.19`, plu
    node scripts/overlay/syncOverlayStrings.mjs
    node --test scripts/overlay/*.test.mjs
    cd apps/ui && yarn typecheck
-   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/sync/ops/sessions.permissionResult.test.ts
+   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/sync/ops/sessions.permissionResult.test.ts sources/components/sessions/model/sessionComposerOverrides.test.tsx sources/components/sessions/model/composerRequests.test.tsx sources/components/sessions/shell/SessionView.composerSeam.test.tsx
    ```
 
 4. Open a draft PR into `overlay` and try `/desk` in the browser before merging.
@@ -80,10 +81,11 @@ Without an auto-compact value, the bars measure against the model's context wind
 
 ## Patched upstream files
 
-Everything else the overlay adds lives in new files under `apps/ui/sources/ignorePrevious/`, the `/desk` route,
-`ignorePreviousThemeProfile.ts` and `scripts/overlay/`, so it can't conflict with upstream. These upstream files
+Everything else the overlay adds lives in new files: under `apps/ui/sources/ignorePrevious/`, the `/desk` route,
+`ignorePreviousThemeProfile.ts`, `scripts/overlay/`, and the composer seam's model files and tests under
+`apps/ui/sources/components/sessions/`, so it can't conflict with upstream. These upstream files
 are edited and are where a merge can conflict. From `node scripts/overlay/upstreamCheck.mjs` against
-`ui-web-v0.2.19` (19 files):
+`ui-web-v0.2.19` (20 files):
 
 | File | Why |
 |---|---|
@@ -96,5 +98,6 @@ are edited and are where a merge can conflict. From `node scripts/overlay/upstre
 | `apps/ui/sources/components/settings/appearance/themeProfiles/themeProfileSettingsScreens.test.tsx` | Upstream's exact list of the theme dropdown's ids gains the two ids. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
 | `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. |
+| `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing actions, gauge and mic replacement, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.

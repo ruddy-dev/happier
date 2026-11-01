@@ -314,6 +314,9 @@ import type { SessionPaneUrlState } from '@/components/sessions/panes/url/sessio
 import { useSessionPaneUrlSync } from '@/components/sessions/panes/url/useSessionPaneUrlSync';
 import { SessionResumeProvider } from '@/components/sessions/model/SessionResumeContext';
 import { useSessionResumeRequestListener } from '@/components/sessions/model/sessionResumeRequests';
+import { type SessionViewComposerOverrides, useSessionComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
+import { useComposerRequestHandle } from '@/components/sessions/model/composerRequests';
+import type { MultiTextInputHandle } from '@/components/ui/forms/MultiTextInput';
 import { resolveSessionResumeMachineTarget } from './sessionResumeMachineTarget';
 import { useDirectSessionTakeover } from '@/components/sessions/model/useDirectSessionTakeover';
 import { useDirectSessionRuntime } from '@/components/sessions/model/useDirectSessionRuntime';
@@ -877,6 +880,7 @@ type SessionViewLoadedProps = Readonly<{
     sessionRunnerRuntimeStatus: SessionRunnerRuntimeStatusSnapshot | null;
     sessionRunnerRuntimeStatusMachineId: string | null;
     onSessionRunnerRuntimeStatusInvalidated: () => void;
+    composer: SessionViewComposerOverrides | null;
 }>;
 
 type SessionViewLoadedWithPendingMessagesProps = Omit<
@@ -1152,6 +1156,10 @@ type SessionAgentInputWithUsageProps = Omit<React.ComponentProps<typeof AgentInp
     inputComposerClearTransientStateRef: React.MutableRefObject<() => void>;
     inputComposerCaptureTransientStateRef: React.MutableRefObject<() => AgentInputLocalUiStateV1 | null>;
     inputComposerRestoreTransientStateRef: React.MutableRefObject<(state: AgentInputLocalUiStateV1 | null) => void>;
+    /** Composer seam: drop the context-size badge's usage data. */
+    hideContextUsage?: boolean;
+    /** Composer seam: receives the AgentInput handle so the request bus can focus it. */
+    inputHandleRef?: React.RefObject<MultiTextInputHandle | null>;
 };
 
 const noopInputComposerClearTransientState = () => {};
@@ -1259,6 +1267,8 @@ const SessionAgentInputWithUsage = React.memo(function SessionAgentInputWithUsag
     inputComposerClearTransientStateRef,
     inputComposerCaptureTransientStateRef,
     inputComposerRestoreTransientStateRef,
+    hideContextUsage,
+    inputHandleRef,
     ...agentInputProps
 }: SessionAgentInputWithUsageProps) {
     const value = useComposerTextValue(composerTextStore);
@@ -1344,6 +1354,7 @@ const SessionAgentInputWithUsage = React.memo(function SessionAgentInputWithUsag
     return (
         <AgentInput
             {...agentInputProps}
+            ref={inputHandleRef}
             value={value}
             sessionId={sessionId}
             contentPaddingHorizontal={COMPOSER_CONTENT_HORIZONTAL_INSET}
@@ -1353,7 +1364,7 @@ const SessionAgentInputWithUsage = React.memo(function SessionAgentInputWithUsag
             structuredInputMentions={inputComposerPersistence.structuredInputPersistence.mentions}
             onStructuredInputMentionsChange={inputComposerPersistence.structuredInputPersistence.onMentionsChange}
             maxPanelHeight={maxPanelHeight}
-            usageData={agentInputUsageData}
+            usageData={hideContextUsage ? undefined : agentInputUsageData}
         />
     );
 });
@@ -1555,6 +1566,8 @@ type SessionViewProps = Readonly<{
     headerSafeAreaTopMode?: 'internal' | 'external';
     surfaceFocusedOverride?: boolean | null;
     chatBottomSpacing?: 'default' | 'none';
+    /** Host-screen composer customisation; memoise it, since SessionView is memoised. */
+    composer?: SessionViewComposerOverrides | null;
 }>;
 
 export const SessionView = React.memo((props: SessionViewProps) => {
@@ -1882,6 +1895,7 @@ export const SessionView = React.memo((props: SessionViewProps) => {
                 sessionRunnerRuntimeStatus={sessionRunnerRuntimeStatusRetention.status}
                 sessionRunnerRuntimeStatusMachineId={sessionRunnerRuntimeStatusRetention.machineId}
                 onSessionRunnerRuntimeStatusInvalidated={sessionRunnerRuntimeStatusRetention.invalidateAndRefresh}
+                composer={props.composer ?? null}
             />
         ))
         : null;
@@ -2406,6 +2420,7 @@ function SessionViewLoaded({
     sessionRunnerRuntimeStatus,
     sessionRunnerRuntimeStatusMachineId,
     onSessionRunnerRuntimeStatusInvalidated,
+    composer,
 }: SessionViewLoadedProps) {
     const { theme } = useUnistyles();
     const auth = useAuth();
@@ -6249,6 +6264,23 @@ function SessionViewLoaded({
         if (resolved.kind !== 'send') return;
         void sendComposerText(resolved.text, composerMessage, sendOptions);
     });
+    const resolvedComposer = useSessionComposerOverrides({
+        isReadOnly,
+        placeholder: isReadOnly ? t('session.sharing.viewOnlyMode') : t('session.inputPlaceholder'),
+        extraActionChips: agentInputExtraActionChips,
+        statusBadges: agentInputStatusBadges,
+        providerUsageGauge,
+        onMicPress: micButtonState.onMicPress,
+        isMicActive: micButtonState.isMicActive,
+        onAbort: handleAgentInputAbort,
+        alwaysShowContextSize,
+    }, composer);
+    const composerInputHandleRef = React.useRef<MultiTextInputHandle | null>(null);
+    useComposerRequestHandle(sessionId, {
+        setText: setDraftValue,
+        getText: composerTextStore.getPrompt,
+        focus: () => composerInputHandleRef.current?.focus(),
+    });
     const input = shouldShowInput ? (
         <View>
             {voiceEnabled && voiceProviderId !== 'off' && !isHiddenSystemSessionSession ? <VoiceSurface variant="session" sessionId={sessionId} /> : null}
@@ -6431,7 +6463,7 @@ function SessionViewLoaded({
             <SessionAgentInputRuntimeStatusBoundary
                 session={session}
                 sessionLatestUsage={session.latestUsage}
-                placeholder={isReadOnly ? t('session.sharing.viewOnlyMode') : t('session.inputPlaceholder')}
+                placeholder={resolvedComposer.placeholder}
                 composerTextStore={composerTextStore}
                 onChangeText={setDraftValue}
                 sessionId={sessionId}
@@ -6461,8 +6493,9 @@ function SessionViewLoaded({
                 metadata={session.metadata}
                 profileId={liveComposerState.profileId ?? undefined}
                 onProfileClick={liveComposerState.profileId !== null ? handleProfileClick : undefined}
-                statusBadges={agentInputStatusBadges}
-                providerUsageGauge={providerUsageGauge}
+                statusBadges={resolvedComposer.statusBadges}
+                statusTrailingActions={resolvedComposer.statusTrailingActions}
+                providerUsageGauge={resolvedComposer.providerUsageGauge}
                 onProviderUsageRecoveryCreditPress={providerUsageRecoveryCreditAction}
                 providerUsageRecoveryCreditPending={providerUsageRecoveryCreditActionPending}
                 activeStatusBadgeKey={activeStatusBadgeKey}
@@ -6471,17 +6504,19 @@ function SessionViewLoaded({
                 onSend={handleAgentInputSend}
                 isSendDisabled={!shouldShowInput || isResuming || isReadOnly || isUploadingAttachments}
                 isSending={isComposerSendPending}
-                onMicPress={micButtonState.onMicPress}
-                isMicActive={micButtonState.isMicActive}
-                onAbort={handleAgentInputAbort}
+                onMicPress={resolvedComposer.onMicPress}
+                isMicActive={resolvedComposer.isMicActive}
+                onAbort={resolvedComposer.onAbort}
                 inactiveStatusText={inactiveStatusText}
                 onFileViewerPress={handleAgentInputFileViewerPress}
                 // Autocomplete configuration
                 autocompleteKinds={SESSION_COMPOSER_SUGGESTION_KINDS}
                 autocompleteSuggestions={handleAutocompleteSuggestions}
                 disabled={isReadOnly}
-                alwaysShowContextSize={alwaysShowContextSize}
-                extraActionChips={agentInputExtraActionChips}
+                alwaysShowContextSize={resolvedComposer.alwaysShowContextSize}
+                extraActionChips={resolvedComposer.extraActionChips}
+                hideContextUsage={resolvedComposer.hideContextUsage}
+                inputHandleRef={composerInputHandleRef}
             />
             {attachmentsUploadsEnabled ? (
                 <AttachmentFilePicker
