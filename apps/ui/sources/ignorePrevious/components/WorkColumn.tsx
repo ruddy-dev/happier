@@ -13,6 +13,7 @@ import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState 
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { issueKeyFromBranch, issueKeyFromPath } from '../model/issueKey';
+import { useDeskNow } from '../model/useDeskNow';
 import { bulbColour, useIpColours } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
@@ -38,12 +39,14 @@ function toWorkerRows(
     list: readonly SessionListRenderableSession[],
     lookup: ReadonlyMap<string, Session>,
     branches: Branches,
+    nowMs: number,
 ): WorkerRow[] {
     return list.map((row) => {
         // Mode and context size live on the full record, so they show once it has loaded.
         const loaded = lookup.get(row.id);
         const meter = loaded ? sessionContextMeter(loaded) : null;
-        const state = getSessionStatus(row).state;
+        // Freshness is judged against the desk clock, so a worker that falls silent goes stale without a store write.
+        const state = getSessionStatus(row, nowMs).state;
         return {
             sessionId: row.id,
             title: getSessionName(row),
@@ -107,7 +110,8 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
         setBranches((prev) => (prev[sessionId] === branch ? prev : { ...prev, [sessionId]: branch }));
     }, []);
 
-    const rows = React.useMemo(() => toWorkerRows(live, lookup, branches), [live, lookup, branches]);
+    const nowMs = useDeskNow();
+    const rows = React.useMemo(() => toWorkerRows(live, lookup, branches, nowMs), [live, lookup, branches, nowMs]);
     const groups = React.useMemo(() => groupWorkersByIssue(rows), [rows]);
 
     const toggle = React.useCallback((key: string) => {

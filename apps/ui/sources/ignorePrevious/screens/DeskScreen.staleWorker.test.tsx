@@ -70,9 +70,7 @@ describe('DeskScreen stale worker (F1)', () => {
         expect(scenario.textOf('ip-count-working')).toBe('1');
     });
 
-    // Fails today: WorkColumn derives the bulb once per store change and nothing re-derives it as time passes.
-    // ATR-24 (P0.3) fixes it and flips this.
-    it.fails('F1: past the stale budget a silent worker no longer counts as Working', async () => {
+    it('F1: past the stale budget a silent worker no longer counts as Working', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.advance(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS - 1_000);
         await scenario.advance(2_000);
@@ -80,9 +78,7 @@ describe('DeskScreen stale worker (F1)', () => {
         expect(scenario.screen.findByTestId('ip-bulb-dot-working')).toBeNull();
     });
 
-    // Fails today: WorkColumn derives the bulb once per store change and nothing re-derives it as time passes.
-    // ATR-24 (P0.3) fixes it and flips this.
-    it.fails('F1: at exactly the stale budget the worker is no longer Working', async () => {
+    it('F1: at exactly the stale budget the worker is no longer Working', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.advance(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS);
         expect(scenario.textOf('ip-count-working')).toBe('0');
@@ -96,9 +92,7 @@ describe('DeskScreen stale worker (F1)', () => {
         expect(scenario.textOf('ip-count-working')).toBe('1');
     });
 
-    // Fails today: WorkColumn derives the bulb once per store change and nothing re-derives it as time passes.
-    // ATR-24 (P0.3) fixes it and flips this.
-    it.fails('F1: a stale worker offers no Stop', async () => {
+    it('F1: a stale worker offers no Stop', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await openDetails(scenario);
         await scenario.advance(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS + 1_000);
@@ -109,6 +103,8 @@ describe('DeskScreen stale worker (F1)', () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         const before = storage.getState().sessions.w1;
         await scenario.advance(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS + 1_000);
+        // It did go stale, so the clock moved the count, not a write.
+        expect(scenario.textOf('ip-count-working')).toBe('0');
         expect(storage.getState().sessions.w1).toBe(before);
     });
 

@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { act } from 'react-test-renderer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { flushHookEffects } from '@/dev/testkit/hooks/flushHookEffects';
+import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS as STALE } from '@/sync/domains/session/attention/deriveSessionRuntimePresentationState';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
+
+import { DESK_TICK_MS } from '../model/useDeskNow';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -126,5 +131,77 @@ describe('WorkColumn', () => {
         const screen = await renderColumn();
         expect(screen.getTextContent()).toContain('HUB-59');
         expect(screen.getTextContent()).not.toContain('No issue');
+    });
+});
+
+describe('WorkColumn freshness (F1)', () => {
+    const t0 = Date.UTC(2026, 10, 1, 9, 0, 0);
+    let previous: ReturnType<typeof storage.getState>;
+    beforeEach(() => {
+        previous = storage.getState();
+        vi.useFakeTimers();
+        vi.setSystemTime(t0);
+        state.branches = {};
+    });
+    afterEach(() => {
+        storage.setState(previous, true);
+        vi.useRealTimers();
+    });
+
+    /** A worker whose last signal ("thinking") came at `at`. */
+    function thinking(id: string, at: number, version = 1): Session {
+        return session(id, `/home/u/dev/wt/atr-6-${id}`, {
+            active: true,
+            thinking: true,
+            thinkingAt: at,
+            activeAt: at,
+            seq: version,
+            updatedAt: at,
+        });
+    }
+
+    async function tick(ms: number) {
+        await flushHookEffects({ advanceTimersMs: ms, cycles: 1 });
+    }
+
+    function count(screen: Awaited<ReturnType<typeof renderColumn>>, id: string) {
+        return screen.findByTestId(`ip-count-${id}`)?.props.children;
+    }
+
+    it('F1 a thinking worker still counts as working just inside the budget', async () => {
+        seed([thinking('w1', t0)]);
+        const screen = await renderColumn();
+        await tick(STALE - 1_000);
+        expect(count(screen, 'working')).toBe(1);
+    });
+
+    it('F1 the same worker stops counting as working with no store write', async () => {
+        seed([thinking('w1', t0)]);
+        const screen = await renderColumn();
+        const w1 = storage.getState().sessions.w1;
+        await tick(STALE + DESK_TICK_MS);
+        // The store still holds the same record, so the desk clock is what moved the count.
+        expect(storage.getState().sessions.w1).toBe(w1);
+        expect(count(screen, 'working')).toBe(0);
+    });
+
+    it('F1 control: a fresh version-stamped write keeps it working', async () => {
+        seed([thinking('w1', t0)]);
+        const screen = await renderColumn();
+        await tick(100_000);
+        act(() => {
+            seed([thinking('w1', t0 + 100_000, 2)]);
+        });
+        await tick(25_000);
+        expect(count(screen, 'working')).toBe(1);
+    });
+
+    it('F1 one shared timer, gone after unmount', async () => {
+        const base = vi.getTimerCount();
+        seed(['a', 'b', 'c', 'd', 'e'].map((id) => thinking(id, t0)));
+        const screen = await renderColumn();
+        expect(vi.getTimerCount()).toBe(base + 1);
+        await screen.unmount();
+        expect(vi.getTimerCount()).toBe(base);
     });
 });
