@@ -8,13 +8,10 @@ import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 
-import { useDeskSessions } from '../useDeskSessions';
-import { collectWaits } from './WaitingPanel';
-
-type Waits = ReturnType<typeof collectWaits>;
+import { useDeskWaits, type DeskWaits } from '../model/useDeskWaits';
 
 /** The waiting list as the coordinator reads it: what each request runs, not only the agent's description. */
-function waitingList({ items, unloaded }: Waits): string {
+function waitingList({ items, unloaded }: DeskWaits): string {
     const lines: string[] = [];
     let n = 0;
     for (const item of items) {
@@ -40,9 +37,8 @@ function waitingList({ items, unloaded }: Waits): string {
  */
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
-    const { list, lookup } = useDeskSessions();
-    const waits = React.useMemo(() => collectWaits(list, lookup), [list, lookup]);
-    const count = waits.items.length + waits.unloaded.length;
+    const waits = useDeskWaits();
+    const { count } = waits;
     const [sending, setSending] = React.useState(false);
 
     const send = React.useCallback(

@@ -14,7 +14,7 @@ import { ContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
 import { ShogView } from './ShogView';
-import { useWaitingCount } from './WaitingPanel';
+import { useWaitingCount } from '../model/useDeskWaits';
 
 /**
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit

@@ -9,7 +9,8 @@ import { type CustomModalInjectedProps } from '@/modal';
 import { useModalCardChrome } from '@/modal/components/card/useModalCardChrome';
 import { t } from '@/text';
 
-import { useWaitingCount, WaitingPanel } from './WaitingPanel';
+import { useWaitingCount } from '../model/useDeskWaits';
+import { WaitingPanel } from './WaitingPanel';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () => void }) {

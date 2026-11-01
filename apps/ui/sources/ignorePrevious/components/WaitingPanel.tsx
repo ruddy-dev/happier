@@ -6,56 +6,10 @@ import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { Modal } from '@/modal';
-import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
-import type { Session } from '@/sync/domains/state/storageTypes';
 import { sessionAllow, sessionDeny } from '@/sync/ops';
 import { t } from '@/text';
-import {
-    getSessionName,
-    getSessionStatus,
-    listPendingPermissionRequests,
-    listPendingUserActionRequests,
-} from '@/utils/sessions/sessionUtils';
 
-import { toWaitingItems, type WaitingItem } from '../model/waitingItems';
-import { useDeskSessions } from '../useDeskSessions';
-
-/** A session that says it is waiting on you, but whose requests live in a record or transcript not loaded here. */
-type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string }>;
-
-/**
- * What waits on you, from the desk's sessions. Name and state come from the list row, as in the
- * sidebar; the requests themselves come from the full record, once it has loaded.
- */
-export function collectWaits(
-    list: readonly SessionListRenderableSession[],
-    lookup: ReadonlyMap<string, Session>,
-): { items: WaitingItem[]; unloaded: UnloadedWait[] } {
-    const input = list.map((row) => {
-        const session = lookup.get(row.id);
-        const permissions = session ? listPendingPermissionRequests(session) : [];
-        const seen = new Set(permissions.map((request) => request.id));
-        const questions = session ? listPendingUserActionRequests(session).filter((request) => !seen.has(request.id)) : [];
-        return { row, sessionId: row.id, sessionTitle: getSessionName(row), requests: [...permissions, ...questions] };
-    });
-    const unloaded = input
-        .filter(({ row, requests }) => {
-            if (requests.length > 0) return false;
-            const state = getSessionStatus(row).state;
-            return state === 'permission_required' || state === 'action_required';
-        })
-        .map(({ sessionId, sessionTitle }) => ({ sessionId, sessionTitle }));
-    return { items: toWaitingItems(input), unloaded };
-}
-
-/** How many things wait on you across your sessions: the count on the desk's approvals button. */
-export function useWaitingCount(): number {
-    const { list, lookup } = useDeskSessions();
-    return React.useMemo(() => {
-        const { items, unloaded } = collectWaits(list, lookup);
-        return items.length + unloaded.length;
-    }, [list, lookup]);
-}
+import { useDeskWaits } from '../model/useDeskWaits';
 
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
@@ -64,8 +18,7 @@ export function useWaitingCount(): number {
  * opens a session, so a card holding the panel can get out of the way.
  */
 export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } = {}) {
-    const { list, lookup, ready } = useDeskSessions();
-    const { items, unloaded } = React.useMemo(() => collectWaits(list, lookup), [list, lookup]);
+    const { items, unloaded, ready } = useDeskWaits();
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
 
