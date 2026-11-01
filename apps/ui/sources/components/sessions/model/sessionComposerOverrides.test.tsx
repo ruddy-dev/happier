@@ -124,7 +124,8 @@ describe('useSessionComposerOverrides', () => {
         const hook = await renderComposer({ base, overrides });
         const previous = hook.getCurrent();
 
-        const next = await hook.rerender({ base, overrides });
+        // SessionView builds a fresh base literal every render; only the arrays inside stay the same.
+        const next = await hook.rerender({ base: { ...base }, overrides: { ...overrides } });
         expect(Object.is(previous.extraActionChips, next.extraActionChips)).toBe(true);
         expect(Object.is(previous.statusBadges, next.statusBadges)).toBe(true);
 

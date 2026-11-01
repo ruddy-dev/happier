@@ -72,7 +72,7 @@ describe('composer requests', () => {
         const first = buildHandle('a');
         const second = buildHandle('b');
         const hook = await renderHook(
-            (props: { handle: ComposerRequestHandle }) => useComposerRequestHandle('s-hook', props.handle),
+            (props: { handle: ComposerRequestHandle }) => useComposerRequestHandle('s-hook', props.handle, true),
             { initialProps: { handle: first } },
         );
 
@@ -84,5 +84,29 @@ describe('composer requests', () => {
 
         await hook.unmount();
         expect(readComposerText('s-hook')).toBeNull();
+    });
+
+    it('a disabled hook does not register, so requests return false until it is enabled', async () => {
+        const handle = buildHandle('hidden');
+        const hook = await renderHook(
+            (props: { enabled: boolean }) => useComposerRequestHandle('s-disabled', handle, props.enabled),
+            { initialProps: { enabled: false } },
+        );
+
+        expect(requestComposerText('s-disabled', 'ignored', { focus: true })).toBe(false);
+        expect(requestComposerFocus('s-disabled')).toBe(false);
+        expect(readComposerText('s-disabled')).toBeNull();
+        expect(handle.setText).not.toHaveBeenCalled();
+        expect(handle.focus).not.toHaveBeenCalled();
+
+        await hook.rerender({ enabled: true });
+        expect(requestComposerText('s-disabled', 'now')).toBe(true);
+        expect(handle.setText).toHaveBeenCalledWith('now');
+        expect(readComposerText('s-disabled')).toBe('hidden');
+
+        await hook.rerender({ enabled: false });
+        expect(readComposerText('s-disabled')).toBeNull();
+
+        await hook.unmount();
     });
 });

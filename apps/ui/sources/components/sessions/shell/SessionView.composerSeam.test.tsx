@@ -366,7 +366,7 @@ vi.mock('@/sync/domains/automations/automationSessionLink', () => ({
 }));
 
 const { SessionView } = await import('./SessionView');
-const { requestComposerFocus, requestComposerText } = await import('@/components/sessions/model/composerRequests');
+const { readComposerText, requestComposerFocus, requestComposerText } = await import('@/components/sessions/model/composerRequests');
 
 const seamChip = { key: 'desk-seam-chip', render: () => null };
 const seamBadge = { key: 'desk-seam-badge', label: 'Desk' };
@@ -455,6 +455,19 @@ describe('SessionView composer seam', () => {
       expect(requestComposerText('s1', 'Brief me', { focus: true })).toBe(true);
     });
     expect(view.agentInput().props.value).toBe('Brief me');
+    expect(readComposerText('s1')).toBe('Brief me');
     expect(requestComposerFocus('s1')).toBe(true);
+  });
+
+  it('refuses composer requests in a read-only session', async () => {
+    sessionState.session = { ...sessionState.session, accessLevel: 'view' };
+    const view = await renderSessionView();
+
+    await renderer.act(async () => {
+      expect(requestComposerText('s1', 'Brief me', { focus: true })).toBe(false);
+    });
+    expect(view.agentInput().props.value).not.toBe('Brief me');
+    expect(requestComposerFocus('s1')).toBe(false);
+    expect(readComposerText('s1')).toBeNull();
   });
 });

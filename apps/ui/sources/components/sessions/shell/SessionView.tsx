@@ -6280,7 +6280,7 @@ function SessionViewLoaded({
         setText: setDraftValue,
         getText: composerTextStore.getPrompt,
         focus: () => composerInputHandleRef.current?.focus(),
-    });
+    }, shouldShowInput && !isReadOnly);
     const input = shouldShowInput ? (
         <View>
             {voiceEnabled && voiceProviderId !== 'off' && !isHiddenSystemSessionSession ? <VoiceSurface variant="session" sessionId={sessionId} /> : null}
