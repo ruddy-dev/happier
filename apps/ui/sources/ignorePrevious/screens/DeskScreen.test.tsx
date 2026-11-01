@@ -43,7 +43,6 @@ vi.mock('@/sync/store/hooks', async (importOriginal) => {
             useAllSessions: (() => state.sessions) as never,
             useAllSessionListRenderables: (() => state.list) as never,
             useIsDataReady: (() => state.dataReady) as never,
-            useSessionScmStatus: (() => null) as never,
         },
     });
 });

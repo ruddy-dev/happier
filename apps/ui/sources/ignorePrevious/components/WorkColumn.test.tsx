@@ -13,19 +13,41 @@ import { DESK_TICK_MS } from '../model/useDeskNow';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+/** Loads sessions into the real store the way the first sync does: list rows and full records. */
 function seed(sessions: Session[]) {
-    state.sessions = sessions;
-    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
-    // The row's actions read the record from the real store.
-    storage.getState().applySessions(sessions);
+    act(() => {
+        storage.getState().applySessions(sessions);
+        storage.getState().applyReady();
+    });
 }
 
-const state = vi.hoisted(() => ({
-    sessions: [] as unknown[],
-    list: [] as unknown[],
-    branches: {} as Record<string, string>,
-}));
+/** Only the sidebar's list rows, before any full record has loaded. */
+function seedListOnly(sessions: Session[]) {
+    act(() => {
+        storage.getState().mergeSessionListRenderables(sessions.map((s) => buildSessionListRenderableFromSession(s)));
+        storage.getState().applyReady();
+    });
+}
+
+function setBranch(sessionId: string, branch: string) {
+    act(() => {
+        storage.getState().applyScmStatus(sessionId, {
+            branch,
+            isDirty: false,
+            modifiedCount: 0,
+            untrackedCount: 0,
+            includedCount: 0,
+            lastUpdatedAt: 1,
+            includedLinesAdded: 0,
+            includedLinesRemoved: 0,
+            pendingLinesAdded: 0,
+            pendingLinesRemoved: 0,
+            linesAdded: 0,
+            linesRemoved: 0,
+            linesChanged: 0,
+        });
+    });
+}
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -35,18 +57,6 @@ vi.mock('@expo/vector-icons', async () => {
 vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
     return createExpoRouterMock().module;
-});
-
-vi.mock('@/sync/store/hooks', async (importOriginal) => {
-    const { createStoreHooksModuleMock } = await import('@/dev/testkit/mocks/storage');
-    return createStoreHooksModuleMock({
-        importOriginal,
-        overrides: {
-            useAllSessions: (() => state.sessions) as never,
-            useAllSessionListRenderables: (() => state.list) as never,
-            useSessionScmStatus: ((id: string) => (state.branches[id] ? { branch: state.branches[id] } : null)) as never,
-        },
-    });
 });
 
 function session(id: string, path: string, extra: Partial<Session> = {}): Session {
@@ -64,8 +74,15 @@ async function renderColumn() {
 }
 
 describe('WorkColumn', () => {
+    let previous: ReturnType<typeof storage.getState>;
+    beforeEach(() => {
+        previous = storage.getState();
+    });
+    afterEach(() => {
+        storage.setState(previous, true);
+    });
+
     it('groups live workers by issue, puts No issue last and leaves out archived ones', async () => {
-        state.branches = {};
         seed([
             session('s1', '/home/u/dev/wt/atr-6-overlay', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev'),
@@ -80,7 +97,6 @@ describe('WorkColumn', () => {
     });
 
     it('counts agents by state in numbers', async () => {
-        state.branches = {};
         seed([
             session('s1', '/home/u/dev/wt/atr-6-a', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev/wt/atr-6-b', { active: true, thinking: true, thinkingAt: Date.now() }),
@@ -97,10 +113,7 @@ describe('WorkColumn', () => {
     });
 
     it('shows a worker before its record loads, without a mode or context it does not know yet', async () => {
-        state.branches = {};
-        const s1 = session('s1', '/home/u/dev/wt/atr-6-a', { permissionMode: 'acceptEdits' } as Partial<Session>);
-        state.list = [buildSessionListRenderableFromSession(s1)];
-        state.sessions = [];
+        seedListOnly([session('s1', '/home/u/dev/wt/atr-6-a', { permissionMode: 'acceptEdits' } as Partial<Session>)]);
         const screen = await renderColumn();
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
         const text = screen.getTextContent();
@@ -111,7 +124,6 @@ describe('WorkColumn', () => {
     });
 
     it('offers Stop on a busy worker and the resume control on an inactive one', async () => {
-        state.branches = {};
         storage.getState().applyMachines([createMachineFixture({ id: 'm', active: true, activeAt: Date.now() })]);
         seed([
             session('busy', '/home/u/dev/wt/atr-13-a', { active: true, thinking: true, thinkingAt: Date.now() }),
@@ -126,11 +138,41 @@ describe('WorkColumn', () => {
     });
 
     it('prefers the session branch over the folder name', async () => {
-        state.branches = { s2: 'hub-59-store-skill' };
         seed([session('s2', '/home/u/dev')]);
+        setBranch('s2', 'hub-59-store-skill');
         const screen = await renderColumn();
         expect(screen.getTextContent()).toContain('HUB-59');
         expect(screen.getTextContent()).not.toContain('No issue');
+    });
+
+    it('N3 two workers on one branch show under their own issues', async () => {
+        const tagged = (id: string, tag: string) =>
+            session(id, '/home/u/dev/app', {
+                metadata: { path: '/home/u/dev/app', host: 'h', homeDir: '/home/u', machineId: 'm', summary: { text: `Title ${id}`, updatedAt: 1 }, tag } as Session['metadata'],
+            });
+        seed([tagged('w1', 'ATR-6-build'), tagged('w2', 'ATR-7-build')]);
+        setBranch('w1', 'main');
+        setBranch('w2', 'main');
+        const screen = await renderColumn();
+        const cards = screen.tree.root.findAll((node) => typeof node.props?.testID === 'string' && node.props.testID.startsWith('ip-issue-') && typeof node.type === 'string');
+        expect(cards.map((node) => node.props.testID).sort()).toEqual(['ip-issue-ATR-6', 'ip-issue-ATR-7']);
+    });
+
+    it('N2 a branch that arrives after the column is drawn moves the worker under its issue', async () => {
+        seed([session('s2', '/home/u/dev')]);
+        const screen = await renderColumn();
+        expect(screen.getTextContent()).toContain('No issue');
+        setBranch('s2', 'hub-59-store-skill');
+        expect(screen.getTextContent()).toContain('HUB-59');
+        expect(screen.getTextContent()).not.toContain('No issue');
+    });
+
+    it('must not add a group for a branch update on an unlisted session', async () => {
+        seed([session('s1', '/home/u/dev/wt/atr-6-a')]);
+        const screen = await renderColumn();
+        setBranch('other', 'hub-59-x');
+        expect(screen.getTextContent()).not.toContain('HUB-59');
+        expect(screen.findByTestId('ip-count-all')?.props.children).toBe(1);
     });
 });
 
@@ -141,7 +183,6 @@ describe('WorkColumn freshness (F1)', () => {
         previous = storage.getState();
         vi.useFakeTimers();
         vi.setSystemTime(t0);
-        state.branches = {};
     });
     afterEach(() => {
         storage.setState(previous, true);
