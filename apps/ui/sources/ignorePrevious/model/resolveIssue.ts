@@ -8,18 +8,30 @@ export type IssueSources = Readonly<{
     path: string | null;
 }>;
 
+/** `ATR` from `ATR-6`. */
+function projectOf(key: string): string {
+    return key.slice(0, key.lastIndexOf('-'));
+}
+
 /**
  * The issue a worker works on. The coordinator's tag says so outright; without one, an id that
  * opens the title, then the git branch, then the worktree folder. A tag that doesn't parse counts
  * as no tag.
+ *
+ * Titles are mostly Claude's own summaries, and they open with tokens like `SHA-256` or `UTF-8`
+ * that read as ids. So a title id counts only when its project matches the branch's id, or the
+ * folder's when the branch names none. With neither, the title id stands alone: a title-only
+ * false positive on a worker with no issue branch or folder is accepted.
  */
 export function resolveIssue(src: IssueSources): string | null {
     // The tag contract is `<ID>-<role>`, the same shape as a work branch, so the branch pattern reads it:
     // `ATR-6-build` parses, `ATR-6:builder` doesn't.
-    return (
-        issueKeyFromBranch(src.tag?.trim() || null)
-        ?? issueKeyFromTitle(src.title)
-        ?? issueKeyFromBranch(src.branch)
-        ?? (src.path ? issueKeyFromPath(src.path) : null)
-    );
+    const fromTag = issueKeyFromBranch(src.tag?.trim() || null);
+    if (fromTag) return fromTag;
+    const fromBranch = issueKeyFromBranch(src.branch);
+    const fromPath = src.path ? issueKeyFromPath(src.path) : null;
+    const anchor = fromBranch ?? fromPath;
+    const fromTitle = issueKeyFromTitle(src.title);
+    if (fromTitle && (!anchor || projectOf(fromTitle) === projectOf(anchor))) return fromTitle;
+    return anchor;
 }
