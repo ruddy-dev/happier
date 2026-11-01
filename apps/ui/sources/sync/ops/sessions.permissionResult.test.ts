@@ -148,6 +148,28 @@ describe('permission results', () => {
         });
     });
 
+    it('D1 a CLI handler error reply ({error, errorCode}) is ok:false, not success', async () => {
+        mockSessionRpcWithPreferredSessionScope.mockResolvedValue({ error: 'Method not found', errorCode: 'RPC_METHOD_NOT_FOUND' });
+
+        await expect(sessionAllowResult('s1', 'perm_3')).resolves.toEqual({
+            ok: false,
+            errorCode: 'unknown',
+            errorMessage: 'Method not found',
+            requestId: 'perm_3',
+        });
+    });
+
+    it('D1 a CLI params error reply ({error} only) from sessionDenyResult is ok:false', async () => {
+        mockSessionRpcWithPreferredSessionScope.mockResolvedValue({ error: 'Invalid RPC params' });
+
+        await expect(sessionDenyResult('s1', 'perm_4')).resolves.toEqual({
+            ok: false,
+            errorCode: 'unknown',
+            errorMessage: 'Invalid RPC params',
+            requestId: 'perm_4',
+        });
+    });
+
     it('W3 sessionDenyResult clears optimistic thinking on denied', async () => {
         const sessionId = 's_permission_result_deny';
         storage.getState().applySessions([buildSession(sessionId)]);

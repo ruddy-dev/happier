@@ -614,8 +614,13 @@ const PERMISSION_ERROR_CODES = new Set<string>([
 
 /**
  * Narrow the resolved RPC value. An older CLI resolves with no result, which counts as success, as before.
+ * The CLI's RPC handler manager answers an unknown method, bad params or a thrown handler with a plain
+ * `{ error, errorCode? }` object that arrives as a resolved value, so that shape counts as a failure.
  */
 function toSessionPermissionResult(value: unknown, requestId: string): SessionPermissionResult {
+    if (typeof value === 'object' && value !== null && !('ok' in value) && typeof (value as { error?: unknown }).error === 'string') {
+        return { ok: false, errorCode: 'unknown', errorMessage: (value as { error: string }).error, requestId };
+    }
     if (typeof value !== 'object' || value === null || (value as { ok?: unknown }).ok !== false) {
         return { ok: true };
     }
@@ -631,7 +636,8 @@ function toSessionPermissionResult(value: unknown, requestId: string): SessionPe
 }
 
 /**
- * Allow a permission request and report the CLI's answer. Rejects only when the RPC itself fails.
+ * Allow a permission request and report the CLI's answer, including a CLI error reply as ok:false.
+ * Rejects only when the RPC transport fails.
  */
 export async function sessionAllowResult(
     sessionId: string,
@@ -730,7 +736,8 @@ export async function sessionAllowWithAnswers(
 }
 
 /**
- * Deny a permission request and report the CLI's answer. Rejects only when the RPC itself fails.
+ * Deny a permission request and report the CLI's answer, including a CLI error reply as ok:false.
+ * Rejects only when the RPC transport fails.
  */
 export async function sessionDenyResult(
     sessionId: string,
