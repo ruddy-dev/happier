@@ -86,7 +86,7 @@ Without an auto-compact value, the bars measure against the model's context wind
 
 Everything else the overlay adds lives in the new files listed under "Where the overlay lives", so it can't
 conflict with upstream. These upstream files are edited and are where a merge can conflict. From
-`node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (20 files), plus the 8 the desk test harness edits:
+`node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (28 files: 20 for the overlay itself, plus the 8 the desk test harness edits):
 
 | File | Why |
 |---|---|
