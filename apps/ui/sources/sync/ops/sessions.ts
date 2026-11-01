@@ -594,6 +594,77 @@ export async function sessionAbort(sessionId: string): Promise<void> {
 }
 
 /**
+ * Outcome of answering a permission request. The CLI answers `{ok:true}` or `{ok:false, ...}`
+ * (mirrors `sessionPermissionRpcRouter` in apps/cli, which the UI cannot import). A CLI error
+ * reply (`{error, errorCode?}`, no `ok`) becomes `errorCode: 'unknown'` with the error text.
+ */
+export type SessionPermissionResult =
+    | { ok: true }
+    | {
+        ok: false;
+        errorCode: 'permission_request_not_found' | 'permission_request_expired' | 'permission_response_failed' | 'unknown';
+        errorMessage: string;
+        requestId: string;
+    };
+
+const PERMISSION_ERROR_CODES = new Set<string>([
+    'permission_request_not_found',
+    'permission_request_expired',
+    'permission_response_failed',
+]);
+
+/**
+ * Narrow the resolved RPC value. An older CLI resolves with no result, which counts as success, as before.
+ * The CLI's RPC handler manager answers an unknown method, bad params or a thrown handler with a plain
+ * `{ error, errorCode? }` object that arrives as a resolved value, so that shape counts as a failure.
+ */
+function toSessionPermissionResult(value: unknown, requestId: string): SessionPermissionResult {
+    if (typeof value === 'object' && value !== null && !('ok' in value) && typeof (value as { error?: unknown }).error === 'string') {
+        return { ok: false, errorCode: 'unknown', errorMessage: (value as { error: string }).error, requestId };
+    }
+    if (typeof value !== 'object' || value === null || (value as { ok?: unknown }).ok !== false) {
+        return { ok: true };
+    }
+    const failure = value as { errorCode?: unknown; errorMessage?: unknown; requestId?: unknown };
+    return {
+        ok: false,
+        errorCode: typeof failure.errorCode === 'string' && PERMISSION_ERROR_CODES.has(failure.errorCode)
+            ? (failure.errorCode as Exclude<SessionPermissionResult, { ok: true }>['errorCode'])
+            : 'unknown',
+        errorMessage: typeof failure.errorMessage === 'string' ? failure.errorMessage : '',
+        requestId: typeof failure.requestId === 'string' ? failure.requestId : requestId,
+    };
+}
+
+/**
+ * Allow a permission request and report the CLI's answer, including a CLI error reply as ok:false.
+ * Rejects only when the RPC transport fails.
+ */
+export async function sessionAllowResult(
+    sessionId: string,
+    id: string,
+    mode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan',
+    allowedTools?: string[],
+    decision?: 'approved' | 'approved_for_session' | 'approved_execpolicy_amendment',
+    execPolicyAmendment?: { command: string[] }
+): Promise<SessionPermissionResult> {
+    const request: SessionPermissionRequest = {
+        id,
+        approved: true,
+        mode,
+        allowedTools,
+        decision,
+        execPolicyAmendment
+    };
+    const result = await sessionRpcWithPreferredSessionScope<unknown, SessionPermissionRequest>({
+        sessionId,
+        method: 'permission',
+        payload: request,
+    });
+    return toSessionPermissionResult(result, id);
+}
+
+/**
  * Allow a permission request
  */
 export async function sessionAllow(
@@ -604,19 +675,7 @@ export async function sessionAllow(
     decision?: 'approved' | 'approved_for_session' | 'approved_execpolicy_amendment',
     execPolicyAmendment?: { command: string[] }
 ): Promise<void> {
-    const request: SessionPermissionRequest = {
-        id,
-        approved: true,
-        mode,
-        allowedTools,
-        decision,
-        execPolicyAmendment
-    };
-    await sessionRpcWithPreferredSessionScope<void, SessionPermissionRequest>({
-        sessionId,
-        method: 'permission',
-        payload: request,
-    });
+    await sessionAllowResult(sessionId, id, mode, allowedTools, decision, execPolicyAmendment);
 }
 
 /**
@@ -678,6 +737,46 @@ export async function sessionAllowWithAnswers(
 }
 
 /**
+ * Deny a permission request and report the CLI's answer, including a CLI error reply as ok:false.
+ * Rejects only when the RPC transport fails.
+ */
+export async function sessionDenyResult(
+    sessionId: string,
+    id: string,
+    mode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan',
+    allowedTools?: string[],
+    decision?: 'denied' | 'abort',
+    reason?: string,
+): Promise<SessionPermissionResult> {
+    const request: SessionPermissionRequest = { id, approved: false, mode, allowedTools, decision, reason };
+    const rpcResult = await sessionRpcWithPreferredSessionScope<unknown, SessionPermissionRequest>({
+        sessionId,
+        method: 'permission',
+        payload: request,
+    });
+    const result = toSessionPermissionResult(rpcResult, id);
+
+    // Best-effort local UX recovery: deny/abort decisions should immediately return
+    // the session to non-thinking state even if lifecycle events arrive out of order.
+    // Runs whatever the CLI answered (only an RPC failure skips it).
+    const session = storage.getState().sessions[sessionId];
+    storage.getState().clearSessionOptimisticThinking(sessionId);
+    storage.getState().clearSessionThinkingGrace(sessionId);
+    if (!session || session.thinking !== true) {
+        return result;
+    }
+
+    storage.getState().applySessions([
+        {
+            ...session,
+            thinking: false,
+            updatedAt: nowServerMs(),
+        },
+    ]);
+    return result;
+}
+
+/**
  * Deny a permission request
  */
 export async function sessionDeny(
@@ -688,29 +787,7 @@ export async function sessionDeny(
     decision?: 'denied' | 'abort',
     reason?: string,
 ): Promise<void> {
-    const request: SessionPermissionRequest = { id, approved: false, mode, allowedTools, decision, reason };
-    await sessionRpcWithPreferredSessionScope<void, SessionPermissionRequest>({
-        sessionId,
-        method: 'permission',
-        payload: request,
-    });
-
-    // Best-effort local UX recovery: deny/abort decisions should immediately return
-    // the session to non-thinking state even if lifecycle events arrive out of order.
-    const session = storage.getState().sessions[sessionId];
-    storage.getState().clearSessionOptimisticThinking(sessionId);
-    storage.getState().clearSessionThinkingGrace(sessionId);
-    if (!session || session.thinking !== true) {
-        return;
-    }
-
-    storage.getState().applySessions([
-        {
-            ...session,
-            thinking: false,
-            updatedAt: nowServerMs(),
-        },
-    ]);
+    await sessionDenyResult(sessionId, id, mode, allowedTools, decision, reason);
 }
 
 /**

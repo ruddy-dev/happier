@@ -56,7 +56,9 @@ Upstream marks stable releases with immutable tags such as `ui-web-v0.2.19`, plu
    node scripts/overlay/syncOverlayStrings.mjs
    node --test scripts/overlay/*.test.mjs
    cd apps/ui && yarn typecheck
-   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/dev/vitestOriginGuard.test.ts sources/dev/testkit/mocks/mockFactories.test.ts sources/sync/ops/sessions.permissionDeny.test.ts sources/sync/ops/__tests__/sessionAbort.test.ts
+   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/dev/vitestOriginGuard.test.ts sources/dev/testkit/mocks/mockFactories.test.ts sources/sync/ops/sessions.permissionDeny.test.ts sources/sync/ops/__tests__/sessionAbort.test.ts sources/sync/ops/sessions.permissionResult.test.ts
+   cd ../../packages/tests && yarn typecheck
+   node --test src/testkit/deskTest/originGuard.test.mjs
    ```
 
 4. Open a draft PR into `overlay` and try `/desk` in the browser before merging.
@@ -83,7 +85,7 @@ Without an auto-compact value, the bars measure against the model's context wind
 
 Everything else the overlay adds lives in the new files listed under "Where the overlay lives", so it can't
 conflict with upstream. These upstream files are edited and are where a merge can conflict. From
-`node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (18 files), plus the 8 the desk test harness edits:
+`node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (19 files), plus the 8 the desk test harness edits:
 
 | File | Why |
 |---|---|
@@ -101,5 +103,6 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `packages/tests/src/testkit/syntheticAgent/syntheticAgent.ts` | The synthetic agent can run a plain-mode session and send `update-state` (agentState plus the activity summary the server counts requests from). |
 | `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
+| `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.
