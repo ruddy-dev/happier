@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { renderHook, standardCleanup } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import type { ScmStatus, Session } from '@/sync/domains/state/storageTypes';
 
@@ -92,6 +93,24 @@ describe('useIssueKeys', () => {
             storage.getState().applySessions([worker('w1', { tag: 'ATR-6-build', version: 2 })]);
         });
         expect(dedupe(seen)).toEqual([null, 'ATR-6']);
+    });
+
+    it('A4 a tag on a full record that loads after its list row moves the worker', async () => {
+        // Cold load: the sidebar's row arrives first, and it carries no tag.
+        act(() => {
+            storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(worker('w1'))]);
+            storage.getState().applyReady();
+        });
+        const { hook } = await renderKeys();
+        expect(hook.getCurrent().get('w1')).toBeNull();
+        const row = storage.getState().sessionListRenderables.w1;
+
+        await act(async () => {
+            storage.getState().applySessions([worker('w1', { tag: 'ATR-6-build' })]);
+        });
+        // Only the full record changed, not the row, so the key has to follow the record.
+        expect(storage.getState().sessionListRenderables.w1).toBe(row);
+        expect(hook.getCurrent().get('w1')).toBe('ATR-6');
     });
 
     it('N3 same repo and branch, different tags, two issues', async () => {
