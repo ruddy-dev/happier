@@ -31,6 +31,7 @@ const executeSessionComposerResolutionMock = vi.hoisted(() => vi.fn());
 const modalAlertSpy = vi.hoisted(() => vi.fn());
 const resolveSessionComposerSendMock = vi.hoisted(() => vi.fn(() => ({ kind: 'noop' })));
 const sessionAbortMock = vi.hoisted(() => vi.fn());
+const inactiveUiState = vi.hoisted(() => ({ shouldShowInput: true }));
 
 installSessionShellCommonModuleMocks({
   featureEnabled: () => ({
@@ -223,7 +224,7 @@ vi.mock('@/hooks/session/useDraft', () => ({
   }),
 }));
 vi.mock('@/components/sessions/model/inactiveSessionUi', () => ({
-  getInactiveSessionUiState: () => ({ noticeKind: 'none', inactiveStatusTextKey: null, shouldShowInput: true }),
+  getInactiveSessionUiState: () => ({ noticeKind: 'none', inactiveStatusTextKey: null, shouldShowInput: inactiveUiState.shouldShowInput }),
 }));
 vi.mock('@/components/sessions/model/resolveSessionMachineReachability', () => ({
   resolveSessionMachineReachability: () => true,
@@ -400,6 +401,7 @@ describe('SessionView composer seam', () => {
     resolveSessionComposerSendMock.mockReset();
     resolveSessionComposerSendMock.mockImplementation(() => ({ kind: 'noop' }));
     sessionAbortMock.mockReset();
+    inactiveUiState.shouldShowInput = true;
   });
 
   it('applies the seam placeholder, chips, badges and trailing actions after Happier ones', async () => {
@@ -467,6 +469,18 @@ describe('SessionView composer seam', () => {
       expect(requestComposerText('s1', 'Brief me', { focus: true })).toBe(false);
     });
     expect(view.agentInput().props.value).not.toBe('Brief me');
+    expect(requestComposerFocus('s1')).toBe(false);
+    expect(readComposerText('s1')).toBeNull();
+  });
+
+  it('refuses composer requests while the composer is hidden', async () => {
+    // An inactive session that can't be resumed hides its composer.
+    inactiveUiState.shouldShowInput = false;
+    await renderSessionView();
+
+    await renderer.act(async () => {
+      expect(requestComposerText('s1', 'Brief me', { focus: true })).toBe(false);
+    });
     expect(requestComposerFocus('s1')).toBe(false);
     expect(readComposerText('s1')).toBeNull();
   });
