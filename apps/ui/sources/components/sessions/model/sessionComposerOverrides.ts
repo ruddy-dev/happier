@@ -28,7 +28,8 @@ export type SessionViewComposerOverrides = Readonly<{
 export type ComposerBase = Readonly<{
     isReadOnly: boolean;
     placeholder: string;
-    extraActionChips: ReadonlyArray<AgentInputExtraActionChip>;
+    /** SessionView passes undefined when it has no chips; that is kept as is. */
+    extraActionChips: ReadonlyArray<AgentInputExtraActionChip> | undefined;
     statusBadges: ReadonlyArray<AgentInputStatusBadge>;
     providerUsageGauge: ConnectedServiceQuotaGaugeViewModel | null | undefined;
     onMicPress: (() => void) | undefined;
@@ -42,9 +43,12 @@ export type ResolvedComposer = Omit<ComposerBase, 'isReadOnly'> & Readonly<{
     hideContextUsage: boolean;
 }>;
 
-function useAppended<T>(base: ReadonlyArray<T>, extra: ReadonlyArray<T> | undefined): ReadonlyArray<T> {
+function useAppended<Base extends ReadonlyArray<unknown> | undefined>(
+    base: Base,
+    extra: Base | undefined,
+): Base {
     return React.useMemo(
-        () => (extra && extra.length > 0 ? [...base, ...extra] : base),
+        () => (extra && extra.length > 0 ? ([...(base ?? []), ...extra] as unknown as Base) : base),
         [base, extra],
     );
 }

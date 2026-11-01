@@ -57,6 +57,13 @@ describe('useSessionComposerOverrides', () => {
         expect(hook.getCurrent().statusBadges).toEqual([happierBadge, seamBadge]);
     });
 
+    it('keeps undefined chips undefined and still appends seam chips to them', async () => {
+        const base = buildBase({ extraActionChips: undefined });
+
+        expect((await renderComposer({ base, overrides: {} })).getCurrent().extraActionChips).toBeUndefined();
+        expect((await renderComposer({ base, overrides: { extraActionChips: [seamChip] } })).getCurrent().extraActionChips).toEqual([seamChip]);
+    });
+
     it('seam placeholder replaces the default', async () => {
         const hook = await renderComposer({ base: buildBase(), overrides: { placeholder: 'Brief the desk' } });
 
