@@ -9,20 +9,24 @@ import { type CustomModalInjectedProps } from '@/modal';
 import { useModalCardChrome } from '@/modal/components/card/useModalCardChrome';
 import { t } from '@/text';
 
-import { useWaitingCount } from '../model/useDeskWaits';
+import { useDeskWaits } from '../model/useDeskWaits';
 import { WaitingPanel } from './WaitingPanel';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () => void }) {
     const { theme } = useUnistyles();
-    const count = useWaitingCount();
-    const waiting = count > 0;
+    const { count, ready } = useDeskWaits();
+    const waiting = ready && count > 0;
+    // Before the first sync the count is not known yet; 0 would say nothing waits (F4).
+    const label = open
+        ? (ready ? t('ignorePrevious.closeApprovals', { count }) : t('ignorePrevious.closeApprovalsConnecting'))
+        : (ready ? t('ignorePrevious.openApprovals', { count }) : t('ignorePrevious.openApprovalsConnecting'));
     return (
         <Pressable
             testID="ip-approvals-open"
             accessibilityRole="button"
             accessibilityState={{ expanded: open }}
-            accessibilityLabel={open ? t('ignorePrevious.closeApprovals', { count }) : t('ignorePrevious.openApprovals', { count })}
+            accessibilityLabel={label}
             onPress={onPress}
             hitSlop={6}
             style={{
@@ -39,7 +43,7 @@ export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () 
         >
             <Text style={{ color: theme.colors.text.primary, fontSize: 13 }}>{t('ignorePrevious.title')}</Text>
             <Text testID="ip-approvals-count" style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.default('semiBold') }}>
-                {count}
+                {ready ? count : '–'}
             </Text>
         </Pressable>
     );

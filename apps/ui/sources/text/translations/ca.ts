@@ -10740,6 +10740,8 @@ settingsSession: {
         expandWork: 'Show Work',
         openApprovals: ({ count }: { count: number }) => `Show what waits on you, ${count}`,
         closeApprovals: ({ count }: { count: number }) => `Hide what waits on you, ${count}`,
+        openApprovalsConnecting: 'Show what waits on you, connecting',
+        closeApprovalsConnecting: 'Hide what waits on you, connecting',
         nothingWaits: 'Nothing waits on you.',
         connecting: 'Connecting…',
         shogTitle: 'Shog',

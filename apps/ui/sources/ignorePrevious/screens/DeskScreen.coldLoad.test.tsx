@@ -84,6 +84,19 @@ describe('DeskScreen cold load (F4)', () => {
         expect(scenario.screen.findByTestId('ip-waiting-empty')).toBeFalsy();
     });
 
+    it('A2: before the first sync the approvals badge shows no count and its label does not say 0', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
+        const badge = () => scenario!.screen.findByTestId('ip-approvals-open');
+        expect(scenario.textOf('ip-approvals-count')).toBe('–');
+        expect(badge()?.props.accessibilityLabel).not.toMatch(/\b0\b/);
+        expect(badge()?.props.accessibilityLabel).toContain('connecting');
+
+        // After the first sync it counts again, as before.
+        await scenario.ready();
+        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(badge()?.props.accessibilityLabel).toBe('Show what waits on you, 1');
+    });
+
     it('F4: after ready() the Work counts are numbers again and Connecting… is gone', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
         await scenario.openApprovals();
