@@ -948,4 +948,30 @@ describe('UI testkit mock factories', () => {
         reduced = true;
         expect(moduleMock.useReducedMotionPreference()).toBe(true);
     });
+
+    it('HARNESS-syncStub: default shape covers the members the migrated tests use', async () => {
+        const { createSyncModuleStub, installSyncStub } = await import('./sync');
+
+        const { sync } = createSyncModuleStub();
+        expect(sync.encryption.getSessionEncryption('s1')).toBeNull();
+        expect(sync.encryption.getMachineEncryption('m1')).toBeNull();
+        await expect(sync.publishSessionPermissionModeToMetadata({ sessionId: 's1', permissionMode: 'default' } as never)).resolves.toBeUndefined();
+        await expect(sync.patchSessionMetadataWithRetry('s1', (metadata) => metadata)).resolves.toBeUndefined();
+        expect(vi.isMockFunction(sync.publishSessionPermissionModeToMetadata)).toBe(true);
+        expect(vi.isMockFunction(sync.patchSessionMetadataWithRetry)).toBe(true);
+
+        // Each call builds fresh spies, so one test file's calls never show up in another's stub.
+        expect(installSyncStub()().sync.patchSessionMetadataWithRetry).not.toBe(sync.patchSessionMetadataWithRetry);
+    });
+
+    it('HARNESS-syncStub: an override replaces one member and keeps the rest', async () => {
+        const { installSyncStub } = await import('./sync');
+        const publish = vi.fn(async () => undefined);
+
+        const { sync } = installSyncStub({ publishSessionPermissionModeToMetadata: publish })();
+
+        expect(sync.publishSessionPermissionModeToMetadata).toBe(publish);
+        expect(vi.isMockFunction(sync.patchSessionMetadataWithRetry)).toBe(true);
+        expect(sync.encryption.getSessionEncryption('s1')).toBeNull();
+    });
 });
