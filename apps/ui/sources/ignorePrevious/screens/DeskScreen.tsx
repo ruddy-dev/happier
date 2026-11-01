@@ -2,21 +2,34 @@ import * as React from 'react';
 import { Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
+import { AppPaneScopeHost } from '@/components/appShell/panes/AppPaneScopeHost';
+import { useAppPaneScope } from '@/components/appShell/panes/hooks/useAppPaneScope';
+import { canLayoutHostSessionPane } from '@/components/sessions/panes/open/sessionOpenTarget';
+import { useSessionOpenLayout } from '@/components/sessions/panes/open/useSessionOpenLayout';
 import { Icon, type IconName } from '@/components/ui/icons/Icon';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
+import { Modal } from '@/modal';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { useAllSessions } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 
 import { CoordinatorPane } from '../components/CoordinatorPane';
-import { WaitingPanel } from '../components/WaitingPanel';
+import { ApprovalsButton, ApprovalsCard, ApprovalsDrawer } from '../components/Approvals';
 import { WorkColumn } from '../components/WorkColumn';
-import { getDeskMinimised, getStoredCoordinatorId, setDeskMinimised, setStoredCoordinatorId } from '../deskPrefs';
+import {
+    getApprovalsOpen,
+    getStoredCoordinatorId,
+    getWorkCollapsed,
+    setApprovalsOpen,
+    setStoredCoordinatorId,
+    setWorkCollapsed,
+} from '../deskPrefs';
 import { pickCoordinatorSessionId } from '../model/coordinator';
 
 const WIDE = 1100;
+const SCOPE_ID = 'ignorePrevious:desk';
 const COORDINATOR_PATH = process.env.EXPO_PUBLIC_IP_COORDINATOR_PATH ?? null;
 
 function CoordinatorPicker({ sessions, onPick }: { sessions: readonly Session[]; onPick: (id: string) => void }) {
@@ -36,6 +49,7 @@ function CoordinatorPicker({ sessions, onPick }: { sessions: readonly Session[];
             {choices.map((session) => (
                 <Pressable
                     key={session.id}
+                    testID={`ip-pick-${session.id}`}
                     accessibilityRole="button"
                     onPress={() => onPick(session.id)}
                     style={{ padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface.elevated }}
@@ -58,7 +72,7 @@ function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: I
             accessibilityLabel={label}
             onPress={onPress}
             hitSlop={8}
-            style={{ padding: 6, borderRadius: 8, alignSelf: 'flex-end' }}
+            style={{ padding: 6, borderRadius: 8 }}
         >
             <Icon name={icon} size={20} color={theme.colors.text.secondary} />
         </Pressable>
@@ -66,19 +80,52 @@ function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: I
 }
 
 /**
- * The Ignore Previous desk: the coordinator's chat, what waits on you, and the work by issue.
- * Two columns when wide; stacked as Waiting, Coordinator, Work when narrow. Minimised, the
- * Waiting and Work panels shrink to a thin rail of faces and the coordinator gets the room.
+ * The approvals drawer's open state. Happier's pane state lives in memory, so the last choice is
+ * kept in deskPrefs: restored with an in-memory pane open on mount, and saved whenever the drawer
+ * opens or closes, including when the pane host closes it (the phone overlay's backdrop).
+ */
+function useApprovalsDrawer() {
+    const { scopeState, openRight, closeRight } = useAppPaneScope(SCOPE_ID);
+    // Where no pane can be drawn (a phone, or multi-pane switched off) the list opens as a card
+    // instead, and the stored choice waits for a layout that has room for the drawer.
+    const canDraw = canLayoutHostSessionPane(useSessionOpenLayout(), 'right');
+    const open = canDraw && Boolean(scopeState?.right.isOpen);
+
+    React.useEffect(() => {
+        if (canDraw && getApprovalsOpen()) openRight();
+    }, [canDraw, openRight]);
+
+    const previous = React.useRef(open);
+    React.useEffect(() => {
+        if (previous.current === open) return;
+        previous.current = open;
+        if (canDraw && getApprovalsOpen() !== open) setApprovalsOpen(open);
+    }, [open, canDraw]);
+
+    const toggle = React.useCallback(() => {
+        if (!canDraw) Modal.show({ component: ApprovalsCard });
+        else if (open) closeRight();
+        else openRight();
+    }, [canDraw, open, openRight, closeRight]);
+    return { open, toggle, close: closeRight };
+}
+
+/**
+ * The Ignore Previous desk: the coordinator's chat in the middle, the work by issue beside it
+ * (left when wide, above when narrow) and what waits on you in a drawer on the right. The Work
+ * panel collapses to a rail of issue keys and states; both choices survive a reload.
  */
 export function DeskScreen() {
+    const { theme } = useUnistyles();
     const { width, height } = useWindowDimensions();
     const sessions = useAllSessions();
     const [storedId, setStoredId] = React.useState(getStoredCoordinatorId);
-    const [minimised, setMinimised] = React.useState(getDeskMinimised);
-    const setPanels = React.useCallback((next: boolean) => {
-        setDeskMinimised(next);
-        setMinimised(next);
+    const [workCollapsed, setCollapsed] = React.useState(getWorkCollapsed);
+    const collapseWork = React.useCallback((next: boolean) => {
+        setWorkCollapsed(next);
+        setCollapsed(next);
     }, []);
+    const approvals = useApprovalsDrawer();
 
     const coordinatorId = React.useMemo(
         () =>
@@ -100,71 +147,80 @@ export function DeskScreen() {
         setStoredId(id);
     }, []);
 
+    const approvalsButton = <ApprovalsButton open={approvals.open} onPress={approvals.toggle} />;
     const coordinator = coordinatorId ? (
-        <CoordinatorPane sessionId={coordinatorId} />
+        <CoordinatorPane sessionId={coordinatorId} headerAccessory={approvalsButton} />
     ) : (
-        <CoordinatorPicker sessions={sessions} onPick={pick} />
+        <ScrollView contentContainerStyle={{ gap: 8 }}>
+            <View style={{ alignSelf: 'flex-end', padding: 12 }}>{approvalsButton}</View>
+            <CoordinatorPicker sessions={sessions} onPick={pick} />
+        </ScrollView>
     );
 
     const wide = width >= WIDE;
-    const minimise = (
+    const collapse = (
         <PanelToggle
-            testID="ip-desk-minimise"
-            icon={wide ? 'sidebar-right-close' : 'caret-up'}
-            label={t('ignorePrevious.minimise')}
-            onPress={() => setPanels(true)}
+            testID="ip-work-collapse"
+            icon={wide ? 'sidebar-left-close' : 'caret-up'}
+            label={t('ignorePrevious.collapseWork')}
+            onPress={() => collapseWork(true)}
         />
     );
     const expand = (
         <PanelToggle
-            testID="ip-desk-expand"
-            icon={wide ? 'sidebar-right-open' : 'caret-down'}
-            label={t('ignorePrevious.expand')}
-            onPress={() => setPanels(false)}
+            testID="ip-work-expand"
+            icon={wide ? 'sidebar-left-open' : 'caret-down'}
+            label={t('ignorePrevious.expandWork')}
+            onPress={() => collapseWork(false)}
         />
     );
+    const divider = wide
+        ? { borderRightWidth: 1, borderRightColor: theme.colors.border.default }
+        : { borderBottomWidth: 1, borderBottomColor: theme.colors.border.default };
 
+    let work: React.ReactNode;
     if (wide) {
-        return (
-            <View style={{ flex: 1, flexDirection: 'row', gap: 16, padding: 16 }}>
-                <View style={{ flex: 3 }}>{coordinator}</View>
-                {minimised ? (
-                    <ScrollView style={{ width: 64, flexGrow: 0 }} contentContainerStyle={{ alignItems: 'center', gap: 16 }}>
-                        {expand}
-                        <WaitingPanel compact />
-                        <WorkColumn compact="column" />
-                    </ScrollView>
-                ) : (
-                    <ScrollView style={{ flex: 2 }} contentContainerStyle={{ gap: 20 }}>
-                        {minimise}
-                        <WaitingPanel />
-                        <WorkColumn />
-                    </ScrollView>
-                )}
+        work = workCollapsed ? (
+            <ScrollView
+                testID="ip-work-rail"
+                style={{ width: 104, flexGrow: 0, ...divider }}
+                contentContainerStyle={{ gap: 12, padding: 12 }}
+            >
+                {expand}
+                <WorkColumn compact="column" />
+            </ScrollView>
+        ) : (
+            <ScrollView testID="ip-work" style={{ width: 360, flexGrow: 0, ...divider }} contentContainerStyle={{ gap: 8, padding: 16 }}>
+                <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
+                <WorkColumn />
+            </ScrollView>
+        );
+    } else {
+        work = workCollapsed ? (
+            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, ...divider }}>
+                <ScrollView horizontal style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center' }}>
+                    <WorkColumn compact="row" />
+                </ScrollView>
+                {expand}
             </View>
+        ) : (
+            <ScrollView
+                testID="ip-work"
+                style={{ maxHeight: Math.round(height * 0.45), flexGrow: 0, ...divider }}
+                contentContainerStyle={{ gap: 8, padding: 12 }}
+            >
+                <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
+                <WorkColumn />
+            </ScrollView>
         );
     }
-    if (minimised) {
-        return (
-            <View style={{ flex: 1, gap: 8, padding: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <WaitingPanel compact />
-                    <View style={{ flex: 1 }}>
-                        <WorkColumn compact="row" />
-                    </View>
-                    {expand}
-                </View>
-                <View style={{ flex: 1 }}>{coordinator}</View>
-            </View>
-        );
-    }
-    return (
-        <ScrollView contentContainerStyle={{ gap: 20, padding: 12 }}>
-            {minimise}
-            <WaitingPanel />
-            {/* The chat is a virtualised list, so inside a scroll view it needs a real height. */}
-            <View style={{ height: Math.max(480, Math.round(height * 0.8)) }}>{coordinator}</View>
-            <WorkColumn />
-        </ScrollView>
+
+    const main = (
+        <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
+            {work}
+            <View style={{ flex: 1 }}>{coordinator}</View>
+        </View>
     );
+
+    return <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} />} />;
 }

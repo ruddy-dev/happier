@@ -39,7 +39,7 @@ describe('IssueCard', () => {
         expect(screen.getTextContent()).toContain('ATR-6');
         expect(screen.getTextContent()).toContain('Builder');
         expect(screen.getTextContent()).not.toContain('Reviewer');
-        expect(screen.findByTestId('ip-bulb-turn')).toBeTruthy();
+        expect(screen.findByTestId('ip-bulb-dot-turn')).toBeTruthy();
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'ATR-6')!);
         expect(onToggle).toHaveBeenCalledTimes(1);
     });

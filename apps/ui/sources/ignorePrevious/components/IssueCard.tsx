@@ -9,7 +9,7 @@ import { t } from '@/text';
 
 import type { IssueGroup } from '../model/groupWorkers';
 import { bulbColour, useIpColours } from '../palette';
-import { MaskFace } from './MaskFace';
+import { BulbLabel } from './BulbLabel';
 
 export type IssueCardProps = Readonly<{
     group: IssueGroup;
@@ -18,8 +18,8 @@ export type IssueCardProps = Readonly<{
 }>;
 
 /**
- * One issue in the Work column. Folded, it is a mask face whose bulb shows the most urgent worker,
- * with the issue key and the newest worker's title. Open, it lists every worker on that issue.
+ * One issue in the Work column. Folded, it shows the issue key, the most urgent worker's state as a
+ * bulb dot and word, and the newest worker's title. Open, it lists every worker on that issue.
  */
 export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }: IssueCardProps) {
     const { theme } = useUnistyles();
@@ -47,11 +47,11 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                 onPress={onToggle}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
             >
-                <MaskFace size={40} bulb={group.bulb} sleepy={group.bulb !== 'turn'} />
                 <View style={{ flexShrink: 1, gap: 2 }}>
                     <Text style={{ color: theme.colors.text.primary, fontSize: 15, ...Typography.default('semiBold') }}>
                         {label}
                     </Text>
+                    <BulbLabel bulb={group.bulb} />
                     {open || !newest ? null : (
                         <Text style={secondary} numberOfLines={1}>
                             {newest.title}

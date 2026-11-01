@@ -18,7 +18,6 @@ import {
 } from '@/utils/sessions/sessionUtils';
 
 import { toWaitingItems, type WaitingItem } from '../model/waitingItems';
-import { MaskFace } from './MaskFace';
 
 /** A session that says it is waiting on you, but whose requests live in a transcript not loaded here. */
 type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string }>;
@@ -41,11 +40,22 @@ export function collectWaits(sessions: readonly Session[]): { items: WaitingItem
     return { items: toWaitingItems(input), unloaded };
 }
 
+/** How many things wait on you across your sessions: the count on the desk's approvals button. */
+export function useWaitingCount(): number {
+    const sessions = useAllSessions();
+    return React.useMemo(() => {
+        const { items, unloaded } = collectWaits(sessions);
+        return items.length + unloaded.length;
+    }, [sessions]);
+}
+
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
- * answer in their session. Renders nothing when nothing waits. Approving here is the same call the session's own footer makes.
+ * answer in their session. The body of the desk's approvals drawer, which carries the title.
+ * Approving here is the same call the session's own footer makes. `onOpenSession` runs after it
+ * opens a session, so a card holding the panel can get out of the way.
  */
-export function WaitingPanel({ compact = false }: { compact?: boolean }) {
+export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } = {}) {
     const sessions = useAllSessions();
     const { items, unloaded } = React.useMemo(() => collectWaits(sessions), [sessions]);
     const { theme } = useUnistyles();
@@ -71,30 +81,24 @@ export function WaitingPanel({ compact = false }: { compact?: boolean }) {
     const secondary = { color: theme.colors.text.secondary, fontSize: 13 };
 
     const openButton = (sessionId: string) => (
-        <Pressable accessibilityRole="button" style={buttonStyle} onPress={() => void navigateToSession(sessionId)}>
+        <Pressable accessibilityRole="button" style={buttonStyle} onPress={() => {
+            void navigateToSession(sessionId);
+            onOpenSession?.();
+        }}>
             <Text style={buttonText}>{t('ignorePrevious.openSession')}</Text>
         </Pressable>
     );
 
-    // Folds away when nothing waits: the Work counts and the coordinator's bulb already say so.
-    if (items.length === 0 && unloaded.length === 0) return null;
-
-    if (compact) {
+    if (items.length === 0 && unloaded.length === 0) {
         return (
-            <View accessible accessibilityLabel={t('ignorePrevious.title')} style={{ alignItems: 'center', gap: 2 }}>
-                <MaskFace size={32} bulb="turn" sleepy={false} />
-                <Text testID="ip-rail-waiting" style={{ color: theme.colors.text.primary, fontSize: 15, ...Typography.default('semiBold') }}>
-                    {items.length + unloaded.length}
-                </Text>
-            </View>
+            <Text testID="ip-waiting-empty" style={secondary}>
+                {t('ignorePrevious.nothingWaits')}
+            </Text>
         );
     }
 
     return (
         <View testID="ip-waiting" style={{ gap: 12 }}>
-            <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
-                {t('ignorePrevious.title')}
-            </Text>
             {items.map((item) => (
                 <View
                     key={item.key}
