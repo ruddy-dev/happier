@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs a desk test command with an environment that cannot reach the developer's own Happier:
 //   node packages/tests/scripts/desk-env.mjs -- <command> [args...]
-// It drops HAPPIER_* and EXPO_PUBLIC_* (keeping the HAPPIER_E2E_* test switches), gives the run a
+// It drops HAPPIER_*, HAPPY_* and EXPO_PUBLIC_* (keeping the HAPPIER_E2E_* and HAPPY_E2E_* test switches), gives the run a
 // fresh HAPPIER_HOME_DIR, and stops the UI export from falling back to a running Metro server.
 // startUiWeb and startServerLight pass process.env to their children, so this is the one place
 // the scrub happens.

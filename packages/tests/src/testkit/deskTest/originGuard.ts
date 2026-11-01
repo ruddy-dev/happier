@@ -68,8 +68,8 @@ export function isAllowedOrigin(url: string, allowed: readonly string[]): boolea
  */
 const SCRUBBED_PREFIXES = [/^HAPPIER_/, /^HAPPY_/, /^EXPO_PUBLIC_/];
 
-/** Test switches survive the scrub; they configure the harness, not the app. */
-export const DESK_ENV_KEEP: readonly RegExp[] = [/^HAPPIER_E2E_/];
+/** Test switches (`HAPPIER_E2E_*` and their older `HAPPY_E2E_*` aliases) survive the scrub; they configure the harness, not the app. */
+export const DESK_ENV_KEEP: readonly RegExp[] = [/^HAPPIER_E2E_/, /^HAPPY_E2E_/];
 
 /** A copy of `env` without `HAPPIER_*`, `HAPPY_*` and `EXPO_PUBLIC_*`, except names matching `keep`. */
 export function scrubEnv(env: NodeJS.ProcessEnv, keep: readonly RegExp[]): NodeJS.ProcessEnv {

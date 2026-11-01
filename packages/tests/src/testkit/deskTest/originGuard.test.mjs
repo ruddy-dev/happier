@@ -44,11 +44,12 @@ test('GUARD-env: the scrub removes app settings and keeps test switches and the 
       HAPPY_SERVER_URL: 'z',
       EXPO_PUBLIC_API: 'y',
       HAPPIER_E2E_PROVIDER_USE_SERVER_SOURCE_ENTRYPOINT: '1',
+      HAPPY_E2E_SAVE_ARTIFACTS: '1',
       PATH: '/bin',
     },
     DESK_ENV_KEEP,
   );
-  assert.deepEqual(env, { HAPPIER_E2E_PROVIDER_USE_SERVER_SOURCE_ENTRYPOINT: '1', PATH: '/bin' });
+  assert.deepEqual(env, { HAPPIER_E2E_PROVIDER_USE_SERVER_SOURCE_ENTRYPOINT: '1', HAPPY_E2E_SAVE_ARTIFACTS: '1', PATH: '/bin' });
 });
 
 test('GUARD-port: a server on 3005 is refused before it starts', () => {
