@@ -227,7 +227,8 @@ describe('DeskScreen', () => {
         // The coordinator's own record is fetched, and the chat is told it is on its way rather than gone.
         expect(state.hydrated).toContain('s1');
         expect(screen.findByTestId('session-view-s1')?.props.accessibilityHint).toBe('loading');
-        expect(screen.findByTestId('ip-count-all')?.props.children).toBe(2);
+        // s1 is the coordinator, so only s2 counts as a worker (L1).
+        expect(screen.findByTestId('ip-count-all')?.props.children).toBe(1);
         // s2's request lives in a record not loaded yet, so it counts as one thing to look at.
         expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe(1);
     });

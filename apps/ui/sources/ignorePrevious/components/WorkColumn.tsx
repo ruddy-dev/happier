@@ -11,6 +11,7 @@ import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState 
 
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
+import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskNow } from '../model/useDeskNow';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { bulbColour, useIpColours } from '../palette';
@@ -87,8 +88,15 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
 export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     const { theme } = useUnistyles();
     const desk = useDeskSessions();
-    const { list: live, lookup, ready } = desk;
-    const issueKeys = useIssueKeys(desk);
+    const { lookup, ready } = desk;
+    // The coordinator is the chat beside this panel, not a worker: it gets no row, tile or card (L1).
+    const coordinatorId = useCoordinatorId(desk.list);
+    const live = React.useMemo(
+        () => (coordinatorId ? desk.list.filter((row) => row.id !== coordinatorId) : desk.list),
+        [desk.list, coordinatorId],
+    );
+    const workers = React.useMemo(() => ({ ...desk, list: live }), [desk, live]);
+    const issueKeys = useIssueKeys(workers);
     const [details, setDetails] = React.useState(false);
     const [openKeys, setOpenKeys] = React.useState<ReadonlySet<string>>(() => new Set());
 
