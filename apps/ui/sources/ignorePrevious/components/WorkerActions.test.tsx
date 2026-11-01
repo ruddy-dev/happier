@@ -33,9 +33,10 @@ vi.mock('@/sync/ops', async (importOriginal) => {
 });
 
 // Publishing the mode to the session's metadata is the network write; the store stays real.
-vi.mock('@/sync/sync', () => ({
-    sync: { publishSessionPermissionModeToMetadata: (params: unknown) => state.publish(params) },
-}));
+vi.mock('@/sync/sync', async () => {
+    const { installSyncStub } = await import('@/dev/testkit/mocks/sync');
+    return installSyncStub({ publishSessionPermissionModeToMetadata: state.publish as never })();
+});
 
 vi.mock('@/modal', async () => {
     const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');

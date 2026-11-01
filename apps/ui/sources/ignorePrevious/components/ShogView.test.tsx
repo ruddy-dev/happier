@@ -2,42 +2,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react-test-renderer';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
-import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+const state = vi.hoisted(() => ({ reducedMotion: false }));
+
+/** Loads sessions into the real store the way the first sync does. */
 function seed(sessions: Session[]) {
-    state.sessions = sessions;
-    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+    act(() => {
+        if (sessions.length > 0) storage.getState().applySessions(sessions);
+        storage.getState().applyReady();
+    });
 }
 
-const state = vi.hoisted(() => ({ sessions: [] as unknown[], list: [] as unknown[], reducedMotion: false }));
-
-vi.mock('@/sync/store/hooks', async (importOriginal) => {
-    const { createStoreHooksModuleMock } = await import('@/dev/testkit/mocks/storage');
-    return createStoreHooksModuleMock({
-        importOriginal,
-        overrides: {
-            useAllSessions: (() => state.sessions) as never,
-            useAllSessionListRenderables: (() => state.list) as never,
-        },
-    });
+// The OS reduced-motion setting is a host boundary.
+vi.mock('@/hooks/ui/useReducedMotionPreference', async () => {
+    const { installReducedMotionMock } = await import('@/dev/testkit/mocks/reducedMotion');
+    return installReducedMotionMock(() => state.reducedMotion)();
 });
 
-// The OS reduced-motion setting is a host boundary.
-vi.mock('@/hooks/ui/useReducedMotionPreference', () => ({
-    useReducedMotionPreference: () => state.reducedMotion,
-}));
-
-function waitingSession(id: string): Session {
+function waitingSession(id: string, version = 1): Session {
     const request = { tool: 'Bash', arguments: { command: 'ls' }, createdAt: 1 };
     return createSessionFixture({
         id,
         active: true,
         updatedAt: 10,
         agentState: { requests: { [`r-${id}`]: request } } as unknown as Session['agentState'],
+        agentStateVersion: version,
     });
 }
 
@@ -55,12 +48,14 @@ function redEyes(screen: Awaited<ReturnType<typeof renderShog>>): number {
 }
 
 describe('ShogView', () => {
+    let previousState: ReturnType<typeof storage.getState>;
     beforeEach(() => {
+        previousState = storage.getState();
         vi.useFakeTimers();
-        seed([]);
         state.reducedMotion = false;
     });
     afterEach(() => {
+        storage.setState(previousState, true);
         vi.useRealTimers();
     });
 
@@ -109,5 +104,15 @@ describe('ShogView', () => {
         seed(Array.from({ length: 11 }, (_, i) => waitingSession(`s${i}`)));
         screen = await renderShog();
         expect(redEyes(screen)).toBe(8);
+    });
+
+    it('opens another red eye when a request arrives while it is showing', async () => {
+        seed([createSessionFixture({ id: 'a', active: true, updatedAt: 10 })]);
+        const screen = await renderShog();
+        expect(redEyes(screen)).toBe(0);
+        act(() => {
+            storage.getState().applySessions([waitingSession('a', 2)]);
+        });
+        expect(redEyes(screen)).toBe(1);
     });
 });

@@ -11,6 +11,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | Theme profile | `apps/ui/sources/theme/profiles/ignorePreviousThemeProfile.ts` (new), registered in two upstream files |
 | Strings | an `ignorePrevious: { … }` block at the end of every locale in `apps/ui/sources/text/translations/` |
 | Upkeep tooling | `scripts/overlay/` (new) |
+| Desk test harness | `apps/ui/sources/ignorePrevious/testkit/` (scenario driver and JSON scripts); in the UI testkit, `mocks/reducedMotion.ts` and `mocks/sync.ts`; `apps/ui/sources/dev/vitestOriginGuard.ts`; in `packages/tests`, `src/testkit/deskTest/`, `scripts/desk-env.mjs` and `suites/core-e2e/permissions.lifecycle.plain.test.ts` (all new) |
 
 ## Branches
 
@@ -55,7 +56,9 @@ Upstream marks stable releases with immutable tags such as `ui-web-v0.2.19`, plu
    node scripts/overlay/syncOverlayStrings.mjs
    node --test scripts/overlay/*.test.mjs
    cd apps/ui && yarn typecheck
-   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/sync/ops/sessions.permissionResult.test.ts
+   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/dev/vitestOriginGuard.test.ts sources/dev/testkit/mocks/mockFactories.test.ts sources/sync/ops/sessions.permissionDeny.test.ts sources/sync/ops/__tests__/sessionAbort.test.ts sources/sync/ops/sessions.permissionResult.test.ts
+   cd ../../packages/tests && yarn typecheck
+   node --test src/testkit/deskTest/originGuard.test.mjs
    ```
 
 4. Open a draft PR into `overlay` and try `/desk` in the browser before merging.
@@ -80,10 +83,9 @@ Without an auto-compact value, the bars measure against the model's context wind
 
 ## Patched upstream files
 
-Everything else the overlay adds lives in new files under `apps/ui/sources/ignorePrevious/`, the `/desk` route,
-`ignorePreviousThemeProfile.ts` and `scripts/overlay/`, so it can't conflict with upstream. These upstream files
-are edited and are where a merge can conflict. From `node scripts/overlay/upstreamCheck.mjs` against
-`ui-web-v0.2.19` (19 files):
+Everything else the overlay adds lives in the new files listed under "Where the overlay lives", so it can't
+conflict with upstream. These upstream files are edited and are where a merge can conflict. From
+`node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (19 files), plus the 8 the desk test harness edits:
 
 | File | Why |
 |---|---|
@@ -94,6 +96,12 @@ are edited and are where a merge can conflict. From `node scripts/overlay/upstre
 | `apps/ui/sources/theme/profiles/builtInThemeProfiles.ts` | Registers the two presets (one per mode, as upstream's pickers only offer a preset in its own mode's slot): the dark one after the dark community presets, the light one at the end. |
 | `apps/ui/sources/theme/profiles/builtInThemeProfiles.test.ts` | Upstream's exact preset-list assertion gains the two ids. |
 | `apps/ui/sources/components/settings/appearance/themeProfiles/themeProfileSettingsScreens.test.tsx` | Upstream's exact list of the theme dropdown's ids gains the two ids. |
+| `apps/ui/sources/dev/vitestSetup.ts` | Installs `vitestOriginGuard`, so no UI unit test can reach the developer's server on port 3005, `*.happier.dev` or `*.ts.net`. The UI can't import from `packages/tests`, so the guard repeats the forbidden list in `packages/tests/src/testkit/deskTest/originGuard.ts`; change both together. |
+| `apps/ui/sources/dev/testkit/index.ts` | Exports the two new mocks. |
+| `apps/ui/sources/dev/testkit/mocks/mockFactories.test.ts` | Covers the two new mocks. |
+| `apps/ui/sources/sync/ops/sessions.permissionDeny.test.ts`, `apps/ui/sources/sync/ops/__tests__/sessionAbort.test.ts` | Use the shared `@/sync/sync` stub instead of their own inline mocks. |
+| `packages/tests/src/testkit/syntheticAgent/syntheticAgent.ts` | The synthetic agent can run a plain-mode session and send `update-state` (agentState plus the activity summary the server counts requests from). |
+| `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
 | `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. |
 

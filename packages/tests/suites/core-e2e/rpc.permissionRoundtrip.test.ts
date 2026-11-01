@@ -38,7 +38,7 @@ describe('core e2e: rpc permission round-trip + reconnect', () => {
     const artifacts = new FailureArtifacts();
     artifacts.json('ui.events.json', () => ui.getEvents());
     artifacts.json('agent.events.json', () => agent.getEvents());
-    const payloads: Array<{ method: string; params: string }> = [];
+    const payloads: Array<{ method: string; params: unknown }> = [];
     artifacts.json('agent.rpc.payloads.json', () => payloads);
 
     let passed = false;

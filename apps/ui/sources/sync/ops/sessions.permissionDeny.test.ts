@@ -12,14 +12,10 @@ vi.mock('@/sync/runtime/orchestration/serverScopedRpc/sessionRpcWithPreferredSes
 }));
 
 // sessions.ts imports sync, which pulls native modules in node/vitest.
-vi.mock('../sync', () => ({
-    sync: {
-        encryption: {
-            getSessionEncryption: () => null,
-            getMachineEncryption: () => null,
-        },
-    },
-}));
+vi.mock('../sync', async () => {
+    const { installSyncStub } = await import('@/dev/testkit/mocks/sync');
+    return installSyncStub()();
+});
 
 import { sessionDeny } from './sessions';
 

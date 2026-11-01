@@ -11,6 +11,10 @@ import { standardCleanup } from './testkit/cleanup/standardCleanup';
 import { disposeUndiciDispatcherForTestTeardown } from './testkit/cleanup/undiciDispatcherCleanup';
 import { createReanimatedModuleMock } from './testkit/mocks/reanimated';
 import { resetReactNativeMmkvStub } from './reactNativeMmkvStub';
+import { installOriginGuard } from './vitestOriginGuard';
+
+// No unit test may reach the developer's own server, hosted Happier or a tailnet host.
+installOriginGuard();
 
 // UI tests should not inherit embedded build-policy gating (set in CI).
 // Clear it by default so feature tests can opt-in explicitly per case.

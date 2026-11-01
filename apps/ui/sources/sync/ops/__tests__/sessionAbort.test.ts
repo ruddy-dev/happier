@@ -10,14 +10,10 @@ vi.mock('../../runtime/orchestration/serverScopedRpc/sessionRpcWithPreferredSess
 
 // ops.ts imports ./sync, which pulls in Expo-native modules in node/vitest.
 // sessionAbort doesn't use sync, so we provide a lightweight mock.
-vi.mock('../../sync', () => ({
-  sync: {
-    encryption: {
-      getSessionEncryption: () => null,
-      getMachineEncryption: () => null,
-    },
-  },
-}));
+vi.mock('../../sync', async () => {
+  const { installSyncStub } = await import('@/dev/testkit/mocks/sync');
+  return installSyncStub()();
+});
 
 import { sessionAbort } from '../../ops';
 import { RPC_ERROR_CODES } from '@happier-dev/protocol/rpc';
