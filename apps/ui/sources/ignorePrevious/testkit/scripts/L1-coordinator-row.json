@@ -1,0 +1,10 @@
+{
+  "id": "L1-coordinator-row",
+  "covers": ["L1"],
+  "sessions": [
+    { "id": "c1", "title": "Coordinator", "path": "/work/coordinator", "role": "coordinator", "initial": { "active": true, "thinking": true } },
+    { "id": "w1", "title": "Fix the login form", "path": "/work/wt/atr-6-login", "role": "worker", "initial": { "active": true, "thinking": true } },
+    { "id": "w2", "title": "Speed up the list", "path": "/work/wt/atr-7-list", "role": "worker", "initial": { "active": true, "thinking": true } }
+  ],
+  "steps": []
+}

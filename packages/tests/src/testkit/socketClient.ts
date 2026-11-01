@@ -6,7 +6,8 @@ import { attachSocketEventCollector, SocketEventCollector, type CapturedEvent } 
 
 export type { CapturedEvent } from './socketEventCollector';
 
-type RpcRequestPayload = { method: string; params: string };
+// `params` is a base64 ciphertext for e2ee sessions and the raw JSON value for plain sessions.
+type RpcRequestPayload = { method: string; params: unknown };
 type RpcRegisterEventPayload = { method?: unknown; error?: unknown };
 type RpcResponseEnvelope = { ok?: unknown; result?: unknown; error?: unknown; errorCode?: unknown };
 
@@ -43,8 +44,8 @@ export class SocketCollector {
     return (await this.socket.timeout(timeoutMs).emitWithAck(event as any, data)) as T;
   }
 
-  onRpcRequest(handler: (data: RpcRequestPayload) => string | Promise<string>): () => void {
-    const listener = async (data: RpcRequestPayload, callback: (response: string) => void) => {
+  onRpcRequest(handler: (data: RpcRequestPayload) => unknown | Promise<unknown>): () => void {
+    const listener = async (data: RpcRequestPayload, callback: (response: unknown) => void) => {
       try {
         const out = await handler(data);
         callback(out);
