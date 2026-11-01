@@ -1,24 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
-import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+let previous: ReturnType<typeof storage.getState>;
+
+/**
+ * Loads sessions into the real store the way the first sync does: list rows and full records.
+ * Each seed starts from the saved store, so a test's own seed replaces the shared one.
+ */
 function seed(sessions: Session[]) {
-    state.sessions = sessions;
-    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
-    // The first sync has finished; before it the panel says Connecting… (F4).
-    storage.getState().applyReady();
+    act(() => {
+        storage.setState(previous, true);
+        storage.getState().applySessions(sessions);
+        // The first sync has finished; before it the panel says Connecting… (F4).
+        storage.getState().applyReady();
+    });
 }
 
 const state = vi.hoisted(() => ({
-    sessions: [] as unknown[],
-    list: [] as unknown[],
     allow: vi.fn(async (..._args: unknown[]) => {}),
     deny: vi.fn(async (..._args: unknown[]) => {}),
     alert: vi.fn(),
@@ -28,17 +32,6 @@ const state = vi.hoisted(() => ({
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
     return createExpoVectorIconsMock();
-});
-
-vi.mock('@/sync/store/hooks', async (importOriginal) => {
-    const { createStoreHooksModuleMock } = await import('@/dev/testkit/mocks/storage');
-    return createStoreHooksModuleMock({
-        importOriginal,
-        overrides: {
-            useAllSessions: (() => state.sessions) as never,
-            useAllSessionListRenderables: (() => state.list) as never,
-        },
-    });
 });
 
 vi.mock('@/sync/ops', () => ({
@@ -77,7 +70,14 @@ function button(screen: Awaited<ReturnType<typeof renderPanel>>, label: string) 
 }
 
 describe('WaitingPanel', () => {
+    afterEach(() => {
+        act(() => {
+            storage.setState(previous, true);
+        });
+    });
+
     beforeEach(() => {
+        previous = storage.getState();
         state.allow.mockReset().mockResolvedValue(undefined);
         state.deny.mockReset().mockResolvedValue(undefined);
         state.alert.mockReset();
