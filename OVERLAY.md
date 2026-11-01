@@ -83,7 +83,7 @@ Without an auto-compact value, the bars measure against the model's context wind
 Everything else the overlay adds lives in new files under `apps/ui/sources/ignorePrevious/`, the `/desk` route,
 `ignorePreviousThemeProfile.ts` and `scripts/overlay/`, so it can't conflict with upstream. These upstream files
 are edited and are where a merge can conflict. From `node scripts/overlay/upstreamCheck.mjs` against
-`ui-web-v0.2.19` (18 files):
+`ui-web-v0.2.19` (19 files):
 
 | File | Why |
 |---|---|
@@ -95,5 +95,6 @@ are edited and are where a merge can conflict. From `node scripts/overlay/upstre
 | `apps/ui/sources/theme/profiles/builtInThemeProfiles.test.ts` | Upstream's exact preset-list assertion gains the two ids. |
 | `apps/ui/sources/components/settings/appearance/themeProfiles/themeProfileSettingsScreens.test.tsx` | Upstream's exact list of the theme dropdown's ids gains the two ids. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
+| `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.
