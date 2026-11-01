@@ -10827,6 +10827,7 @@ settingsSession: {
         coordinator: 'Coordinator',
         coordinatorNickname: 'Shog',
         pickCoordinator: 'Pick the coordinator session',
+        changeCoordinator: 'Change coordinator',
         pickHint: 'Start one with: claude --agent coordinator -n coordinator',
         contextToCompact: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} before auto-compact`,
         contextOfWindow: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} context`,

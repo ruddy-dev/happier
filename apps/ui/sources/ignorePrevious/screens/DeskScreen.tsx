@@ -30,7 +30,16 @@ import { useDeskSessions } from '../useDeskSessions';
 const WIDE = 1100;
 const SCOPE_ID = 'ignorePrevious:desk';
 
-function CoordinatorPicker({ sessions, onPick }: { sessions: readonly SessionListRenderableSession[]; onPick: (id: string) => void }) {
+function CoordinatorPicker({
+    sessions,
+    onPick,
+    onCancel,
+}: {
+    sessions: readonly SessionListRenderableSession[];
+    onPick: (id: string) => void;
+    /** Set while changing an existing coordinator: going back keeps it. */
+    onCancel?: () => void;
+}) {
     const { theme } = useUnistyles();
     const choices = React.useMemo(
         () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -44,11 +53,23 @@ function CoordinatorPicker({ sessions, onPick }: { sessions: readonly SessionLis
             <Text style={{ color: theme.colors.text.secondary, fontSize: 13, ...Typography.mono() }}>
                 {t('ignorePrevious.pickHint')}
             </Text>
+            {onCancel ? (
+                <Pressable
+                    testID="ip-coordinator-change-cancel"
+                    accessibilityRole="button"
+                    accessibilityLabel={t('common.cancel')}
+                    onPress={onCancel}
+                    style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.surface.inset }}
+                >
+                    <Text style={{ color: theme.colors.text.primary, fontSize: 13 }}>{t('common.cancel')}</Text>
+                </Pressable>
+            ) : null}
             {choices.map((session) => (
                 <Pressable
                     key={session.id}
                     testID={`ip-pick-${session.id}`}
                     accessibilityRole="button"
+                    accessibilityLabel={getSessionName(session)}
                     onPress={() => onPick(session.id)}
                     style={{ padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface.elevated }}
                 >
@@ -127,16 +148,40 @@ export function DeskScreen() {
 
     const coordinatorId = useCoordinatorId(sessions);
 
-    // Every desk consumer of the coordinator id hears the stored pick.
-    const pick = React.useCallback((id: string) => setStoredCoordinatorId(id), []);
+    // Not persisted: a reload while choosing shows the stored coordinator again.
+    const [changing, setChanging] = React.useState(false);
+    // Every desk consumer of the coordinator id hears the stored pick. The stored id is never cleared.
+    const pick = React.useCallback((id: string) => {
+        setStoredCoordinatorId(id);
+        setChanging(false);
+    }, []);
 
     const approvalsButton = <ApprovalsButton open={approvals.open} onPress={approvals.toggle} />;
-    const coordinator = coordinatorId ? (
-        <CoordinatorPane sessionId={coordinatorId} headerAccessory={approvalsButton} />
+    const coordinator = coordinatorId && !changing ? (
+        <CoordinatorPane
+            sessionId={coordinatorId}
+            headerAccessory={
+                <>
+                    <PanelToggle
+                        testID="ip-coordinator-change"
+                        icon="arrows-left-right"
+                        label={t('ignorePrevious.changeCoordinator')}
+                        onPress={() => setChanging(true)}
+                    />
+                    {approvalsButton}
+                </>
+            }
+        />
     ) : (
         <ScrollView contentContainerStyle={{ gap: 8 }}>
             <View style={{ alignSelf: 'flex-end', padding: 12 }}>{approvalsButton}</View>
-            {dataReady ? <CoordinatorPicker sessions={sessions} onPick={pick} /> : null}
+            {dataReady ? (
+                <CoordinatorPicker
+                    sessions={sessions}
+                    onPick={pick}
+                    onCancel={coordinatorId ? () => setChanging(false) : undefined}
+                />
+            ) : null}
         </ScrollView>
     );
 
