@@ -1,0 +1,23 @@
+{
+  "id": "W6-unloaded-record",
+  "covers": ["W6"],
+  "sessions": [
+    { "id": "c1", "title": "Coordinator", "path": "/work/coordinator", "role": "coordinator", "initial": { "active": true } },
+    {
+      "id": "w1",
+      "title": "Fix the login form",
+      "path": "/work/wt/atr-6-login",
+      "role": "worker",
+      "listOnly": true,
+      "initial": { "active": true, "pendingPermissionRequestCount": 1, "pendingRequestObservedAt": 0 }
+    }
+  ],
+  "steps": [
+    {
+      "at": 5000,
+      "id": "w1",
+      "hydrate": true,
+      "patch": { "requests": { "r1": { "tool": "Bash", "arguments": { "command": "npm test" } } } }
+    }
+  ]
+}
