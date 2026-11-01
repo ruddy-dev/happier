@@ -11438,6 +11438,7 @@ settingsSession: {
         openApprovals: ({ count }: { count: number }) => `Show what waits on you, ${count}`,
         closeApprovals: ({ count }: { count: number }) => `Hide what waits on you, ${count}`,
         nothingWaits: 'Nothing waits on you.',
+        connecting: 'Connecting…',
         shogTitle: 'Shog',
         openShog: 'Show Shog up close',
         shogCalm: 'All eyes pale: nothing waits on you.',

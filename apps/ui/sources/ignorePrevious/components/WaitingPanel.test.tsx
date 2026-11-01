@@ -3,6 +3,7 @@ import { act } from 'react';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -11,6 +12,8 @@ import type { Session } from '@/sync/domains/state/storageTypes';
 function seed(sessions: Session[]) {
     state.sessions = sessions;
     state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+    // The first sync has finished; before it the panel says Connecting… (F4).
+    storage.getState().applyReady();
 }
 
 const state = vi.hoisted(() => ({

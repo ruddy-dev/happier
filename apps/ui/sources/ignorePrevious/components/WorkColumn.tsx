@@ -49,7 +49,7 @@ function toWorkerRows(
 const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'idle'];
 
 /** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
-function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
+function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolean }) {
     const { theme } = useUnistyles();
     const colours = useIpColours();
     const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, idle: 0 };
@@ -61,7 +61,8 @@ function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
                 testID={`ip-count-${id}`}
                 style={{ color: theme.colors.text.primary, fontSize: 22, ...Typography.default('semiBold') }}
             >
-                {value}
+                {/* Before the first sync a 0 would be a false count, so each tile shows a dash. */}
+                {ready ? value : '–'}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 {dot ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
@@ -86,7 +87,7 @@ function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
 export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     const { theme } = useUnistyles();
     const desk = useDeskSessions();
-    const { list: live, lookup } = desk;
+    const { list: live, lookup, ready } = desk;
     const issueKeys = useIssueKeys(desk);
     const [details, setDetails] = React.useState(false);
     const [openKeys, setOpenKeys] = React.useState<ReadonlySet<string>>(() => new Set());
@@ -153,7 +154,7 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
                     {modeButton(t('ignorePrevious.details'), details, () => setDetails(true))}
                 </View>
             </View>
-            <WorkCounts rows={rows} />
+            <WorkCounts rows={rows} ready={ready} />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {groups.map((group) => {
                     const key = group.issueKey ?? '';

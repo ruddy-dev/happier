@@ -64,7 +64,7 @@ export function useWaitingCount(): number {
  * opens a session, so a card holding the panel can get out of the way.
  */
 export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } = {}) {
-    const { list, lookup } = useDeskSessions();
+    const { list, lookup, ready } = useDeskSessions();
     const { items, unloaded } = React.useMemo(() => collectWaits(list, lookup), [list, lookup]);
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
@@ -96,6 +96,15 @@ export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } =
             <Text style={buttonText}>{t('ignorePrevious.openSession')}</Text>
         </Pressable>
     );
+
+    // Before the first sync the desk doesn't know what waits; saying nothing waits would be false.
+    if (!ready) {
+        return (
+            <Text testID="ip-waiting-connecting" style={secondary}>
+                {t('ignorePrevious.connecting')}
+            </Text>
+        );
+    }
 
     if (items.length === 0 && unloaded.length === 0) {
         return (

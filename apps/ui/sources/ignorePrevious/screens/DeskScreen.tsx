@@ -11,7 +11,6 @@ import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
-import { useIsDataReady } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 
@@ -117,9 +116,8 @@ function useApprovalsDrawer() {
 export function DeskScreen() {
     const { theme } = useUnistyles();
     const { width, height } = useWindowDimensions();
-    const { list: sessions } = useDeskSessions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
-    const dataReady = useIsDataReady();
+    const { list: sessions, ready: dataReady } = useDeskSessions();
     const [workCollapsed, setCollapsed] = React.useState(getWorkCollapsed);
     const collapseWork = React.useCallback((next: boolean) => {
         setWorkCollapsed(next);

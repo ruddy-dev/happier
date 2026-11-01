@@ -50,8 +50,7 @@ describe('DeskScreen cold load (F4)', () => {
         scenario = null;
     });
 
-    // Fails today: the panel renders its empty state before the first sync. ATR-24 (P0.3) fixes it and flips this.
-    it.fails('F4: before the first sync, "Nothing waits on you." is not shown', async () => {
+    it('F4: before the first sync, "Nothing waits on you." is not shown', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
         await scenario.openApprovals();
         // Before the first sync the desk doesn't know yet; saying nothing waits would be false here.
@@ -72,6 +71,24 @@ describe('DeskScreen cold load (F4)', () => {
         expect(scenario.textOf('ip-waiting')).toContain('Fix the login form');
     });
 
-    // The loading design for the Work tiles is undecided; ATR-24 (P0.3 Task 8) replaces this.
-    it.todo('F4 Q? work tiles while loading');
+    it('F4: before the first sync the Work counts show a dash, not 0', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
+        expect(scenario.textOf('ip-count-all')).toBe('–');
+        expect(scenario.textOf('ip-count-turn')).toBe('–');
+    });
+
+    it('F4: before the first sync Waiting says Connecting…', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
+        await scenario.openApprovals();
+        expect(scenario.textOf('ip-waiting-connecting')).toBe('Connecting…');
+        expect(scenario.screen.findByTestId('ip-waiting-empty')).toBeFalsy();
+    });
+
+    it('F4: after ready() the Work counts are numbers again and Connecting… is gone', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
+        await scenario.openApprovals();
+        await scenario.ready();
+        expect(scenario.textOf('ip-count-all')).not.toBe('–');
+        expect(scenario.screen.findByTestId('ip-waiting-connecting')).toBeFalsy();
+    });
 });
