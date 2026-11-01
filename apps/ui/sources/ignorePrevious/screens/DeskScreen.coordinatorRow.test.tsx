@@ -11,6 +11,12 @@ vi.mock('@expo/vector-icons', async () => {
     return createExpoVectorIconsMock();
 });
 
+// The desk clock pauses while another screen covers the desk; here the desk is always focused.
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
+});
+
 vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
     return createExpoRouterMock().module;
@@ -51,26 +57,25 @@ describe('DeskScreen coordinator row (L1)', () => {
         scenario = null;
     });
 
-    // Fails today: WorkColumn builds rows from every session, the coordinator included.
-    // ATR-24 (P0.3) fixes it and flips this.
-    it.fails('L1: the Work panel counts only the workers', async () => {
+    it('L1: the Work panel counts only the workers', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         expect(scenario.textOf('ip-count-all')).toBe('2');
     });
 
-    // Fails today: WorkColumn builds rows from every session, the coordinator included.
-    // ATR-24 (P0.3) fixes it and flips this.
-    it.fails('L1: the coordinator gets no "No issue" card', async () => {
+    it('L1: the coordinator gets no "No issue" card', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         expect(scenario.screen.getTextContent()).not.toContain('No issue');
     });
 
-    // Fails today: WorkColumn builds rows from every session, the coordinator included.
-    // ATR-24 (P0.3) fixes it and flips this.
-    it.fails('L1: a question from the coordinator is not counted as a worker waiting on you', async () => {
+    it('L1: a question from the coordinator is not counted as a worker waiting on you', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.apply('c1', { requests: { q1: { tool: 'Bash', arguments: { command: 'git push' } } } });
         expect(scenario.textOf('ip-count-turn')).toBe('0');
+    });
+
+    it('must not hide anyone when no coordinator is picked', async () => {
+        scenario = await startDeskScenario({ script });
+        expect(scenario.textOf('ip-count-all')).toBe('3');
     });
 
     it('L1: the coordinator\'s request still shows in what waits on you', async () => {

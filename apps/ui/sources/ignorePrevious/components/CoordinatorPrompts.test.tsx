@@ -1,20 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act } from 'react';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
-import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+/** Loads sessions into the real store the way the first sync does: list rows and full records. */
 function seed(sessions: Session[]) {
-    state.sessions = sessions;
-    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+    act(() => {
+        storage.getState().applySessions(sessions);
+        storage.getState().applyReady();
+    });
 }
 
 const state = vi.hoisted(() => ({
-    sessions: [] as unknown[],
-    list: [] as unknown[],
     submit: vi.fn(async (..._args: unknown[]) => undefined),
     alert: vi.fn(),
 }));
@@ -24,21 +25,11 @@ vi.mock('@expo/vector-icons', async () => {
     return createExpoVectorIconsMock();
 });
 
-vi.mock('@/sync/store/hooks', async (importOriginal) => {
-    const { createStoreHooksModuleMock } = await import('@/dev/testkit/mocks/storage');
-    return createStoreHooksModuleMock({
-        importOriginal,
-        overrides: {
-            useAllSessions: (() => state.sessions) as never,
-            useAllSessionListRenderables: (() => state.list) as never,
-        },
-    });
+// The network send is the boundary.
+vi.mock('@/sync/sync', async () => {
+    const { installSyncStub } = await import('@/dev/testkit/mocks/sync');
+    return installSyncStub({ submitMessage: (...args: unknown[]) => state.submit(...args) } as never)();
 });
-
-// The network send is the boundary; Happier's own card tests mock it the same way.
-vi.mock('@/sync/sync', () => ({
-    sync: { submitMessage: (...args: unknown[]) => state.submit(...args) },
-}));
 
 vi.mock('@/modal', async () => {
     const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');
@@ -60,7 +51,15 @@ async function renderPrompts() {
 }
 
 describe('CoordinatorPrompts', () => {
+    let previous: ReturnType<typeof storage.getState>;
+    afterEach(() => {
+        act(() => {
+            storage.setState(previous, true);
+        });
+    });
+
     beforeEach(() => {
+        previous = storage.getState();
         state.submit.mockReset().mockResolvedValue(undefined);
         state.alert.mockReset();
     });

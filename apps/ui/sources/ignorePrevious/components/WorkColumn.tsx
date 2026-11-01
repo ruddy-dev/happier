@@ -6,49 +6,37 @@ import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
-import { useSessionScmStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState } from '@/utils/sessions/sessionUtils';
 
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
-import { issueKeyFromBranch, issueKeyFromPath } from '../model/issueKey';
+import { useCoordinatorId } from '../model/useCoordinatorId';
+import { useDeskNow } from '../model/useDeskNow';
+import { useIssueKeys } from '../model/useIssueKeys';
 import { bulbColour, useIpColours } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { IssueCard } from './IssueCard';
 import { useDeskSessions } from '../useDeskSessions';
 
-type Branches = Readonly<Record<string, string | null>>;
-
-/** Reports one session's git branch. Hooks can't run in a loop, so each session gets its own probe. */
-const BranchProbe = React.memo(function BranchProbe({
-    sessionId,
-    onBranch,
-}: {
-    sessionId: string;
-    onBranch: (sessionId: string, branch: string | null) => void;
-}) {
-    const branch = useSessionScmStatus(sessionId)?.branch ?? null;
-    React.useEffect(() => onBranch(sessionId, branch), [sessionId, branch, onBranch]);
-    return null;
-});
-
 function toWorkerRows(
     list: readonly SessionListRenderableSession[],
     lookup: ReadonlyMap<string, Session>,
-    branches: Branches,
+    issueKeys: ReadonlyMap<string, string | null>,
+    nowMs: number,
 ): WorkerRow[] {
     return list.map((row) => {
         // Mode and context size live on the full record, so they show once it has loaded.
         const loaded = lookup.get(row.id);
         const meter = loaded ? sessionContextMeter(loaded) : null;
-        const state = getSessionStatus(row).state;
+        // Freshness is judged against the desk clock, so a worker that falls silent goes stale without a store write.
+        const state = getSessionStatus(row, nowMs).state;
         return {
             sessionId: row.id,
             title: getSessionName(row),
-            // The branch names the issue more reliably than the folder; the folder covers sessions with no git status yet.
-            issueKey: issueKeyFromBranch(branches[row.id] ?? null) ?? issueKeyFromPath(row.metadata?.path ?? ''),
+            // Resolved once per worker from its tag, title, branch and folder (see resolveIssue).
+            issueKey: issueKeys.get(row.id) ?? null,
             bulb: bulbFromSessionState(state),
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
@@ -62,7 +50,7 @@ function toWorkerRows(
 const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'idle'];
 
 /** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
-function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
+function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolean }) {
     const { theme } = useUnistyles();
     const colours = useIpColours();
     const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, idle: 0 };
@@ -74,7 +62,8 @@ function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
                 testID={`ip-count-${id}`}
                 style={{ color: theme.colors.text.primary, fontSize: 22, ...Typography.default('semiBold') }}
             >
-                {value}
+                {/* Before the first sync a 0 would be a false count, so each tile shows a dash. */}
+                {ready ? value : '–'}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 {dot ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
@@ -98,16 +87,22 @@ function WorkCounts({ rows }: { rows: readonly WorkerRow[] }) {
  */
 export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     const { theme } = useUnistyles();
-    const { list: live, lookup } = useDeskSessions();
-    const [branches, setBranches] = React.useState<Branches>({});
+    const desk = useDeskSessions();
+    const { lookup, ready } = desk;
+    // The coordinator is the chat beside this panel, not a worker: it gets no row, tile or card (L1).
+    const coordinatorId = useCoordinatorId(desk.list);
+    const live = React.useMemo(
+        () => (coordinatorId ? desk.list.filter((row) => row.id !== coordinatorId) : desk.list),
+        [desk.list, coordinatorId],
+    );
+    const workers = React.useMemo(() => ({ ...desk, list: live }), [desk, live]);
+    const issueKeys = useIssueKeys(workers);
     const [details, setDetails] = React.useState(false);
     const [openKeys, setOpenKeys] = React.useState<ReadonlySet<string>>(() => new Set());
 
-    const onBranch = React.useCallback((sessionId: string, branch: string | null) => {
-        setBranches((prev) => (prev[sessionId] === branch ? prev : { ...prev, [sessionId]: branch }));
-    }, []);
-
-    const rows = React.useMemo(() => toWorkerRows(live, lookup, branches), [live, lookup, branches]);
+    const nowMs = useDeskNow();
+    // Rows rebuild when the list, a full record, an issue key or the desk clock changes; nothing else.
+    const rows = React.useMemo(() => toWorkerRows(live, lookup, issueKeys, nowMs), [live, lookup, issueKeys, nowMs]);
     const groups = React.useMemo(() => groupWorkersByIssue(rows), [rows]);
 
     const toggle = React.useCallback((key: string) => {
@@ -134,12 +129,9 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
         </Pressable>
     );
 
-    const probes = live.map((session) => <BranchProbe key={session.id} sessionId={session.id} onBranch={onBranch} />);
-
     if (compact) {
         return (
             <View style={{ flexDirection: compact, flexWrap: 'wrap', alignItems: compact === 'row' ? 'center' : 'flex-start', gap: compact === 'row' ? 16 : 8 }}>
-                {probes}
                 {groups.map((group) => {
                     const label = group.issueKey ?? t('ignorePrevious.noIssue');
                     return (
@@ -161,7 +153,6 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
 
     return (
         <View style={{ gap: 12 }}>
-            {probes}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
                     {t('ignorePrevious.work')}
@@ -171,7 +162,7 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
                     {modeButton(t('ignorePrevious.details'), details, () => setDetails(true))}
                 </View>
             </View>
-            <WorkCounts rows={rows} />
+            <WorkCounts rows={rows} ready={ready} />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {groups.map((group) => {
                     const key = group.issueKey ?? '';

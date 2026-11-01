@@ -12,7 +12,7 @@ import { t } from '@/text';
 
 import { useIpColours } from '../palette';
 import { MaskFace } from './MaskFace';
-import { useWaitingCount } from './WaitingPanel';
+import { useWaitingCount } from '../model/useDeskWaits';
 
 /** How long the creature moves after it opens or after Replay, then it holds still (no looping motion). */
 export const SHOG_PLAY_MS = 6000;

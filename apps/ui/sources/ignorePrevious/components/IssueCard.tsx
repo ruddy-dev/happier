@@ -32,6 +32,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
 
     return (
         <View
+            testID={`ip-issue-${group.issueKey ?? 'none'}`}
             style={{
                 gap: 8,
                 padding: 12,
