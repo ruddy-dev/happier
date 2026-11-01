@@ -1,16 +1,15 @@
 /**
  * Keeps UI unit tests off real servers: fetch and WebSocket refuse the developer's own server
- * (loopback port 3005), hosted Happier (*.happier.dev) and tailnet hosts (*.ts.net). A test that
- * reached one could read or change real sessions.
+ * (port 3005 on any host, since it is also reachable through IPv6, LAN and tailnet addresses),
+ * hosted Happier (*.happier.dev) and tailnet hosts (*.ts.net). A test that reached one could read
+ * or change real sessions.
  *
  * The same list guards the browser tests in `packages/tests/src/testkit/deskTest/originGuard.ts`.
  * The UI cannot import from packages/tests, so the list is repeated here; change both together.
  */
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '0.0.0.0']);
-
 function forbiddenReason(url: URL): string | null {
-    if (url.port === '3005' && LOOPBACK_HOSTS.has(url.hostname)) return "the developer's own server";
+    if (url.port === '3005') return "the developer's own server (port 3005)";
     if (url.hostname === 'happier.dev' || url.hostname.endsWith('.happier.dev')) return 'hosted Happier';
     if (url.hostname.endsWith('.ts.net')) return 'a tailnet host';
     return null;

@@ -13,6 +13,12 @@ test('GUARD-3005: the production server port on loopback is refused', () => {
   assert.equal(isAllowedOrigin('http://localhost:3005/', allowed), false);
 });
 
+test('GUARD-3005-any-host: port 3005 is refused on every host, not only loopback', () => {
+  for (const url of ['http://[::1]:3005/', 'http://[::ffff:7f00:1]:3005/', 'http://192.168.1.5:3005/', 'http://desk-guard-probe.example:3005/']) {
+    assert.equal(isAllowedOrigin(url, [...allowed, url]), false, url);
+  }
+});
+
 test('GUARD-hosted: the hosted Happier API is refused', () => {
   assert.equal(isAllowedOrigin('https://api.happier.dev/', allowed), false);
 });
@@ -35,6 +41,7 @@ test('GUARD-env: the scrub removes app settings and keeps test switches and the 
   const env = scrubEnv(
     {
       HAPPIER_SERVER_URL: 'x',
+      HAPPY_SERVER_URL: 'z',
       EXPO_PUBLIC_API: 'y',
       HAPPIER_E2E_PROVIDER_USE_SERVER_SOURCE_ENTRYPOINT: '1',
       PATH: '/bin',

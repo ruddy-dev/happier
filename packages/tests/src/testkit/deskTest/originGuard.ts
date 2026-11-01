@@ -9,14 +9,16 @@
 
 export type ForbiddenOriginPattern = Readonly<{ label: string; test: (url: URL) => boolean }>;
 
-/** The port a developer's own Happier server listens on. */
+/**
+ * The port a developer's own Happier server listens on. It is refused on every host, since the
+ * same server is reachable through IPv6, IPv4-mapped, LAN and tailnet addresses as well as loopback.
+ */
 const LOCAL_SERVER_PORT = 3005;
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '0.0.0.0']);
 
 export const FORBIDDEN_ORIGIN_PATTERNS: readonly ForbiddenOriginPattern[] = [
     {
-        label: `the developer's own server (loopback port ${LOCAL_SERVER_PORT})`,
-        test: (url) => url.port === String(LOCAL_SERVER_PORT) && LOOPBACK_HOSTS.has(url.hostname),
+        label: `the developer's own server (port ${LOCAL_SERVER_PORT})`,
+        test: (url) => url.port === String(LOCAL_SERVER_PORT),
     },
     {
         label: 'hosted Happier (*.happier.dev)',
@@ -60,13 +62,16 @@ export function isAllowedOrigin(url: string, allowed: readonly string[]): boolea
     });
 }
 
-/** Variables that point the app or CLI somewhere: a server URL, an account, a home folder. */
-const SCRUBBED_PREFIXES = [/^HAPPIER_/, /^EXPO_PUBLIC_/];
+/**
+ * Variables that point the app or CLI somewhere: a server URL, an account, a home folder. `HAPPY_*`
+ * covers the upstream Happy CLI's names, such as `HAPPY_SERVER_URL`.
+ */
+const SCRUBBED_PREFIXES = [/^HAPPIER_/, /^HAPPY_/, /^EXPO_PUBLIC_/];
 
 /** Test switches survive the scrub; they configure the harness, not the app. */
 export const DESK_ENV_KEEP: readonly RegExp[] = [/^HAPPIER_E2E_/];
 
-/** A copy of `env` without `HAPPIER_*` and `EXPO_PUBLIC_*`, except names matching `keep`. */
+/** A copy of `env` without `HAPPIER_*`, `HAPPY_*` and `EXPO_PUBLIC_*`, except names matching `keep`. */
 export function scrubEnv(env: NodeJS.ProcessEnv, keep: readonly RegExp[]): NodeJS.ProcessEnv {
     const next: NodeJS.ProcessEnv = {};
     for (const [name, value] of Object.entries(env)) {

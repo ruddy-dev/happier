@@ -18,6 +18,22 @@ describe('vitest origin guard', () => {
         expect(underlying).not.toHaveBeenCalled();
     });
 
+    it('GUARD-fetch-3005: refuses port 3005 on any host, including IPv6 loopback and LAN addresses', async () => {
+        const underlying = vi.fn(async () => new Response('ok'));
+        const guarded = guardFetch(underlying as unknown as typeof fetch);
+        for (const url of ['http://[::1]:3005/v1/sessions', 'http://[::ffff:7f00:1]:3005/', 'http://192.168.1.5:3005/v1/sessions']) {
+            await expect(guarded(url)).rejects.toThrow(/forbidden origin/);
+        }
+        expect(underlying).not.toHaveBeenCalled();
+    });
+
+    it('GUARD-fetch-request: refuses a Request object aimed at a forbidden origin', async () => {
+        const underlying = vi.fn(async () => new Response('ok'));
+        const guarded = guardFetch(underlying as unknown as typeof fetch);
+        await expect(guarded(new Request('https://api.happier.dev/x'))).rejects.toThrow(/forbidden origin/);
+        expect(underlying).not.toHaveBeenCalled();
+    });
+
     it('GUARD-fetch-allowed: other origins pass through unchanged', async () => {
         const underlying = vi.fn(async () => new Response('ok'));
         const guarded = guardFetch(underlying as unknown as typeof fetch);
