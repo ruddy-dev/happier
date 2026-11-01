@@ -226,6 +226,19 @@ describe('WorkColumn freshness (F1)', () => {
         expect(count(screen, 'working')).toBe(0);
     });
 
+    it('A3 a signal between two ticks goes stale within one desk tick of the budget', async () => {
+        seed([thinking('w1', t0)]);
+        const screen = await renderColumn();
+        // The new signal lands 10 s after the clock started, off the phase of a slow clock's ticks.
+        await tick(10_000);
+        act(() => {
+            seed([thinking('w1', t0 + 10_000, 2)]);
+        });
+        expect(count(screen, 'working')).toBe(1);
+        await tick(STALE + DESK_TICK_MS);
+        expect(count(screen, 'working')).toBe(0);
+    });
+
     it('F1 control: a fresh version-stamped write keeps it working', async () => {
         seed([thinking('w1', t0)]);
         const screen = await renderColumn();
