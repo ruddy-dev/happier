@@ -50,3 +50,4 @@ export * from './render/collectRenderedTestIds';
 export * from './render/renderWithAppProviders';
 export * from './transcript/viewportTelemetryAssertions';
 export * from './transcript/runtimeContract';
+export * from './mocks/reducedMotion';

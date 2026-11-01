@@ -27,9 +27,10 @@ vi.mock('@/sync/store/hooks', async (importOriginal) => {
 });
 
 // The OS reduced-motion setting is a host boundary.
-vi.mock('@/hooks/ui/useReducedMotionPreference', () => ({
-    useReducedMotionPreference: () => state.reducedMotion,
-}));
+vi.mock('@/hooks/ui/useReducedMotionPreference', async () => {
+    const { installReducedMotionMock } = await import('@/dev/testkit/mocks/reducedMotion');
+    return installReducedMotionMock(() => state.reducedMotion)();
+});
 
 function waitingSession(id: string): Session {
     const request = { tool: 'Bash', arguments: { command: 'ls' }, createdAt: 1 };

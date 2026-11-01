@@ -933,4 +933,19 @@ describe('UI testkit mock factories', () => {
             probe?.unmount();
         });
     });
+
+    it('HARNESS-reducedMotion: factory returns the requested preference', async () => {
+        const { createReducedMotionModuleMock, installReducedMotionMock } = await import('./reducedMotion');
+
+        expect(createReducedMotionModuleMock().useReducedMotionPreference()).toBe(false);
+        expect(createReducedMotionModuleMock(true).useReducedMotionPreference()).toBe(true);
+        expect(installReducedMotionMock(true)().useReducedMotionPreference()).toBe(true);
+
+        // A getter lets one file switch the preference between cases under a single hoisted vi.mock.
+        let reduced = false;
+        const moduleMock = installReducedMotionMock(() => reduced)();
+        expect(moduleMock.useReducedMotionPreference()).toBe(false);
+        reduced = true;
+        expect(moduleMock.useReducedMotionPreference()).toBe(true);
+    });
 });
