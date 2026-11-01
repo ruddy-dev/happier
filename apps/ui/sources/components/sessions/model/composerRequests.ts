@@ -4,7 +4,7 @@ import * as React from 'react';
  * Lets code outside SessionView put text into, read, or focus a session's composer.
  * Unlike sessionResumeRequests, requests return false instead of throwing when no
  * visible, writable composer is mounted: callers such as the desk fire these opportunistically.
- * With two SessionViews on one session, the last one mounted takes the requests.
+ * With two SessionViews on one session, the last one to register takes the requests.
  */
 export type ComposerRequestHandle = Readonly<{
     setText(text: string): void;
