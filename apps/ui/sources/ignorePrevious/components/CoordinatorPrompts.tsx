@@ -5,10 +5,10 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { useAllSessions } from '@/sync/store/hooks';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 
+import { useDeskSessions } from '../useDeskSessions';
 import { collectWaits } from './WaitingPanel';
 
 type Waits = ReturnType<typeof collectWaits>;
@@ -40,8 +40,8 @@ function waitingList({ items, unloaded }: Waits): string {
  */
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
-    const sessions = useAllSessions();
-    const waits = React.useMemo(() => collectWaits(sessions), [sessions]);
+    const { list, lookup } = useDeskSessions();
+    const waits = React.useMemo(() => collectWaits(list, lookup), [list, lookup]);
     const count = waits.items.length + waits.unloaded.length;
     const [sending, setSending] = React.useState(false);
 

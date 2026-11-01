@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+function seed(sessions: Session[]) {
+    state.sessions = sessions;
+    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+}
+
 const state = vi.hoisted(() => ({
     sessions: [] as unknown[],
+    list: [] as unknown[],
     submit: vi.fn(async (..._args: unknown[]) => undefined),
     alert: vi.fn(),
 }));
@@ -20,7 +28,10 @@ vi.mock('@/sync/store/hooks', async (importOriginal) => {
     const { createStoreHooksModuleMock } = await import('@/dev/testkit/mocks/storage');
     return createStoreHooksModuleMock({
         importOriginal,
-        overrides: { useAllSessions: (() => state.sessions) as never },
+        overrides: {
+            useAllSessions: (() => state.sessions) as never,
+            useAllSessionListRenderables: (() => state.list) as never,
+        },
     });
 });
 
@@ -55,11 +66,11 @@ describe('CoordinatorPrompts', () => {
     });
 
     it('asks the coordinator to go through every waiting request, with what each one runs', async () => {
-        state.sessions = [
+        seed([
             session('coord', null),
             session('s1', { tool: 'Bash', arguments: { command: 'rm -rf build', description: 'Clean the build' }, createdAt: 10 }),
             session('s2', { tool: 'Edit', arguments: { file_path: '/home/u/dev/a.ts' }, createdAt: 20 }),
-        ];
+        ]);
         const screen = await renderPrompts();
         await screen.pressByTestIdAsync('ip-walk-waiting');
 
@@ -76,7 +87,7 @@ describe('CoordinatorPrompts', () => {
     });
 
     it('offers only the PR walk-through when nothing waits', async () => {
-        state.sessions = [session('coord', null)];
+        seed([session('coord', null)]);
         const screen = await renderPrompts();
         expect(screen.findByTestId('ip-walk-waiting')).toBeNull();
         await screen.pressByTestIdAsync('ip-walk-prs');
@@ -84,7 +95,7 @@ describe('CoordinatorPrompts', () => {
     });
 
     it('says so when the message could not be sent', async () => {
-        state.sessions = [session('coord', null)];
+        seed([session('coord', null)]);
         state.submit.mockRejectedValue(new Error('offline'));
         const screen = await renderPrompts();
         await screen.pressByTestIdAsync('ip-walk-prs');

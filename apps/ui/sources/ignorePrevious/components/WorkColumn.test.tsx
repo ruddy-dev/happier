@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { renderScreen } from '@/dev/testkit';
+import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+function seed(sessions: Session[]) {
+    state.sessions = sessions;
+    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+}
+
 const state = vi.hoisted(() => ({
     sessions: [] as unknown[],
+    list: [] as unknown[],
     branches: {} as Record<string, string>,
 }));
 
@@ -26,6 +34,7 @@ vi.mock('@/sync/store/hooks', async (importOriginal) => {
         importOriginal,
         overrides: {
             useAllSessions: (() => state.sessions) as never,
+            useAllSessionListRenderables: (() => state.list) as never,
             useSessionScmStatus: ((id: string) => (state.branches[id] ? { branch: state.branches[id] } : null)) as never,
         },
     });
@@ -48,11 +57,11 @@ async function renderColumn() {
 describe('WorkColumn', () => {
     it('groups live workers by issue, puts No issue last and leaves out archived ones', async () => {
         state.branches = {};
-        state.sessions = [
+        seed([
             session('s1', '/home/u/dev/wt/atr-6-overlay', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev'),
             session('s3', '/home/u/dev/wt/atr-6-x', { archivedAt: 5 } as Partial<Session>),
-        ];
+        ]);
         const screen = await renderColumn();
         const text = screen.getTextContent();
         expect(text).toContain('ATR-6');
@@ -63,12 +72,12 @@ describe('WorkColumn', () => {
 
     it('counts agents by state in numbers', async () => {
         state.branches = {};
-        state.sessions = [
+        seed([
             session('s1', '/home/u/dev/wt/atr-6-a', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev/wt/atr-6-b', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s3', '/home/u/dev'),
             session('s4', '/home/u/dev/wt/atr-6-x', { archivedAt: 5 } as Partial<Session>),
-        ];
+        ]);
         const screen = await renderColumn();
         const count = (id: string) => screen.findByTestId(`ip-count-${id}`)?.props.children;
         expect(count('all')).toBe(3);
@@ -78,9 +87,23 @@ describe('WorkColumn', () => {
         expect(count('stuck')).toBe(0);
     });
 
+    it('shows a worker before its record loads, without a mode or context it does not know yet', async () => {
+        state.branches = {};
+        const s1 = session('s1', '/home/u/dev/wt/atr-6-a', { permissionMode: 'acceptEdits' } as Partial<Session>);
+        state.list = [buildSessionListRenderableFromSession(s1)];
+        state.sessions = [];
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        const text = screen.getTextContent();
+        expect(text).toContain('Title s1');
+        expect(text).not.toContain('acceptEdits');
+        expect(text).not.toContain('default');
+        expect(screen.findByTestId('ip-worker-context-s1')).toBeNull();
+    });
+
     it('prefers the session branch over the folder name', async () => {
         state.branches = { s2: 'hub-59-store-skill' };
-        state.sessions = [session('s2', '/home/u/dev')];
+        seed([session('s2', '/home/u/dev')]);
         const screen = await renderColumn();
         expect(screen.getTextContent()).toContain('HUB-59');
         expect(screen.getTextContent()).not.toContain('No issue');

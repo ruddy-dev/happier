@@ -5,7 +5,8 @@ export type WorkerRow = {
     title: string;
     issueKey: string | null;
     bulb: Bulb;
-    permissionMode: string;
+    /** Null until the session's full record has loaded. */
+    permissionMode: string | null;
     updatedAt: number;
     /** How close to auto-compact, 0–100; absent until the session has reported its context. */
     contextPercent?: number | null;

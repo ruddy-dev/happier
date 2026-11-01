@@ -5,8 +5,9 @@ import { useUnistyles } from 'react-native-unistyles';
 import { SessionView } from '@/components/sessions/shell/SessionView';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
+import { useHydrateSessionForRoute } from '@/hooks/session/useHydrateSessionForRoute';
 import { Modal } from '@/modal';
-import { useAllSessions } from '@/sync/store/hooks';
+import { useSession } from '@/sync/store/hooks';
 import { t } from '@/text';
 
 import { ContextMeter } from './ContextMeter';
@@ -26,8 +27,12 @@ function openShog() {
 
 export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: React.ReactNode }) {
     const { theme } = useUnistyles();
-    const sessions = useAllSessions();
-    const coordinator = React.useMemo(() => sessions.find((s) => s.id === sessionId) ?? null, [sessions, sessionId]);
+    // The meter needs the full record; it appears once the coordinator's record has loaded.
+    const coordinator = useSession(sessionId);
+    // On a cold load the desk knows the coordinator from the sidebar's list before its record has
+    // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does,
+    // and hand SessionView the state so it shows loading or retrying instead of "isn't available".
+    const hydration = useHydrateSessionForRoute(sessionId, 'IgnorePrevious.CoordinatorPane');
     const waiting = useWaitingCount() > 0;
 
     return (
@@ -55,6 +60,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             <View style={{ flex: 1 }}>
                 <SessionView
                     id={sessionId}
+                    routeHydrationState={hydration}
                     routeAnchorOverride={true}
                     surfaceFocusedOverride={true}
                     safeAreaTopMode="internal"

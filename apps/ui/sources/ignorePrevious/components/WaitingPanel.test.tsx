@@ -2,12 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** Loads sessions the way a warm app holds them: in the sidebar's list and as full records. */
+function seed(sessions: Session[]) {
+    state.sessions = sessions;
+    state.list = sessions.map((s) => buildSessionListRenderableFromSession(s));
+}
+
 const state = vi.hoisted(() => ({
     sessions: [] as unknown[],
+    list: [] as unknown[],
     allow: vi.fn(async (..._args: unknown[]) => {}),
     deny: vi.fn(async (..._args: unknown[]) => {}),
     alert: vi.fn(),
@@ -23,7 +31,10 @@ vi.mock('@/sync/store/hooks', async (importOriginal) => {
     const { createStoreHooksModuleMock } = await import('@/dev/testkit/mocks/storage');
     return createStoreHooksModuleMock({
         importOriginal,
-        overrides: { useAllSessions: (() => state.sessions) as never },
+        overrides: {
+            useAllSessions: (() => state.sessions) as never,
+            useAllSessionListRenderables: (() => state.list) as never,
+        },
     });
 });
 
@@ -68,10 +79,10 @@ describe('WaitingPanel', () => {
         state.deny.mockReset().mockResolvedValue(undefined);
         state.alert.mockReset();
         state.navigate.mockReset();
-        state.sessions = [
+        seed([
             sessionWithRequest('s1', { tool: 'Bash', arguments: { command: 'rm -rf build' }, createdAt: 10 }),
             sessionWithRequest('s2', null),
-        ];
+        ]);
     });
 
     it('shows a pending request and allows it', async () => {
@@ -103,16 +114,16 @@ describe('WaitingPanel', () => {
     });
 
     it('says so when nothing needs you', async () => {
-        state.sessions = [sessionWithRequest('s2', null)];
+        seed([sessionWithRequest('s2', null)]);
         const screen = await renderPanel();
         expect(screen.findByTestId('ip-waiting')).toBeNull();
         expect(screen.findByTestId('ip-waiting-empty')).toBeTruthy();
     });
 
     it('leaves out archived sessions', async () => {
-        state.sessions = [
+        seed([
             sessionWithRequest('s1', { tool: 'Bash', arguments: { command: 'ls' }, createdAt: 1 }, { archivedAt: 5 } as Partial<Session>),
-        ];
+        ]);
         const screen = await renderPanel();
         expect(screen.findByTestId('ip-waiting')).toBeNull();
     });
@@ -130,9 +141,9 @@ describe('WaitingPanel', () => {
     });
 
     it('offers only Open session for a question', async () => {
-        state.sessions = [
+        seed([
             sessionWithRequest('s1', { tool: 'AskUserQuestion', kind: 'user_action', arguments: { questions: [] }, createdAt: 1 }),
-        ];
+        ]);
         const screen = await renderPanel();
         expect(screen.getTextContent()).not.toContain('Allow');
         expect(screen.getTextContent()).not.toContain('Deny');
@@ -141,9 +152,9 @@ describe('WaitingPanel', () => {
     });
 
     it('lists a session that reports waiting requests it has not loaded', async () => {
-        state.sessions = [
+        seed([
             sessionWithRequest('s3', null, { pendingPermissionRequestCount: 1 } as Partial<Session>),
-        ];
+        ]);
         const screen = await renderPanel();
         expect(screen.findByTestId('ip-waiting')).toBeTruthy();
         expect(screen.getTextContent()).not.toContain('Allow');

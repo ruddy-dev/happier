@@ -6,9 +6,9 @@ import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { Modal } from '@/modal';
+import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { sessionAllow, sessionDeny } from '@/sync/ops';
-import { useAllSessions } from '@/sync/store/hooks';
 import { t } from '@/text';
 import {
     getSessionName,
@@ -18,22 +18,30 @@ import {
 } from '@/utils/sessions/sessionUtils';
 
 import { toWaitingItems, type WaitingItem } from '../model/waitingItems';
+import { useDeskSessions } from '../useDeskSessions';
 
-/** A session that says it is waiting on you, but whose requests live in a transcript not loaded here. */
+/** A session that says it is waiting on you, but whose requests live in a record or transcript not loaded here. */
 type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string }>;
 
-export function collectWaits(sessions: readonly Session[]): { items: WaitingItem[]; unloaded: UnloadedWait[] } {
-    const live = sessions.filter((session) => !session.archivedAt);
-    const input = live.map((session) => {
-        const permissions = listPendingPermissionRequests(session);
+/**
+ * What waits on you, from the desk's sessions. Name and state come from the list row, as in the
+ * sidebar; the requests themselves come from the full record, once it has loaded.
+ */
+export function collectWaits(
+    list: readonly SessionListRenderableSession[],
+    lookup: ReadonlyMap<string, Session>,
+): { items: WaitingItem[]; unloaded: UnloadedWait[] } {
+    const input = list.map((row) => {
+        const session = lookup.get(row.id);
+        const permissions = session ? listPendingPermissionRequests(session) : [];
         const seen = new Set(permissions.map((request) => request.id));
-        const questions = listPendingUserActionRequests(session).filter((request) => !seen.has(request.id));
-        return { session, sessionId: session.id, sessionTitle: getSessionName(session), requests: [...permissions, ...questions] };
+        const questions = session ? listPendingUserActionRequests(session).filter((request) => !seen.has(request.id)) : [];
+        return { row, sessionId: row.id, sessionTitle: getSessionName(row), requests: [...permissions, ...questions] };
     });
     const unloaded = input
-        .filter(({ session, requests }) => {
+        .filter(({ row, requests }) => {
             if (requests.length > 0) return false;
-            const state = getSessionStatus(session).state;
+            const state = getSessionStatus(row).state;
             return state === 'permission_required' || state === 'action_required';
         })
         .map(({ sessionId, sessionTitle }) => ({ sessionId, sessionTitle }));
@@ -42,11 +50,11 @@ export function collectWaits(sessions: readonly Session[]): { items: WaitingItem
 
 /** How many things wait on you across your sessions: the count on the desk's approvals button. */
 export function useWaitingCount(): number {
-    const sessions = useAllSessions();
+    const { list, lookup } = useDeskSessions();
     return React.useMemo(() => {
-        const { items, unloaded } = collectWaits(sessions);
+        const { items, unloaded } = collectWaits(list, lookup);
         return items.length + unloaded.length;
-    }, [sessions]);
+    }, [list, lookup]);
 }
 
 /**
@@ -56,8 +64,8 @@ export function useWaitingCount(): number {
  * opens a session, so a card holding the panel can get out of the way.
  */
 export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } = {}) {
-    const sessions = useAllSessions();
-    const { items, unloaded } = React.useMemo(() => collectWaits(sessions), [sessions]);
+    const { list, lookup } = useDeskSessions();
+    const { items, unloaded } = React.useMemo(() => collectWaits(list, lookup), [list, lookup]);
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
 
