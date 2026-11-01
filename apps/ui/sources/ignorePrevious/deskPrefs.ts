@@ -9,9 +9,22 @@ export function getStoredCoordinatorId(): string | null {
     return mmkv.getString(KEY) ?? null;
 }
 
+// In-memory listeners over the MMKV key, so every desk consumer sees a pick at once. Another
+// tab's pick is not seen until a reload: MMKV's own change listener isn't used.
+const coordinatorListeners = new Set<() => void>();
+
 export function setStoredCoordinatorId(id: string | null): void {
     if (id) mmkv.set(KEY, id);
     else mmkv.delete(KEY);
+    for (const listener of [...coordinatorListeners]) listener();
+}
+
+/** Calls `listener` after every `setStoredCoordinatorId`; returns the unsubscribe. */
+export function subscribeStoredCoordinatorId(listener: () => void): () => void {
+    coordinatorListeners.add(listener);
+    return () => {
+        coordinatorListeners.delete(listener);
+    };
 }
 
 // Key kept from the earlier "minimise panels" toggle, which also collapsed the Work panel.

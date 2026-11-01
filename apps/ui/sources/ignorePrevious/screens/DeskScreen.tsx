@@ -20,18 +20,16 @@ import { ApprovalsButton, ApprovalsCard, ApprovalsDrawer } from '../components/A
 import { WorkColumn } from '../components/WorkColumn';
 import {
     getApprovalsOpen,
-    getStoredCoordinatorId,
     getWorkCollapsed,
     setApprovalsOpen,
     setStoredCoordinatorId,
     setWorkCollapsed,
 } from '../deskPrefs';
-import { pickCoordinatorSessionId } from '../model/coordinator';
+import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskSessions } from '../useDeskSessions';
 
 const WIDE = 1100;
 const SCOPE_ID = 'ignorePrevious:desk';
-const COORDINATOR_PATH = process.env.EXPO_PUBLIC_IP_COORDINATOR_PATH ?? null;
 
 function CoordinatorPicker({ sessions, onPick }: { sessions: readonly SessionListRenderableSession[]; onPick: (id: string) => void }) {
     const { theme } = useUnistyles();
@@ -122,7 +120,6 @@ export function DeskScreen() {
     const { list: sessions } = useDeskSessions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const dataReady = useIsDataReady();
-    const [storedId, setStoredId] = React.useState(getStoredCoordinatorId);
     const [workCollapsed, setCollapsed] = React.useState(getWorkCollapsed);
     const collapseWork = React.useCallback((next: boolean) => {
         setWorkCollapsed(next);
@@ -130,25 +127,10 @@ export function DeskScreen() {
     }, []);
     const approvals = useApprovalsDrawer();
 
-    const coordinatorId = React.useMemo(
-        () =>
-            pickCoordinatorSessionId(
-                sessions.map((s) => ({
-                    id: s.id,
-                    path: s.metadata?.path ?? '',
-                    active: s.active,
-                    archived: Boolean(s.archivedAt),
-                    updatedAt: s.updatedAt,
-                })),
-                { storedId, coordinatorPath: COORDINATOR_PATH },
-            ),
-        [sessions, storedId],
-    );
+    const coordinatorId = useCoordinatorId(sessions);
 
-    const pick = React.useCallback((id: string) => {
-        setStoredCoordinatorId(id);
-        setStoredId(id);
-    }, []);
+    // Every desk consumer of the coordinator id hears the stored pick.
+    const pick = React.useCallback((id: string) => setStoredCoordinatorId(id), []);
 
     const approvalsButton = <ApprovalsButton open={approvals.open} onPress={approvals.toggle} />;
     const coordinator = coordinatorId ? (
