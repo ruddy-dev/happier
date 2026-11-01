@@ -2,6 +2,8 @@
 const ISSUE_PREFIX = /^([a-z]{2,5})-(\d+)(?:-|$)/i;
 // Worktree folders may also be `<repo>-<proj>-<n>[-suffix]`, e.g. `unclank-hub-59`.
 const ISSUE_INSIDE = /(?:^|-)([a-z]{2,5})-(\d+)(?=-|$)/i;
+// Session titles open with the id and then a space or colon, e.g. `ATR-6 build` or `ATR-6: build`.
+const ISSUE_TITLE = /^([a-z]{2,5})-(\d+)(?=$|[\s:-])/i;
 
 function match(text: string, pattern: RegExp = ISSUE_PREFIX): string | null {
     const m = pattern.exec(text);
@@ -19,4 +21,9 @@ export function issueKeyFromPath(path: string): string | null {
         if (key) return key;
     }
     return null;
+}
+
+/** The issue id a session title opens with, as in `ATR-6 build` or `ATR-6: build`. */
+export function issueKeyFromTitle(title: string | null): string | null {
+    return title ? match(title.trim(), ISSUE_TITLE) : null;
 }

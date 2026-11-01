@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { issueKeyFromBranch, issueKeyFromPath } from './issueKey';
+import { issueKeyFromBranch, issueKeyFromPath, issueKeyFromTitle } from './issueKey';
 
 describe('issueKeyFromBranch', () => {
     it('reads the wq issue id at the start of a work branch', () => {
@@ -31,5 +31,21 @@ describe('issueKeyFromPath', () => {
     it('returns null for plain project folders', () => {
         expect(issueKeyFromPath('/home/u/dev')).toBeNull();
         expect(issueKeyFromPath('')).toBeNull();
+    });
+});
+
+describe('issueKeyFromTitle', () => {
+    it('reads an issue id that opens a session title', () => {
+        expect(issueKeyFromTitle('ATR-6 build')).toBe('ATR-6');
+        expect(issueKeyFromTitle('ATR-6: build')).toBe('ATR-6');
+        expect(issueKeyFromTitle('atr-6-build')).toBe('ATR-6');
+        expect(issueKeyFromTitle('ATR-6')).toBe('ATR-6');
+    });
+
+    it('must not read an id glued to a word, buried in the title, or from nothing', () => {
+        expect(issueKeyFromTitle('ATR-6build')).toBeNull();
+        expect(issueKeyFromTitle('Fix ATR-6 build')).toBeNull();
+        expect(issueKeyFromTitle(null)).toBeNull();
+        expect(issueKeyFromTitle('')).toBeNull();
     });
 });
