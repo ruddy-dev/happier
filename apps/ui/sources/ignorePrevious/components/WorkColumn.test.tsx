@@ -239,6 +239,18 @@ describe('WorkColumn freshness (F1)', () => {
         expect(count(screen, 'working')).toBe(0);
     });
 
+    it('F1 the desk clock, not the wall clock at render time, judges freshness', async () => {
+        seed([thinking('w1', t0)]);
+        const screen = await renderColumn();
+        await tick(STALE + DESK_TICK_MS);
+        expect(count(screen, 'working')).toBe(0);
+        // The wall clock says fresh again, and a branch update rebuilds the rows without a tick.
+        vi.setSystemTime(t0);
+        setBranch('w1', 'hub-59-x');
+        expect(screen.findByTestId('ip-issue-HUB-59')).toBeTruthy();
+        expect(count(screen, 'working')).toBe(0);
+    });
+
     it('F1 control: a fresh version-stamped write keeps it working', async () => {
         seed([thinking('w1', t0)]);
         const screen = await renderColumn();
