@@ -59,6 +59,33 @@ vi.mock('expo-router', async () => {
     return createExpoRouterMock().module;
 });
 
+// Whether the desk is the focused screen comes from the navigator; a session opened on top of the
+// desk leaves it mounted but unfocused. Reactive here so a test can blur and refocus it.
+const focus = vi.hoisted(() => {
+    let focused = true;
+    const listeners = new Set<() => void>();
+    return {
+        get: () => focused,
+        set: (next: boolean) => {
+            focused = next;
+            for (const listener of [...listeners]) listener();
+        },
+        subscribe: (listener: () => void) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
+    };
+});
+
+vi.mock('@react-navigation/native', async () => {
+    const React = await import('react');
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return {
+        ...createReactNavigationNativeMock(),
+        useIsFocused: () => React.useSyncExternalStore(focus.subscribe, focus.get, focus.get),
+    };
+});
+
 function session(id: string, path: string, extra: Partial<Session> = {}): Session {
     return createSessionFixture({
         id,
@@ -187,6 +214,7 @@ describe('WorkColumn freshness (F1)', () => {
     afterEach(() => {
         storage.setState(previous, true);
         vi.useRealTimers();
+        focus.set(true);
     });
 
     /** A worker whose last signal ("thinking") came at `at`. */
@@ -260,6 +288,23 @@ describe('WorkColumn freshness (F1)', () => {
         });
         await tick(25_000);
         expect(count(screen, 'working')).toBe(1);
+    });
+
+    it('A6 the desk clock stops while another screen covers the desk, and catches up on return', async () => {
+        const base = vi.getTimerCount();
+        seed([thinking('w1', t0)]);
+        const screen = await renderColumn();
+        expect(vi.getTimerCount()).toBe(base + 1);
+
+        act(() => focus.set(false));
+        expect(vi.getTimerCount()).toBe(base);
+        await tick(STALE + DESK_TICK_MS);
+        // Nothing re-reads the time while the desk is covered.
+        expect(count(screen, 'working')).toBe(1);
+
+        act(() => focus.set(true));
+        expect(vi.getTimerCount()).toBe(base + 1);
+        expect(count(screen, 'working')).toBe(0);
     });
 
     it('F1 one shared timer, gone after unmount', async () => {

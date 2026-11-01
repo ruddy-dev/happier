@@ -179,7 +179,8 @@ function collectText(node: ReactTestInstance | string): string {
 
 /**
  * Renders the real DeskScreen over the real session store, seeded from a script, under a fake clock.
- * Test files keep their own `vi.mock` calls for the boundaries (see `deskScreenMocks`).
+ * Test files keep their own `vi.mock` calls for the boundaries (see `deskScreenMocks`), including
+ * `@react-navigation/native` through the testkit's `createReactNavigationNativeMock`: the desk clock reads focus.
  */
 export async function startDeskScenario(options: DeskScenarioOptions): Promise<DeskScenario> {
     const { script } = options;
