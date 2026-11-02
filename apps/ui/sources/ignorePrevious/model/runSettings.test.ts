@@ -15,6 +15,14 @@ describe('desk run settings', () => {
         const defaultModel = runSettingsReducer(initialRunSettings, { type: 'model', model: 'default' });
         expect(runSettingsReducer(defaultModel, { type: 'ultracode', enabled: true }).ultracode).toBe(false);
     });
+    it.each(['claude-haiku-5-5', 'default'] as const)('M3 preserves stored effort and rejects picks for %s', model => {
+        const unsupported = runSettingsReducer(initialRunSettings, { type: 'model', model });
+        expect(runEffortControl(unsupported).disabled).toBe(true);
+        expect(runSettingsReducer(unsupported, { type: 'effort', effort: 'low' })).toBe(unsupported);
+        const restored = runSettingsReducer(unsupported, { type: 'model', model: 'claude-opus-5-5' });
+        expect(restored.effort).toBe('high');
+        expect(runEffortControl(restored).disabled).not.toBe(true);
+    });
     it('M10 locks effective effort at xhigh while preserving the selected effort', () => {
         const on = runSettingsReducer(initialRunSettings, { type: 'ultracode', enabled: true });
         expect(runEffortControl(on)).toMatchObject({ disabled: true, effectiveValue: 'xhigh' });

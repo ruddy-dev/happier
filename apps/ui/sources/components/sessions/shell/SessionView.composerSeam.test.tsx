@@ -406,11 +406,13 @@ describe('SessionView composer seam', () => {
 
   it('applies the seam placeholder, chips, badges and trailing actions after Happier ones', async () => {
     const baseline = (await renderSessionView()).agentInput().props;
+    const footerAction = <React.Fragment>Footer action</React.Fragment>;
     const composer = {
       placeholder: 'Brief the desk',
       extraActionChips: [seamChip],
       statusBadges: [seamBadge],
       statusTrailingActions: trailingAction,
+      footerLeadingActions: footerAction,
     };
     const props = (await renderSessionView(composer)).agentInput().props;
 
@@ -420,6 +422,7 @@ describe('SessionView composer seam', () => {
     expect(keys(props.extraActionChips)).toEqual([...keys(baseline.extraActionChips), seamChip.key]);
     expect(keys(props.statusBadges)).toEqual([...keys(baseline.statusBadges), seamBadge.key]);
     expect(props.statusTrailingActions).toBe(trailingAction);
+    expect(props.footerLeadingActions).toBe(footerAction);
   });
 
   it('keeps the view-only placeholder in a read-only session', async () => {

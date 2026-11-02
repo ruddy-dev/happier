@@ -64,3 +64,18 @@ it('M11 marks a mid-turn change as applying next turn and clears the note when i
     await render(false);
     expect(document.querySelector('[data-testid="ip-run-next-turn"]')).toBeNull();
 });
+
+it.each(['claude-haiku-5-5', 'default'])('M3 offers catalog effort levels and preserves effort across %s', async (model) => {
+    await render(); await click('ip-run-settings');
+    const choices = () => [...document.querySelectorAll('[role="menuitemradio"][data-testid^="ip-run-effort-"]')].map(node => node.getAttribute('data-testid'));
+    expect(choices()).toEqual(['low', 'medium', 'high', 'xhigh', 'max'].map(level => `ip-run-effort-${level}`));
+    await click('ip-run-effort-medium');
+    await click(`ip-run-model-${model}`);
+    expect(choices()).toEqual([]);
+    expect(element('ip-run-effort-group').getAttribute('aria-disabled')).toBe('true');
+    expect(element('ip-run-effort-unavailable').textContent).toBeTruthy();
+    await click('ip-run-model-claude-opus-5-5');
+    expect(element('ip-run-effort-medium').getAttribute('aria-checked')).toBe('true');
+    await click('ip-run-effort-max');
+    expect(element('ip-run-effort-max').getAttribute('aria-checked')).toBe('true');
+});

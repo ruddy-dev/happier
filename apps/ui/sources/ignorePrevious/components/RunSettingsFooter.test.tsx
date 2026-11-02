@@ -14,8 +14,8 @@ function Composer({ desk }: { desk: boolean }) {
     const resolved = useSessionComposerOverrides({ isReadOnly: false, placeholder: '', extraActionChips: undefined, statusBadges: [], providerUsageGauge: undefined, onMicPress: undefined, isMicActive: undefined, onAbort: undefined, alwaysShowContextSize: false }, overrides);
     return <View><AgentInput value="" onChangeText={() => {}} onSend={() => {}} autocompleteKinds={[]} autocompleteSuggestions={async () => []} {...resolved} /></View>;
 }
-it('M9 places the desk run button inside the action footer even when collapsed; ordinary composers have no extra node', async () => {
-    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'collapsed' });
+it.each(['auto', 'wrap', 'scroll', 'collapsed'] as const)('M9 places the desk run button inside the %s action footer; ordinary composers have no extra node', async (layout) => {
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: layout });
     const desk = await renderScreen(<Composer desk />);
     const button = desk.findByTestId('ip-run-settings');
     expect(button).not.toBeNull();
