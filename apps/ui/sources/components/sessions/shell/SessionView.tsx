@@ -6508,6 +6508,8 @@ function SessionViewLoaded({
                 onMicPress={resolvedComposer.onMicPress}
                 isMicActive={resolvedComposer.isMicActive}
                 onAbort={resolvedComposer.onAbort}
+                sendIsStop={resolvedComposer.sendIsStop}
+                hideAbortButton={resolvedComposer.hideAbortButton}
                 inactiveStatusText={inactiveStatusText}
                 onFileViewerPress={handleAgentInputFileViewerPress}
                 // Autocomplete configuration

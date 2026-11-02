@@ -11093,6 +11093,13 @@ settingsSession: {
     friendAcceptedGeneric: "好友请求已接受",
   },
     ignorePrevious: {
+        freshStart: {
+            title: 'Fresh start', more: '...', moreLabel: 'Shog: Brief me, Compact, New conversation',
+            brief: 'Brief me', compact: 'Compact', keepsSummary: 'Keeps a summary',
+            newConversation: 'New conversation', question: 'Start a new conversation?', cancel: 'Cancel',
+            fixtureTitle: 'Fresh start preview', fixtureReplying: 'Simulate a reply',
+            fixtureLog: ({ action }: { action: string }) => `Preview action: ${action}`,
+        },
         settings: {
             title: 'Settings',
             backToDesk: 'Back to desk',
