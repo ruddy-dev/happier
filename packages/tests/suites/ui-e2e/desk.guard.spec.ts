@@ -10,13 +10,13 @@ type Probes = { plain: Probe; target: Probe; redirect: Probe };
 const test = deskGuardTest.extend<{ probes: Probes }>({
     probes: async ({}, use) => {
         const servers: Server[] = [];
-        const start = async (location?: (path: string) => string | null): Promise<Probe> => {
+        const start = async (location?: (path: string, hits: number) => string | null): Promise<Probe> => {
             let hits = 0;
             const server = createServer((req, res) => {
                 hits++;
-                const destination = location?.(req.url ?? '/') ?? null;
-                res.writeHead(destination ? 302 : 200, destination ? { location: destination } : { 'content-type': 'text/plain' });
-                res.end(destination ? '' : 'local probe');
+                const destination = location?.(req.url ?? '/', hits) ?? null;
+                res.writeHead(destination !== null ? 302 : 200, destination !== null ? { location: destination } : { 'content-type': 'text/plain' });
+                res.end(destination !== null ? '' : 'local probe');
             });
             servers.push(server);
             server.on('upgrade', (_req, socket) => { hits++; socket.destroy(); });
@@ -31,7 +31,7 @@ const test = deskGuardTest.extend<{ probes: Probes }>({
         try {
             const plain = await start();
             const target = await start();
-            const redirect = await start((path) => path === '/chain' ? '/next' : path === '/ok' ? null : `${target.origin}/target`);
+            const redirect = await start((path, hits) => path === '/empty' && hits === 1 ? '' : path === '/chain' ? '/next' : path === '/ok' ? null : `${target.origin}/target`);
             await use({ plain, target, redirect });
         } finally {
             for (const server of servers.reverse()) {
@@ -70,10 +70,10 @@ test('a websocket refusal records the exact URL without contacting the local ser
     blockedRequests.splice(0);
 });
 
-for (const path of ['/redirect', '/chain']) {
+for (const path of ['/redirect', '/chain', '/empty']) {
     test(`a forbidden redirect after ${path} never reaches its local destination`, async ({ page, probes, blockedRequests }) => {
         await page.evaluate((url) => fetch(url, { mode: 'no-cors' }).catch(() => null), `${probes.redirect.origin}${path}`);
-        expect(probes.redirect.hits()).toBe(path === '/chain' ? 2 : 1);
+        expect(probes.redirect.hits()).toBe(path === '/chain' || path === '/empty' ? 2 : 1);
         expect(blockedRequests).toEqual([{ url: `${probes.target.origin}/target`, reason: 'a test-only forbidden origin' }]);
         expect(probes.target.hits()).toBe(0);
         expect(probes.plain.hits()).toBe(0);

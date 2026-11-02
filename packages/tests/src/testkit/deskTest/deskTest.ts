@@ -14,8 +14,9 @@ import { startForwardedHeaderProxy } from '../uiE2e/forwardedHeaderProxy';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../uiE2e/pageNavigation';
 import { waitForInitialAppUi } from '../uiE2e/waitForInitialAppUi';
 import { DESK_UI_ENV } from './deskUiEnv';
-import { assertServerPort, forbiddenOriginLabel, isAllowedOrigin } from './originGuard';
-import { assertNoBlockedRequests, guardDeskRoute, type BlockedRequest } from './deskRequestGuard';
+import { assertServerPort } from './originGuard';
+import type { BlockedRequest } from './deskRequestGuard';
+import { runDeskGuardFixture } from './deskGuardFixture';
 export type { BlockedRequest } from './deskRequestGuard';
 
 export type DeskTestOptions = {
@@ -30,10 +31,6 @@ type DeskGuardFixtures = {
     blockedRequests: BlockedRequest[];
 };
 
-function refusalReason(url: string, extraForbidden: readonly string[]): string {
-    return forbiddenOriginLabel(url, extraForbidden) ?? 'not on the allowed list';
-}
-
 /**
  * Playwright `test` with the request guard alone: every request and websocket from the page must go
  * to an origin the test lists. Anything else is aborted and fails the test, naming the URL and why
@@ -43,22 +40,7 @@ export const deskGuardTest = base.extend<DeskGuardFixtures & DeskTestOptions>({
     deskAllowedOrigins: [[], { option: true }],
     deskExtraForbiddenOrigins: [[], { option: true }],
     blockedRequests: [
-        async ({ context, deskAllowedOrigins, deskExtraForbiddenOrigins, baseURL }, use) => {
-            const allowed = baseURL ? [baseURL, ...deskAllowedOrigins] : deskAllowedOrigins;
-            const blocked: BlockedRequest[] = [];
-            await context.route('**/*', (route) => guardDeskRoute(route, context.request, allowed, blocked, deskExtraForbiddenOrigins));
-            await context.routeWebSocket(() => true, async (socket) => {
-                const url = socket.url();
-                if (isAllowedOrigin(url, allowed, deskExtraForbiddenOrigins)) {
-                    socket.connectToServer();
-                    return;
-                }
-                blocked.push({ url, reason: refusalReason(url, deskExtraForbiddenOrigins) });
-                await socket.close();
-            });
-            await use(blocked);
-            assertNoBlockedRequests(blocked);
-        },
+        runDeskGuardFixture,
         { auto: true },
     ],
 });
