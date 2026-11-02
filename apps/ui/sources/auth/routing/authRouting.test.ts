@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isPublicRouteForUnauthenticated } from './authRouting';
 
 describe('isPublicRouteForUnauthenticated', () => {
@@ -39,5 +39,31 @@ describe('isPublicRouteForUnauthenticated', () => {
 
     it.each(routeCases)('$name', ({ segments, expected }) => {
         expect(isPublicRouteForUnauthenticated(segments)).toBe(expected);
+    });
+});
+
+describe('isPublicRouteForUnauthenticated: dev-only desk fixture', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
+    it('is public only when the build has EXPO_PUBLIC_IP_FIXTURES=1', () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        expect(isPublicRouteForUnauthenticated(['(app)', 'dev', 'desk-fixture'])).toBe(true);
+        expect(isPublicRouteForUnauthenticated(['dev', 'desk-fixture'])).toBe(true);
+    });
+
+    it('stays private with the flag off', () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        expect(isPublicRouteForUnauthenticated(['(app)', 'dev', 'desk-fixture'])).toBe(false);
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '0');
+        expect(isPublicRouteForUnauthenticated(['(app)', 'dev', 'desk-fixture'])).toBe(false);
+    });
+
+    it('opens no other dev route, with the flag on', () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        expect(isPublicRouteForUnauthenticated(['(app)', 'dev', 'logs'])).toBe(false);
+        expect(isPublicRouteForUnauthenticated(['(app)', 'dev'])).toBe(false);
+        expect(isPublicRouteForUnauthenticated(['(app)', 'desk'])).toBe(false);
     });
 });
