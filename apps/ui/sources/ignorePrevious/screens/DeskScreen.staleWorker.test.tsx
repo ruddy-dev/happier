@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync } from '@/dev/testkit/render/renderScreen';
 import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS } from '@/sync/domains/session/attention/deriveSessionRuntimePresentationState';
+import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
+import { subscribeToNowMs } from '@/hooks/time/nowMsClockStore';
+import { DESK_TICK_MS } from '../model/useDeskNow';
 import { storage } from '@/sync/domains/state/storage';
 
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
@@ -157,9 +160,9 @@ describe('DeskScreen stale and disconnected workers (F1-F3)', () => {
         await scenario.apply('w1', { requests: { r1: { tool: 'Bash', arguments: { command: 'echo test' } } } });
         await openDetails(scenario);
         await scenario.openApprovals();
-        const lastGood = Date.now() - 60_000;
+        const lastGood = Date.now();
         act(() => {
-            storage.getState().setLastSyncAt(lastGood);
+            storage.getState().setLastSyncAt(lastGood - 60_000);
             storage.getState().setSocketStatus('disconnected');
         });
         const banner = scenario.screen.findByTestId('ip-connection-status');
@@ -187,9 +190,85 @@ describe('DeskScreen stale and disconnected workers (F1-F3)', () => {
         expect(boundary.rpc).toHaveBeenCalledTimes(1);
     });
 
+    it('M1: an error drop uses its disconnect stamp and includes yesterday’s date', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        const droppedAt = Date.now();
+        act(() => storage.getState().setSocketStatus('error'));
+        expect(storage.getState().socketLastDisconnectedAt).toBe(droppedAt);
+        await scenario.advance(24 * 60 * 60_000);
+        act(() => storage.getState().setLastSyncAt(Date.now()));
+        expect(scenario.textOf('ip-connection-status')).toContain(
+            new Date(droppedAt).toLocaleString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+            }),
+        );
+    });
+
+    it('M1: failed reconnect attempts keep the first drop time; a later drop replaces it', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        const hhmm = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const droppedAt = Date.now();
+        act(() => storage.getState().setSocketStatus('error'));
+        await scenario.advance(30 * 60_000);
+        // Each failed retry (connect_error) restamps the store's disconnect time.
+        act(() => {
+            storage.getState().setSocketStatus('connecting');
+            storage.getState().setSocketStatus('error');
+        });
+        const retriedAt = storage.getState().socketLastDisconnectedAt!;
+        expect(hhmm(retriedAt)).not.toBe(hhmm(droppedAt));
+        expect(scenario.textOf('ip-connection-status')).toContain(hhmm(droppedAt));
+        expect(scenario.textOf('ip-connection-status')).not.toContain(hhmm(retriedAt));
+
+        act(() => storage.getState().setSocketStatus('connected'));
+        await scenario.advance(5 * 60_000);
+        const secondDrop = Date.now();
+        act(() => storage.getState().setSocketStatus('disconnected'));
+        expect(scenario.textOf('ip-connection-status')).toContain(hhmm(secondDrop));
+    });
+
+    it('M1: uses the sync stamp when no disconnect stamp exists', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        const syncedAt = Date.now() - 60_000;
+        act(() => storage.setState({ socketStatus: 'connecting', socketLastDisconnectedAt: null, lastSyncAt: syncedAt }));
+        expect(scenario.textOf('ip-connection-status')).toContain(
+            new Date(syncedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+        );
+    });
+
+    it('M2: a disconnected rerender keeps fresh rows fresh while another clock consumer ticks', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        await openDetails(scenario);
+        // Another mounted app consumer can keep the shared bucket ticking after the desk unsubscribes.
+        const unsubscribe = subscribeToNowMs(DESK_TICK_MS, () => {});
+        try {
+            act(() => storage.getState().setSocketStatus('disconnected'));
+            await scenario.advance(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS + 60_000);
+            // Metadata is not a worker signal, but forces the row/clock hook to render again.
+            await scenario.apply('w1', { metadata: { name: 'Renamed worker' } });
+            expect(scenario.textOf('ip-worker-stale-w1')).toBeNull();
+            expect(scenario.screen.findByTestId('ip-stop-w1')).not.toBeNull();
+            expect(scenario.textOf('ip-count-working')).toBe('1');
+        } finally {
+            unsubscribe();
+        }
+    });
+
+    it('M3: an inactive worker with old signals stays resumable without a stale label', async () => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        await scenario.apply('w1', { active: false, thinking: false, metadata: { flavor: 'claude' } });
+        await openDetails(scenario);
+        await scenario.advance(10 * 60_000);
+        act(() => storage.getState().applyMachines([createMachineFixture({
+            id: 'desk-test-machine', active: true, activeAt: Date.now(),
+        })]));
+        expect(scenario.screen.findByTestId('ip-resume-w1')).not.toBeNull();
+        expect(scenario.textOf('ip-worker-stale-w1')).toBeNull();
+    });
+
     it('F3/F4: before any good data, disconnect does not invent a last-seen time', async () => {
         scenario = await startDeskScenario({ script: { ...script, sessions: [] }, dataReady: false });
-        act(() => storage.getState().setSocketStatus('error'));
+        act(() => storage.setState({ socketStatus: 'error', socketLastDisconnectedAt: null, lastSyncAt: null }));
         expect(scenario.textOf('ip-connection-status')).toBe('Not connected. Waiting for the first update. Reconnect to Allow, Deny or Stop.');
         expect(scenario.textOf('ip-count-all')).toBe('–');
     });
