@@ -16,10 +16,8 @@ export function DeskUsageButton() {
     const focusClose = React.useCallback((node: View | null) => node?.focus(), []);
     const close = () => {
         setOpen(false);
-        // Usage returns focus even after an outside click, per its interaction contract.
-        openerRef.current?.focus();
     };
-    useDeskPopup({ open, onClose: close, openerRef, contentRef, returnFocusOnClose: true });
+    useDeskPopup({ open, onClose: close, openerRef, contentRef });
     return <>
         <Pressable ref={openerRef} testID="ip-top-usage" accessibilityRole="button"
             accessibilityLabel={t('ignorePrevious.topBar.usage')} accessibilityState={{ expanded: open }}
