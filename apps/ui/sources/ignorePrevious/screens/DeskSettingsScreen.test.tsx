@@ -101,9 +101,10 @@ describe('/desk/settings', () => {
         state.dark = false;
         await screen.update(<DeskPage />);
         await screen.pressByTestIdAsync('ip-tab-work');
-        expect(screen.findByTestId('ip-work-rail')).not.toBeNull();
-        await screen.pressByTestIdAsync('ip-work-expand');
         expect(screen.findByTestId('ip-work')).not.toBeNull();
+        state.width = 1440;
+        await screen.update(<DeskPage />);
+        expect(screen.findByTestId('ip-work-rail')).not.toBeNull();
         await screen.unmount();
 
         state.pathname = '/desk/settings';
