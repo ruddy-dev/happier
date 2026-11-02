@@ -16,6 +16,7 @@ let previous: ReturnType<typeof storage.getState>;
 function seed(sessions: Session[]) {
     act(() => {
         storage.setState(previous, true);
+        storage.getState().setSocketStatus('connected');
         storage.getState().applySessions(sessions);
         // The first sync has finished; before it the panel says Connecting… (F4).
         storage.getState().applyReady();
@@ -28,6 +29,11 @@ const state = vi.hoisted(() => ({
     alert: vi.fn(),
     navigate: vi.fn(),
 }));
+
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
+});
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');

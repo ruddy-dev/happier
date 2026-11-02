@@ -21,6 +21,12 @@ const state = vi.hoisted(() => ({
     navigate: vi.fn(),
 }));
 
+// The stale-request note consumes the desk clock; this isolated panel is focused.
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
+});
+
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
     return createExpoVectorIconsMock();
@@ -90,6 +96,7 @@ function sessionWithRequest(
 function seed(sessions: Session[]) {
     act(() => {
         storage.setState(previous, true);
+        storage.getState().setSocketStatus('connected');
         storage.getState().applySessions(sessions);
         storage.getState().applyReady();
     });
@@ -105,6 +112,7 @@ function seedUnreadableRow(id: string, pendingPermissionRequestCount: number, me
     );
     act(() => {
         storage.setState(previous, true);
+        storage.getState().setSocketStatus('connected');
         storage.getState().mergeSessionListRenderables([
             { ...row, metadata: metadata as typeof row.metadata, metadataUnavailable: true },
         ]);

@@ -59,6 +59,11 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                             {newest.title}
                         </Text>
                     )}
+                    {!open && newest?.unheardMinutes != null ? (
+                        <Text testID={`ip-worker-stale-${newest.sessionId}`} style={secondary}>
+                            {t('ignorePrevious.connection.unheard', { minutes: newest.unheardMinutes })}
+                        </Text>
+                    ) : null}
                 </View>
             </Pressable>
             {open
@@ -93,6 +98,11 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                                   <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }}>{'>_'}</Text>
                               </Pressable>
                           </View>
+                          {worker.unheardMinutes != null ? (
+                              <Text testID={`ip-worker-stale-${worker.sessionId}`} style={secondary}>
+                                  {t('ignorePrevious.connection.unheard', { minutes: worker.unheardMinutes })}
+                              </Text>
+                          ) : null}
                           {/* On their own line so the title keeps the row's width in a narrow column. */}
                           <WorkerActions worker={worker} />
                       </View>

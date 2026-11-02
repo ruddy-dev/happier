@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { useIsFocused } from '@react-navigation/native';
 
+import { useSocketStatus } from '@/sync/store/hooks';
+
 import { readNowMs, subscribeToNowMs } from '@/hooks/time/nowMsClockStore';
 
 /**
@@ -18,10 +20,19 @@ const unsubscribed = () => {};
  */
 export function useDeskNow(): number {
     const focused = useIsFocused();
+    const { status, lastDisconnectedAt } = useSocketStatus();
+    const connected = status === 'connected';
     const subscribe = React.useCallback(
-        (listener: () => void) => (focused ? subscribeToNowMs(DESK_TICK_MS, listener) : unsubscribed),
-        [focused],
+        (listener: () => void) => (focused && connected ? subscribeToNowMs(DESK_TICK_MS, listener) : unsubscribed),
+        [focused, connected],
     );
     const getSnapshot = React.useCallback(() => readNowMs(DESK_TICK_MS), []);
-    return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const now = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const lastSeenNow = React.useRef(lastDisconnectedAt ?? now);
+    React.useEffect(() => {
+        if (connected) lastSeenNow.current = now;
+    }, [connected, now]);
+    // A lost connection is not evidence that each worker died. Keep the last rendered ages
+    // until reconnect, when the shared clock immediately judges the current records again.
+    return connected ? now : lastSeenNow.current;
 }
