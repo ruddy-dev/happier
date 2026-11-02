@@ -11,7 +11,7 @@
 // - Reduced motion, a frozen clock, no GPU; shots at 1440x900 (also with the approvals drawer open) and 390x844.
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -298,25 +298,38 @@ async function captureMockup(page, shot, origin) {
 
 const ERROR_BOUNDARY_TEST_IDS = ['router_error_message', 'app-crash-restart'];
 
+async function assertAppHealthy(page, shot) {
+    // Expo Router's re-exported boundary and Happier's root crash screen (AppCrashRecoveryBoundary).
+    for (const testId of ERROR_BOUNDARY_TEST_IDS) {
+        if (await page.getByTestId(testId).first().isVisible()) {
+            throw new Error(`React error boundary shown on ${shot.appPath}`);
+        }
+    }
+    if (await page.getByText('Relay not supported', { exact: false }).first().isVisible()) {
+        throw new Error(`Relay not supported on ${shot.appPath}`);
+    }
+    for (const { locator, state, label } of appReadyElements(page, shot)) {
+        const ready = state === 'attached' ? await locator.count() > 0 : await locator.isVisible();
+        if (!ready) throw new Error(`Ready element ${label} is no longer ${state} on ${shot.appPath}`);
+    }
+}
+
 export async function captureShot(page, shot, side, origin, out) {
     try {
         const facts = side === 'app' ? await captureApp(page, shot, origin) : await captureMockup(page, shot, origin);
+        if (side === 'app') await assertAppHealthy(page, shot);
+        const image = join(out, shot[`${side}Image`]);
+        await page.screenshot({ path: image, animations: 'disabled', caret: 'hide' });
         if (side === 'app') {
-            // Expo Router's re-exported boundary and Happier's root crash screen (AppCrashRecoveryBoundary).
-            for (const testId of ERROR_BOUNDARY_TEST_IDS) {
-                if (await page.getByTestId(testId).first().isVisible()) {
-                    throw new Error(`React error boundary shown on ${shot.appPath}`);
-                }
-            }
-            if (await page.getByText('Relay not supported', { exact: false }).first().isVisible()) {
-                throw new Error(`Relay not supported on ${shot.appPath}`);
-            }
-            for (const { locator, state, label } of appReadyElements(page, shot)) {
-                const ready = state === 'attached' ? await locator.count() > 0 : await locator.isVisible();
-                if (!ready) throw new Error(`Ready element ${label} is no longer ${state} on ${shot.appPath}`);
+            // Checking on both sides of the screenshot catches a change during it. An error that
+            // appears and clears entirely between the two checks cannot be seen without pixel analysis.
+            try {
+                await assertAppHealthy(page, shot);
+            } catch (error) {
+                await rm(image, { force: true });
+                throw error;
             }
         }
-        await page.screenshot({ path: join(out, shot[`${side}Image`]), animations: 'disabled', caret: 'hide' });
         return facts;
     } catch (error) {
         shot[`${side}Error`] = error.message;
