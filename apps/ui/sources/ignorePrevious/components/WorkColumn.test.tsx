@@ -165,6 +165,46 @@ describe('WorkColumn', () => {
         expect(screen.findByTestId('ip-resume-busy')).toBeNull();
     });
 
+    it('C1/C4: offers Stop for background and resuming work, but not failed or idle workers', async () => {
+        const now = Date.now();
+        seed([
+            session('background', '/work/atr-6-background', { active: true, activeAt: now, runtimeActivityState: 'active', runtimeActivityActiveCount: 1, runtimeActivityObservedAt: now }),
+            session('resuming', '/work/atr-6-resuming', { active: true, activeAt: now }),
+            session('failed', '/work/atr-6-failed', { active: true, activeAt: now, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now }),
+            session('idle', '/work/atr-6-idle', { active: true, activeAt: now, thinking: false }),
+        ]);
+        // Resume is a client-owned lifecycle marker, not a field accepted from a server snapshot.
+        act(() => storage.getState().markSessionResuming('resuming'));
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.findByTestId('ip-stop-background')).not.toBeNull();
+        expect(screen.findByTestId('ip-stop-resuming')).not.toBeNull();
+        expect(screen.findByTestId('ip-stop-failed')).toBeNull();
+        expect(screen.findByTestId('ip-stop-idle')).toBeNull();
+    });
+
+    it('ATR-37.3: mode and title updates preserve equal-urgency group order until a worker signal arrives', async () => {
+        const now = Date.now();
+        const older = session('older', '/work/atr-6-older', { active: true, activeAt: now - 20_000, updatedAt: now - 20_000 });
+        const newer = session('newer', '/work/atr-7-newer', { active: true, activeAt: now - 10_000, updatedAt: now - 10_000 });
+        seed([older, newer]);
+        const screen = await renderColumn();
+        const order = () => screen.findAll((node) => typeof node.type === 'string' &&
+            typeof node.props.testID === 'string' && node.props.testID.startsWith('ip-issue-'))
+            .map((node) => node.props.testID);
+        expect(order()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        const edited = { ...older, seq: older.seq + 1, updatedAt: now, permissionMode: 'yolo' as const,
+            metadataVersion: older.metadataVersion + 1,
+            metadata: { ...older.metadata!, summary: { text: 'Renamed worker', updatedAt: now } },
+        };
+        seed([edited]);
+        expect(storage.getState().sessions.older.permissionMode).toBe('yolo');
+        expect(screen.getTextContent()).toContain('Renamed worker');
+        expect(order()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        seed([{ ...edited, seq: edited.seq + 1, updatedAt: now + 1, activeAt: now }]);
+        expect(order()).toEqual(['ip-issue-ATR-6', 'ip-issue-ATR-7']);
+    });
+
     it('prefers the session branch over the folder name', async () => {
         seed([session('s2', '/home/u/dev')]);
         setBranch('s2', 'hub-59-store-skill');
