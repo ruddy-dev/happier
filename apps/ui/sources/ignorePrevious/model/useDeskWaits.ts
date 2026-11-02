@@ -1,5 +1,7 @@
 import * as React from 'react';
-import { useShallow } from 'zustand/react/shallow';
+import { shallow } from 'zustand/shallow';
+import { listPendingRequestListsFromSession, type SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { buildStableJsonSignature } from '@/sync/domains/session/metadata/sessionMetadataStability';
 
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Message } from '@/sync/domains/messages/messageTypes';
@@ -10,12 +12,10 @@ import { deriveTranscriptInteraction } from '@/utils/sessions/deriveTranscriptIn
 import {
     getSessionName,
     getSessionStatus,
-    listPendingPermissionRequests,
-    listPendingUserActionRequests,
     shouldReadTranscriptForPendingRequests,
 } from '@/utils/sessions/sessionUtils';
 
-import { useDeskSessions } from '../useDeskSessions';
+import { selectDeskSessions } from '../useDeskSessions';
 import { toWaitingItems, type WaitingDisabledReason, type WaitingItem } from './waitingItems';
 
 /**
@@ -47,96 +47,175 @@ function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisab
     return interaction.permissionDisabledReason === 'readOnly' ? 'readOnly' : 'notGranted';
 }
 
-/**
- * What waits on you, from the desk's sessions. Name and state come from the list row, as in the
- * sidebar; the requests themselves come from the full record and, for a live session, its transcript.
- */
-export function collectWaits(
-    list: readonly SessionListRenderableSession[],
-    lookup: ReadonlyMap<string, Session>,
-    readTranscript: (sessionId: string) => DeskTranscript | undefined,
-    unreadable: readonly SessionListRenderableSession[],
-): { items: WaitingItem[]; unloaded: UnloadedWait[] } {
-    const input = list.map((row) => {
-        const session = lookup.get(row.id);
-        // As SessionView does: only a session whose requests live in its transcript gets the messages,
-        // so an inactive session keeps the helpers' short-circuit and shows no stale request.
+type State = ReturnType<typeof storage.getState>;
+type WaitInput = Readonly<{ row: SessionListRenderableSession; requests: readonly SessionPendingRequest[] }>;
+type UnloadedInput = Readonly<{ row: SessionListRenderableSession; reason: UnloadedWait['reason'] }>;
+type SessionWait = { input: WaitInput; unloaded: UnloadedInput | null };
+type CachedSessionWait = {
+    row: SessionListRenderableSession;
+    session: Session | undefined;
+    transcriptSignature: string;
+    value: SessionWait;
+    requestSignature: string;
+};
+
+/** Classification stays in the upstream owner; both request kinds share its single transcript fold. */
+function collectSessionWait(row: SessionListRenderableSession, session: Session | undefined, transcript: DeskTranscript | undefined): SessionWait {
+    const needsTranscript = session !== undefined && shouldReadTranscriptForPendingRequests(session);
+    const lists = session ? listPendingRequestListsFromSession(session, transcript?.messages) : null;
+    const permissions = lists?.permissionRequests ?? [];
+    const seen = new Set(permissions.map((request) => request.id));
+    const requests = [...permissions, ...(lists?.userActionRequests ?? []).filter((request) => !seen.has(request.id))];
+    const status = getSessionStatus(row).state;
+    const fullyRead = session !== undefined && (!needsTranscript || transcript?.isLoaded === true);
+    return {
+        input: { row, requests },
+        unloaded: requests.length === 0 && (status === 'permission_required' || status === 'action_required')
+            ? { row, reason: fullyRead ? 'unreadable' : 'notLoaded' } : null,
+    };
+}
+
+export type DeskWaitsSummary = Readonly<{ count: number; ready: boolean }>;
+type Projection = {
+    summary: DeskWaitsSummary;
+    sourceInputs: readonly WaitInput[];
+    sourceUnloaded: readonly UnloadedInput[];
+    inputs: readonly WaitInput[];
+    unloaded: UnloadedInput[];
+    details?: DeskWaits;
+    previousDetails?: DeskWaits;
+};
+type WaitSnapshot = {
+    inputs: readonly WaitInput[];
+    unloaded: UnloadedInput[];
+    ready: boolean;
+    projections: Map<string | undefined, Projection>;
+};
+let lastState: State | undefined;
+let snapshot: WaitSnapshot | undefined;
+let sessionCache = new Map<string, CachedSessionWait>();
+
+/** One classification per changed session for this desk's storage, shared even across modal roots. */
+function selectWaitSnapshot(state: State): WaitSnapshot {
+    if (lastState === state && snapshot) return snapshot;
+    const desk = selectDeskSessions(state);
+    const nextCache = new Map<string, CachedSessionWait>();
+    const inputs: WaitInput[] = [];
+    const unloaded: UnloadedInput[] = [];
+    for (const row of desk.list) {
+        const session = desk.lookup.get(row.id);
         const needsTranscript = session !== undefined && shouldReadTranscriptForPendingRequests(session);
-        const transcript = needsTranscript ? readTranscript(row.id) : undefined;
-        const messages = transcript?.messages;
-        const permissions = session ? listPendingPermissionRequests(session, messages) : [];
-        const seen = new Set(permissions.map((request) => request.id));
-        const questions = session ? listPendingUserActionRequests(session, messages).filter((request) => !seen.has(request.id)) : [];
-        return {
-            row,
+        const entry = needsTranscript ? state.sessionMessages[row.id] : undefined;
+        // Message records may mutate in place. Version and load completion are the freshness contract.
+        const signature = `${entry?.isLoaded ? 1 : 0}:${entry?.messagesVersion ?? 0}`;
+        let cached = sessionCache.get(row.id);
+        if (!cached || cached.row !== row || cached.session !== session || cached.transcriptSignature !== signature) {
+            const transcript = entry ? { messages: readStoredSessionMessagesFromStateLike(entry), isLoaded: entry.isLoaded === true } : undefined;
+            const value = collectSessionWait(row, session, transcript);
+            const requestSignature = buildStableJsonSignature(value.input.requests);
+            // Streaming can replace a row without changing anything the waits UI displays.
+            if (cached && cached.requestSignature === requestSignature
+                && cached.value.input.row === row) {
+                value.input = cached.value.input;
+            }
+            if (cached && shallow(cached.value.unloaded, value.unloaded)) value.unloaded = cached.value.unloaded;
+            cached = { row, session, transcriptSignature: signature, value, requestSignature };
+        }
+        nextCache.set(row.id, cached);
+        if (cached.value.input.requests.length > 0) inputs.push(cached.value.input);
+        if (cached.value.unloaded) unloaded.push(cached.value.unloaded);
+    }
+    for (const row of desk.unreadable) {
+        const value: UnloadedInput = { row, reason: 'unreadable' };
+        const previous = snapshot?.unloaded.find((item) => item.row.id === row.id);
+        unloaded.push(previous && shallow(previous, value) ? previous : value);
+    }
+    sessionCache = nextCache;
+    lastState = state;
+    if (snapshot && snapshot.ready === desk.ready && shallow(snapshot.inputs, inputs) && shallow(snapshot.unloaded, unloaded)) return snapshot;
+    // Keep only currently reachable exclusions, and reuse unchanged projections across writes.
+    const projections = new Map(snapshot?.projections);
+    for (const id of projections.keys()) {
+        if (id !== undefined && !desk.lookup.has(id) && !desk.unreadable.some((row) => row.id === id)) projections.delete(id);
+    }
+    snapshot = { inputs, unloaded, ready: desk.ready, projections };
+    return snapshot;
+}
+
+function selectProjection(state: State, excludeSessionId?: string): { snapshot: WaitSnapshot; projection: Projection } {
+    const current = selectWaitSnapshot(state);
+    let projection = current.projections.get(excludeSessionId);
+    if (projection?.sourceInputs === current.inputs && projection.sourceUnloaded === current.unloaded
+        && projection.summary.ready === current.ready) return { snapshot: current, projection };
+    const inputs = current.inputs.filter((input) => input.row.id !== excludeSessionId);
+    const unloaded = current.unloaded.filter((item) => item.row.id !== excludeSessionId);
+    if (!projection || projection.summary.ready !== current.ready
+        || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)) {
+        const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
+        const summary = projection?.summary.count === count && projection.summary.ready === current.ready
+            ? projection.summary : { count, ready: current.ready };
+        projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded,
+            inputs, unloaded, previousDetails: projection?.details ?? projection?.previousDetails };
+        current.projections.set(excludeSessionId, projection);
+    }
+    projection.sourceInputs = current.inputs;
+    projection.sourceUnloaded = current.unloaded;
+    return { snapshot: current, projection };
+}
+
+function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
+    const { projection } = selectProjection(state, excludeSessionId);
+    if (!projection.details) {
+        const previous = projection.previousDetails;
+        const oldItems = new Map(previous?.items.map((item) => [item.key, item]));
+        const items = toWaitingItems(projection.inputs.map(({ row, requests }) => ({
             sessionId: row.id,
             sessionTitle: getSessionName(row),
-            requests: [...permissions, ...questions],
+            requests,
             disabledReason: approvalDisabledReason(row),
-            // Everything the app can read of it is here, so an empty request list means unreadable, not unloaded.
-            fullyRead: session !== undefined && (!needsTranscript || transcript?.isLoaded === true),
+        }))).map((item) => {
+            const old = oldItems.get(item.key);
+            return old && shallow(old, item) ? old : item;
+        });
+        const unloaded = projection.unloaded.map(({ row, reason }) => {
+            const item: UnloadedWait = { sessionId: row.id, sessionTitle: getSessionName(row), reason };
+            const old = previous?.unloaded.find((value) => value.sessionId === row.id);
+            return old && shallow(old, item) ? old : item;
+        });
+        const next = {
+            ...projection.summary,
+            items: previous && shallow(previous.items, items) ? previous.items : items,
+            unloaded: previous && shallow(previous.unloaded, unloaded) ? previous.unloaded : unloaded,
         };
-    });
-    const unloaded: UnloadedWait[] = input
-        .filter(({ row, requests }) => {
-            if (requests.length > 0) return false;
-            const state = getSessionStatus(row).state;
-            return state === 'permission_required' || state === 'action_required';
-        })
-        .map(({ sessionId, sessionTitle, fullyRead }) => ({
-            sessionId,
-            sessionTitle,
-            reason: fullyRead ? 'unreadable' : 'notLoaded',
-        }));
-    // Never in `list`, so never counted twice.
-    for (const row of unreadable) {
-        unloaded.push({ sessionId: row.id, sessionTitle: getSessionName(row), reason: 'unreadable' });
+        projection.details = previous && shallow(previous, next) ? previous : next;
+        projection.previousDetails = undefined;
     }
-    return { items: toWaitingItems(input), unloaded };
+    return projection.details;
 }
 
-type TranscriptEntry = Readonly<{ isLoaded?: boolean; messagesVersion?: number }> | undefined;
-
-/** Changes whenever the transcript's messages do. `messagesById` is mutated in place, so its identity says nothing. */
-function transcriptSignature(entry: TranscriptEntry): string {
-    return `${entry?.isLoaded ? 1 : 0}:${entry?.messagesVersion ?? 0}`;
+/** Chrome subscribes only to count/readiness. Equivalent summaries retain their identity. */
+export function useDeskWaitsSummary(excludeSessionId?: string): DeskWaitsSummary {
+    const selector = React.useMemo(() => {
+        let previous: DeskWaitsSummary | undefined;
+        return (state: State) => {
+            const next = selectProjection(state, excludeSessionId).projection.summary;
+            previous = previous && shallow(previous, next) ? previous : next;
+            return previous;
+        };
+    }, [excludeSessionId]);
+    return storage(selector);
 }
 
-function readTranscript(sessionId: string): DeskTranscript | undefined {
-    const entry = storage.getState().sessionMessages[sessionId];
-    return entry ? { messages: readStoredSessionMessagesFromStateLike(entry), isLoaded: entry.isLoaded === true } : undefined;
-}
-
-/**
- * The one owner of what waits on you: the panel, the coordinator's chip and every count read it.
- * A transcript write (a request arriving, or a result answering one) need not replace the Session
- * or its list row, so each listed session's transcript version is a dependency of its own.
- */
+/** Detailed subscriptions belong only to an open drawer or panel. */
 export function useDeskWaits(excludeSessionId?: string): DeskWaits {
-    const { list: sessions, lookup, ready, unreadable: unreadableRows } = useDeskSessions();
-    // The coordinator's walk-through rates workers only; the global panel still includes everyone.
-    const list = React.useMemo(
-        () => excludeSessionId ? sessions.filter((row) => row.id !== excludeSessionId) : sessions,
-        [sessions, excludeSessionId],
-    );
-    const unreadable = React.useMemo(
-        () => excludeSessionId ? unreadableRows.filter((row) => row.id !== excludeSessionId) : unreadableRows,
-        [unreadableRows, excludeSessionId],
-    );
-    // Stable while the list is, so the selector isn't rebuilt every render.
-    const ids = React.useMemo(() => list.map((row) => row.id), [list]);
-    const signatures = storage(
-        useShallow((state) => Object.fromEntries(ids.map((id) => [id, transcriptSignature(state.sessionMessages[id])]))),
-    );
-    // `signatures` is read through readTranscript, not by name: it is here so a transcript write recomputes.
-    return React.useMemo(() => {
-        const { items, unloaded } = collectWaits(list, lookup, readTranscript, unreadable);
-        // A bare waiting row counts too (R24): it is one thing to look at.
-        return { items, unloaded, count: items.length + unloaded.length, ready };
-    }, [list, lookup, signatures, ready, unreadable]);
+    return storage(React.useCallback((state: State) => selectDetails(state, excludeSessionId), [excludeSessionId]));
 }
 
-/** How many things wait on you across your sessions: the count on the desk's approvals button. */
+/** Read current details on a real user action, without a mounted detail subscription. */
+export function readDeskWaits(excludeSessionId?: string): DeskWaits {
+    return selectDetails(storage.getState(), excludeSessionId);
+}
+
 export function useWaitingCount(): number {
-    return useDeskWaits().count;
+    return useDeskWaitsSummary().count;
 }

@@ -8,7 +8,7 @@ import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 
-import { useDeskWaits, type DeskWaits } from '../model/useDeskWaits';
+import { readDeskWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
 
 /** The waiting list as the coordinator reads it: what each request runs, not only the agent's description. */
 function waitingList({ items, unloaded }: DeskWaits): string {
@@ -38,8 +38,7 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  */
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
-    const waits = useDeskWaits(coordinatorId);
-    const { count } = waits;
+    const { count } = useDeskWaitsSummary(coordinatorId);
     const [sending, setSending] = React.useState(false);
 
     const send = React.useCallback(
@@ -81,7 +80,7 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
             {count > 0
                 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () =>
-                      void send(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(waits) }), t('ignorePrevious.walkWaitingShown')),
+                      void send(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskWaits(coordinatorId)) }), t('ignorePrevious.walkWaitingShown')),
                   )
                 : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => void send(t('ignorePrevious.walkPrsPrompt'), t('ignorePrevious.walkPrs')))}
