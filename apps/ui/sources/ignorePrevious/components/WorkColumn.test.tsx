@@ -1,6 +1,7 @@
 import { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
+import { createDeferred, findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
 import { createRootLayoutFeaturesResponse } from '@/dev/testkit/fixtures/featureFixtures';
 import { getServerFeaturesSnapshot, resetServerFeaturesClientForTests } from '@/sync/api/capabilities/serverFeaturesClient';
@@ -12,6 +13,9 @@ import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 import { DESK_TICK_MS } from '../model/useDeskNow';
+import type { SessionReadFileResponse } from '@/sync/ops/sessionFileSystem/fileReadWrite';
+import { encodeBase64 } from '@/encryption/base64';
+import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
 import { armedUsageLimitRecovery, usageLimitIssue } from '../testkit/usageLimitFixtures';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -51,6 +55,9 @@ function setBranch(sessionId: string, branch: string) {
         });
     });
 }
+
+const readWqFile = vi.hoisted(() => vi.fn<(sessionId: string, path: string) => Promise<SessionReadFileResponse>>());
+vi.mock('@/sync/ops/sessionFileSystem/fileReadWrite', () => ({ sessionReadFile: readWqFile }));
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -582,5 +589,207 @@ describe('WorkColumn freshness (F1)', () => {
         expect(vi.getTimerCount()).toBe(base + 1);
         await screen.unmount();
         expect(vi.getTimerCount()).toBe(base);
+    });
+});
+
+
+describe('N1/N4/F4 WorkColumn wq data', () => {
+    let previous: ReturnType<typeof storage.getState>;
+    let coordinator: string | null;
+    const projects = JSON.stringify({
+        ATR: { name: 'Desk Demo', path: '/fixture/a', github: 'example/a' },
+        HUB: { name: 'Tools Demo', path: '/fixture/b', github: 'example/b' },
+    });
+    const item = (key = 'ATR-18', status = 'active') => `---\nid: ${key}\ntitle: Demo card title\nstatus: ${status}\n---\nPrivate body must not appear`;
+    const response = (text: string): SessionReadFileResponse => ({ success: true, content: encodeBase64(new TextEncoder().encode(text)) });
+    const reads = () => readWqFile.mock.calls.map(([id, path]) => [id, path]);
+    beforeEach(() => {
+        previous = storage.getState();
+        coordinator = getStoredCoordinatorId();
+        setStoredCoordinatorId('coord');
+        storage.getState().setSocketStatus('connected');
+        vi.stubEnv('EXPO_PUBLIC_IP_WQ_DIR', '/fixture/wq/');
+        readWqFile.mockReset();
+        readWqFile.mockImplementation(async (_id, path) => response(path.endsWith('projects.json') ? projects : item()));
+        seed([session('coord', '/fixture/coordinator', { active: true }), session('worker', '/fixture/atr-18')]);
+    });
+    afterEach(() => {
+        act(() => {
+            storage.setState(previous, true);
+            setStoredCoordinatorId(coordinator);
+        });
+        vi.unstubAllEnvs();
+        vi.unstubAllGlobals();
+        vi.useRealTimers();
+        focus.set(true);
+    });
+
+    it('N1 shows the plain title, project and evidence stage and reads only the coordinator paths', async () => {
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.getTextContent()).toContain('Demo card title');
+        expect(screen.getTextContent()).toContain('Desk Demo');
+        expect(screen.findByTestId('ip-work-stage-ATR-18')?.props.accessibilityLabel).toContain('Build');
+        expect(screen.findByTestId('ip-issue-ATR-18')?.findAllByProps({ accessibilityRole: 'button' })[0].props.accessibilityLabel).toContain('Stage: Build');
+        expect(screen.getTextContent()).not.toContain('Private body');
+        expect(screen.getTextContent()).not.toContain('/fixture/a');
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+    });
+
+    it('F4 leaves the existing card intact until the reads resolve', async () => {
+        const deferred = createDeferred<SessionReadFileResponse>();
+        readWqFile.mockReturnValueOnce(deferred.promise);
+        const screen = await renderColumn();
+        expect(screen.findByTestId('ip-issue-ATR-18')).not.toBeNull();
+        expect(screen.getTextContent()).toContain('Title worker');
+        expect(screen.findByTestId('ip-work-stage-ATR-18')).toBeNull();
+        expect(screen.getTextContent()).not.toContain('Desk Demo');
+        await act(async () => deferred.resolve(response(projects)));
+        await flushHookEffects();
+        expect(screen.getTextContent()).toContain('Demo card title');
+    });
+
+    it.each(['missing', 'size', 'parse', 'mismatch', 'throw'])('F4 a %s item failure leaves today’s card and waits five minutes', async failure => {
+        vi.useFakeTimers();
+        readWqFile.mockImplementation(async (_id, path) => {
+            if (path.endsWith('projects.json')) return response(projects);
+            if (failure === 'throw') throw new Error('boundary failure');
+            if (failure === 'parse') return response('not front matter');
+            if (failure === 'mismatch') return response(item('HUB-59'));
+            return { success: false, error: failure === 'size' ? 'File exceeds the inline file read size limit' : 'Missing file' };
+        });
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.getTextContent()).not.toContain('Demo card title');
+        expect(screen.getTextContent()).not.toContain('Desk Demo');
+        expect(screen.getTextContent()).toContain('Title worker');
+        await flushHookEffects({ advanceTimersMs: 295_000, cycles: 1 });
+        expect(reads()).toHaveLength(2);
+        await flushHookEffects({ advanceTimersMs: 5_000, cycles: 1 });
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+    });
+
+    it('F4 no coordinator makes no reads even with an explicit wq directory', async () => {
+        setStoredCoordinatorId(null);
+        seed([session('coord', '/fixture/coordinator', { archivedAt: Date.now() })]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(reads()).toEqual([]);
+        expect(screen.getTextContent()).not.toContain('Desk Demo');
+    });
+
+    it('F4 a failed inventory preserves unfiltered keys and only retries after five minutes', async () => {
+        vi.useFakeTimers();
+        setBranch('worker', 'fix-12-thing');
+        readWqFile.mockResolvedValue({ success: false, error: 'Missing file' });
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.findByTestId('ip-issue-FIX-12')).not.toBeNull();
+        await flushHookEffects({ advanceTimersMs: 295_000, cycles: 1 });
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json']]);
+        await flushHookEffects({ advanceTimersMs: 5_000, cycles: 1 });
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/projects.json']]);
+    });
+
+    it('F4 no configured directory makes no reads', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_WQ_DIR', '');
+        await renderColumn();
+        await flushHookEffects();
+        expect(reads()).toEqual([]);
+    });
+
+    it('N1 serializes item reads while visible keys change', async () => {
+        const first = createDeferred<SessionReadFileResponse>();
+        readWqFile.mockImplementation(async (_id, path) => path.endsWith('projects.json') ? response(projects) :
+            path.endsWith('ATR-18.md') ? first.promise : response(item('HUB-59')));
+        await renderColumn();
+        await flushHookEffects();
+        seed([session('second', '/fixture/hub-59')]);
+        await flushHookEffects();
+        expect(reads()).toHaveLength(2);
+        await act(async () => first.resolve(response(item())));
+        await flushHookEffects();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md'], ['coord', '/fixture/wq/items/HUB-59.md']]);
+    });
+
+    it('F4 discards a previous coordinator’s pending result before reading the new coordinator', async () => {
+        const oldInventory = createDeferred<SessionReadFileResponse>();
+        readWqFile.mockReturnValueOnce(oldInventory.promise);
+        const screen = await renderColumn();
+        seed([session('new-coord', '/fixture/another-coordinator', { active: true })]);
+        act(() => setStoredCoordinatorId('new-coord'));
+        await flushHookEffects();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json']]);
+        await act(async () => oldInventory.resolve(response(JSON.stringify({ ATR: { name: 'Old inventory' } }))));
+        await flushHookEffects();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['new-coord', '/fixture/wq/projects.json'], ['new-coord', '/fixture/wq/items/ATR-18.md']]);
+        expect(screen.getTextContent()).toContain('Desk Demo');
+        expect(screen.getTextContent()).not.toContain('Old inventory');
+    });
+
+    it('F4 makes no reads while hidden and catches up in the foreground', async () => {
+        vi.useFakeTimers();
+        const platform = Object.getOwnPropertyDescriptor(Platform, 'OS')!;
+        Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+        const host = Object.assign(new EventTarget(), { visibilityState: 'hidden' });
+        vi.stubGlobal('document', host);
+        try {
+            const screen = await renderColumn();
+            await flushHookEffects({ advanceTimersMs: 300_000, cycles: 1 });
+            expect(reads()).toEqual([]);
+            act(() => {
+                host.visibilityState = 'visible';
+                host.dispatchEvent(new Event('visibilitychange'));
+            });
+            await flushHookEffects();
+            expect(reads()).toHaveLength(2);
+            expect(screen.getTextContent()).toContain('Demo card title');
+        } finally {
+            Object.defineProperty(Platform, 'OS', platform);
+        }
+    });
+
+    it('N4 filters false projects, retries the folder source and never requests unsafe keys', async () => {
+        setBranch('worker', 'fix-12-thing');
+        seed([session('unknown', '/fixture/ZZ-1'), session('long', '/fixture/atr-1234567')]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.findByTestId('ip-issue-FIX-12')).toBeNull();
+        expect(screen.findByTestId('ip-issue-ZZ-1')).toBeNull();
+        expect(screen.findByTestId('ip-issue-ATR-18')).not.toBeNull();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+    });
+
+    it('N1 caches successes, reads newly visible keys and pauses refresh while unfocused', async () => {
+        vi.useFakeTimers();
+        readWqFile.mockImplementation(async (_id, path) => response(path.endsWith('projects.json') ? projects : item(path.includes('HUB-59') ? 'HUB-59' : 'ATR-18')));
+        const screen = await renderColumn();
+        await flushHookEffects();
+        await flushHookEffects({ advanceTimersMs: 295_000, cycles: 1 });
+        expect(reads()).toHaveLength(2);
+        seed([session('second', '/fixture/hub-59')]);
+        await flushHookEffects();
+        expect(reads()).toHaveLength(3);
+        act(() => focus.set(false));
+        await flushHookEffects({ advanceTimersMs: 300_000, cycles: 1 });
+        expect(reads()).toHaveLength(3);
+        act(() => focus.set(true));
+        await flushHookEffects();
+        expect(reads()).toHaveLength(5);
+        expect(readWqFile.mock.calls.filter(([, path]) => path.endsWith('projects.json'))).toHaveLength(1);
+        expect(screen.getTextContent()).toContain('Demo card title');
+    });
+
+    it.each([['ready', 'Plan'], ['review', 'PR'], ['done', 'Merged'], ['blocked', 'Blocked'], ['needs-luke', 'Needs you'], ['dropped', null], ['other', null]])('N1 renders %s with only its evidenced label', async (status, label) => {
+        readWqFile.mockImplementation(async (_id, path) => response(path.endsWith('projects.json') ? projects : item('ATR-18', status)));
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.getTextContent()).toContain('Demo card title');
+        if (status === 'blocked' || status === 'needs-luke') {
+            expect(screen.findByTestId('ip-work-stage-ATR-18')).toBeNull();
+            expect(screen.getTextContent()).toContain(label);
+        } else if (label) {
+            expect(screen.findByTestId('ip-work-stage-ATR-18')?.props.accessibilityLabel).toContain(label);
+        } else expect(screen.findByTestId('ip-work-stage-ATR-18')).toBeNull();
     });
 });
