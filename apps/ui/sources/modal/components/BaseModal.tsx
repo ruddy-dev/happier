@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { ESCAPE_LAYER_PRIORITIES, registerEscapeKeyBlocker } from '@/keyboard/escape';
 import {
     View,
     TouchableWithoutFeedback,
@@ -10,6 +9,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { KeyboardAwareModalFrame } from '@/components/ui/keyboardAvoidance';
 import { useChromeSafeAreaInsets } from '@/components/ui/layout/useChromeSafeAreaInsets';
 import { OverlayPortalHost, OverlayPortalProvider } from '@/components/ui/popover';
+import { ESCAPE_LAYER_PRIORITIES, registerEscapeKeyBlocker } from '@/keyboard/escape';
 import { requireRadixDialog, requireRadixDismissableLayer } from '@/utils/web/radixCjs';
 import { ModalPortalTargetProvider } from '@/modal/portal/ModalPortalTarget';
 import type { ModalPortalTarget } from '@/modal/portal/ModalPortalTarget';
