@@ -177,8 +177,8 @@ function buildExportEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
-export function resolveUiWebExportSourceFingerprint(): string {
-  const uiWorkspaceDir = resolvePath(repoRootDir(), 'apps', 'ui');
+export function resolveUiWebExportSourceFingerprint(rootDir = repoRootDir()): string {
+  const uiWorkspaceDir = resolvePath(rootDir, 'apps', 'ui');
   const roots = [
     resolvePath(uiWorkspaceDir, 'app'),
     resolvePath(uiWorkspaceDir, 'sources'),

@@ -15,6 +15,7 @@ import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../ui
 import { waitForInitialAppUi } from '../uiE2e/waitForInitialAppUi';
 import { DESK_UI_ENV } from './deskUiEnv';
 import { assertServerPort, forbiddenOriginLabel, isAllowedOrigin } from './originGuard';
+import { guardDeskRoute } from './deskRequestGuard';
 
 export type BlockedRequest = Readonly<{ url: string; reason: string }>;
 
@@ -43,15 +44,7 @@ export const deskGuardTest = base.extend<DeskGuardFixtures & DeskTestOptions>({
         async ({ context, deskAllowedOrigins, baseURL }, use) => {
             const allowed = baseURL ? [baseURL, ...deskAllowedOrigins] : deskAllowedOrigins;
             const blocked: BlockedRequest[] = [];
-            await context.route('**/*', async (route) => {
-                const url = route.request().url();
-                if (isAllowedOrigin(url, allowed)) {
-                    await route.continue();
-                    return;
-                }
-                blocked.push({ url, reason: refusalReason(url) });
-                await route.abort('blockedbyclient');
-            });
+            await context.route('**/*', (route) => guardDeskRoute(route, context.request, allowed, blocked));
             await context.routeWebSocket(() => true, async (socket) => {
                 const url = socket.url();
                 if (isAllowedOrigin(url, allowed)) {
