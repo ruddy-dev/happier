@@ -1,0 +1,206 @@
+import * as React from 'react';
+import { createRequire } from 'node:module';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NativeStackHeaderProps, NativeStackNavigationOptions } from '@react-navigation/native-stack';
+import { Platform, StyleSheet, type PressableProps } from 'react-native';
+import { renderScreen } from '@/dev/testkit/render/renderScreen';
+import { DESK_FONT_STACK } from '../fonts/deskFont';
+
+const route = vi.hoisted(() => ({ pathname: '/', dark: false, capture: null as import('@/dev/testkit/mocks/router').StackOptionsCapture | null }));
+vi.mock('expo-router', async () => {
+    const { createExpoRouterMock, createStackOptionsCapture } = await import('@/dev/testkit/mocks/router');
+    route.capture = createStackOptionsCapture();
+    return createExpoRouterMock({ pathname: () => route.pathname, stackOptionsCapture: route.capture }).module;
+});
+vi.mock('react-native', async () => {
+    const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
+    return createReactNativeWebMock({
+        Pressable: ({ children, style, ...props }: PressableProps) => React.createElement('Pressable', {
+            ...props, style: typeof style === 'function' ? style({ pressed: false }) : style,
+        }, typeof children === 'function' ? children({ pressed: false }) : children),
+    });
+});
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
+});
+vi.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+    useSafeAreaFrame: () => ({ x: 0, y: 0, width: 1200, height: 900 }),
+    SafeAreaView: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
+// Radix is the external browser dialog boundary.
+vi.mock('@/utils/web/radixCjs', () => {
+    const Pass = ({ children }: React.PropsWithChildren) => <>{children}</>;
+    return {
+        requireRadixDialog: () => ({ Root: Pass, Portal: Pass, Overlay: Pass, Content: Pass, Title: Pass }),
+        requireRadixDismissableLayer: () => ({ Branch: Pass }),
+    };
+});
+// Keep the real profile resolver and page logic; model only the Unistyles named scope.
+vi.mock('react-native-unistyles', async () => {
+    const React = await import('react');
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    const { lightTheme, darkTheme } = await import('@/theme');
+    const { resolveThemeProfile } = await import('@/theme/profiles/resolveThemeProfile');
+    const { ignorePreviousProfile, ignorePreviousLightProfile } = await import('@/theme/profiles/ignorePreviousThemeProfile');
+    const themes = {
+        deskPageLight: resolveThemeProfile({ mode: 'light', profile: ignorePreviousLightProfile }),
+        deskPageDark: resolveThemeProfile({ mode: 'dark', profile: ignorePreviousProfile }),
+    };
+    const Scope = React.createContext<keyof typeof themes | null>(null);
+    const base = await createUnistylesMock();
+    return {
+        ...base,
+        ScopedTheme: ({ name, children }: { name: keyof typeof themes; children: React.ReactNode }) => (
+            <Scope.Provider value={name}>{children}</Scope.Provider>
+        ),
+        useUnistyles: () => {
+            const name = React.useContext(Scope);
+            return { ...base.useUnistyles(), theme: name ? themes[name] : route.dark ? darkTheme : lightTheme };
+        },
+    };
+});
+// The sync singleton opens sockets and native transports at import time.
+vi.mock('@/sync/sync', async () => {
+    const { createSyncModuleStub } = await import('@/dev/testkit/mocks/sync');
+    const stub = createSyncModuleStub();
+    return { ...stub, sync: { ...stub.sync, refreshMachinesThrottled: vi.fn(async () => {}) }, syncSwitchServer: vi.fn(async () => {}) };
+});
+
+import { AuthProvider } from '@/auth/context/AuthContext';
+import { createWelcomeFeaturesResponse } from '@/__tests__/routes/(app)/index.testHelpers';
+
+const previousPlatform = Platform.OS;
+beforeEach(async () => {
+    // Metro resolves this lazy asset-registry require. Route it to the real Vite-loaded module.
+    const registry = await import('@/agents/registry/registryUi');
+    // Node's CJS loader is untyped; bridge only Metro's lazy alias to the real module.
+    const loader = createRequire(import.meta.url)('node:module') as { _load: (...args: unknown[]) => unknown };
+    const originalLoad = loader._load;
+    vi.spyOn(loader, '_load').mockImplementation((...args) => (
+        args[0] === '@/agents/registry/registryUi' ? registry : originalLoad(...args)
+    ));
+    Platform.OS = 'web';
+    route.capture?.reset();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(createWelcomeFeaturesResponse()), {
+        status: 200, headers: { 'content-type': 'application/json' },
+    })));
+});
+afterEach(() => {
+    Platform.OS = previousPlatform;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+});
+
+const pages = [
+    { path: '/', load: () => import('@/app/(app)/index') },
+    { path: '/restore/manual', load: () => import('@/app/(app)/restore/manual') },
+    { path: '/settings/voice', load: () => import('@/app/(app)/settings/voice') },
+];
+
+describe.each([false, true])('desk page appearance, dark=%s', (dark) => {
+    it.each(pages)('$path renders desk typography and theme', async ({ path, load }) => {
+        route.pathname = path;
+        route.dark = dark;
+        const Page = (await load()).default;
+        const screen = await renderScreen(<AuthProvider initialCredentials={null}><Page /></AuthProvider>);
+        const texts = screen.findAll((node) => String(node.type) === 'Text' || String(node.type) === 'TextInput');
+        expect(texts.length).toBeGreaterThan(0);
+        expect.soft(new Set(texts.map((node) => StyleSheet.flatten(node.props.style)?.fontFamily))).toEqual(new Set([DESK_FONT_STACK]));
+        const backgrounds = screen.findAll((node) => typeof node.type === 'string')
+            .map((node) => StyleSheet.flatten(node.props.style)?.backgroundColor);
+        expect.soft(backgrounds).toContain(dark ? '#0b0b0e' : '#e9e3d0');
+        // Sign-in shares a route with authenticated Home. Expo retains setOptions after
+        // Screen unmount, so sign-in must never replace that route's stack appearance.
+        if (path === '/') {
+            expect.soft(route.capture?.getResolved()).toBeNull();
+        } else {
+            expect.soft(route.capture?.getResolved()).toMatchObject({
+                headerStyle: { backgroundColor: dark ? '#14161c' : '#f6f1e3' },
+                headerTintColor: dark ? '#f3ecd8' : '#14161c',
+                headerTitleStyle: { fontFamily: DESK_FONT_STACK },
+            });
+        }
+        if (path === '/settings/voice') {
+            const options = route.capture?.getResolved() as NativeStackNavigationOptions;
+            const Header = options.header as React.ComponentType<NativeStackHeaderProps>;
+            // Navigation is the external boundary; no back action is requested in this fixture.
+            const navigation = {} as NativeStackHeaderProps['navigation'];
+            const header = await renderScreen(<Header options={{ ...options, title: 'Voice' }} route={{ key: 'voice', name: 'voice' }} navigation={navigation} />);
+            const title = header.findAll((node) => String(node.type) === 'Text').find((node) => node.children.includes('Voice'));
+            expect(StyleSheet.flatten(title?.props.style)).toMatchObject({
+                fontFamily: DESK_FONT_STACK, color: dark ? '#f3ecd8' : '#14161c',
+            });
+        }
+        if (path === '/restore/manual') {
+            expect(screen.findHostByTestId('restore-manual-secret-input')?.props.placeholderTextColor)
+                .toBe(dark ? '#8a857a' : '#625d52');
+        }
+    });
+});
+
+// Render an actual excluded route after Voice in the same root to catch scope leakage.
+it.each([
+    { path: '/settings', load: () => import('@/app/(app)/settings/index') },
+    { path: '/session/recent', load: () => import('@/app/(app)/session/recent') },
+])('$path retains Happier typography after leaving Voice', async ({ path, load }) => {
+    route.pathname = '/settings/voice';
+    route.dark = false;
+    const Voice = (await import('@/app/(app)/settings/voice')).default;
+    const screen = await renderScreen(<AuthProvider initialCredentials={null}><Voice /></AuthProvider>);
+    route.pathname = path;
+    const Page = (await load()).default;
+    await screen.update(<AuthProvider initialCredentials={null}><Page /></AuthProvider>);
+    const texts = screen.findAll((node) => String(node.type) === 'Text');
+    expect(texts.length).toBeGreaterThan(0);
+    const families = texts.map((node) => StyleSheet.flatten(node.props.style)?.fontFamily);
+    expect(families).toContain('Inter-Regular');
+    expect(families).not.toContain(DESK_FONT_STACK);
+    const backgrounds = screen.findAll((node) => typeof node.type === 'string')
+        .map((node) => StyleSheet.flatten(node.props.style)?.backgroundColor);
+    expect(backgrounds).toContain('#F5F5F5');
+    expect(backgrounds).not.toContain('#e9e3d0');
+});
+
+it('styles a real restore validation dialog rendered by the app modal host', async () => {
+    route.pathname = '/restore/manual';
+    route.dark = true;
+    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    const { Modal } = await import('@/modal');
+    const Restore = (await import('@/app/(app)/restore/manual')).default;
+    const screen = await renderScreen(<AuthProvider initialCredentials={null}>
+        <AppPaneModalProvider><Restore /></AppPaneModalProvider>
+    </AuthProvider>);
+    try {
+        await screen.pressByTestIdAsync('restore-manual-submit');
+        const { WebAlertModal } = await import('@/modal/components/WebAlertModal');
+        const dialog = screen.findByType(WebAlertModal);
+        const texts = dialog.findAll((node) => String(node.type) === 'Text');
+        expect(texts.length).toBeGreaterThan(0);
+        expect(new Set(texts.map((node) => StyleSheet.flatten(node.props.style)?.fontFamily)))
+            .toEqual(new Set([DESK_FONT_STACK]));
+    } finally {
+        await React.act(async () => Modal.hideAll());
+    }
+});
+
+it.each([
+    { path: '/settings', credentials: null },
+    { path: '/', credentials: { token: 'fixture-token', secret: 'fixture-secret' } },
+])('keeps Happier typography in excluded modal hosts: $path', async ({ path, credentials }) => {
+    route.pathname = path;
+    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    const { Modal } = await import('@/modal');
+    const screen = await renderScreen(<AuthProvider initialCredentials={credentials}>
+        <AppPaneModalProvider><></></AppPaneModalProvider>
+    </AuthProvider>);
+    try {
+        await React.act(async () => { Modal.alert('Fixture', 'Message'); });
+        const texts = screen.findAll((node) => String(node.type) === 'Text');
+        expect(texts.length).toBeGreaterThan(0);
+        expect(texts.map((node) => StyleSheet.flatten(node.props.style)?.fontFamily)).not.toContain(DESK_FONT_STACK);
+    } finally {
+        await React.act(async () => Modal.hideAll());
+    }
+});
