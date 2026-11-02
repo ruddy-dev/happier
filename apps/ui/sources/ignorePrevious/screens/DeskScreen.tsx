@@ -17,6 +17,7 @@ import { ApprovalsButton, ApprovalsDrawer } from '../components/Approvals';
 import { createWaitingHistory } from '../components/WaitingPanel';
 import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
+import { CoordinatorCard } from '../components/CoordinatorCard';
 import {
     getApprovalsOpen,
     setApprovalsOpen,
@@ -208,6 +209,9 @@ export function DeskScreen() {
     );
 
     const wide = width >= WIDE;
+    const coordinatorCard = (form: 'full' | 'slim' | 'rail') => coordinatorId ? (
+        <CoordinatorCard sessionId={coordinatorId} form={form} onOpen={() => { setChanging(false); setPhonePane('shog'); }} />
+    ) : null;
     const collapse = (
         <PanelToggle
             testID="ip-work-collapse"
@@ -239,11 +243,13 @@ export function DeskScreen() {
                 contentContainerStyle={{ gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }}
             >
                 {expand}
+                {coordinatorCard('rail')}
                 <WorkColumn compact="column" />
             </ScrollView>
         ) : (
             <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
                 <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
+                {coordinatorCard('slim')}
                 <WorkColumn />
             </ScrollView>
         );
@@ -251,7 +257,10 @@ export function DeskScreen() {
         work = workCollapsed && !phone ? (
             <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...divider }}>
                 <ScrollView horizontal={false} showsHorizontalScrollIndicator={false} style={{ flex: 1, minWidth: 0, maxHeight: Math.max(0, Math.round(height * 0.45) - 16), overflow: 'hidden' }} contentContainerStyle={{ minWidth: 0 }}>
-                    <WorkColumn compact="row" />
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4, minWidth: 0 }}>
+                        {coordinatorCard('rail')}
+                        <View style={{ flex: 1, minWidth: 0 }}><WorkColumn compact="row" /></View>
+                    </View>
                 </ScrollView>
                 {expand}
             </View>
@@ -264,6 +273,7 @@ export function DeskScreen() {
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
                 {!phone && <View style={{ alignItems: 'flex-end' }}>{collapse}</View>}
+                {coordinatorCard(phone && phonePane === 'work' ? 'full' : 'slim')}
                 <WorkColumn />
             </ScrollView>
         );
