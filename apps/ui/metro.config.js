@@ -302,6 +302,12 @@ config.resolver.blockList = [
   ...internalWorkspaceDistBlockList,
 ];
 
+// The Ignore Previous desk fixture (dev-only scenario data and a stub coordinator body) is built in only with
+// EXPO_PUBLIC_IP_FIXTURES=1. With the flag off Metro must not see the folder, so nothing in it can be bundled.
+if (process.env.EXPO_PUBLIC_IP_FIXTURES !== "1") {
+  config.resolver.blockList = [...config.resolver.blockList, /[\\/]ignorePrevious[\\/]fixtures(?:[\\/]|$)/];
+}
+
 function resolvePackageExportTarget(entry, platform) {
   if (typeof entry === "string" && entry.length > 0) return entry;
   if (!entry || typeof entry !== "object") return null;
@@ -405,6 +411,14 @@ for (const folder of watchedHoistedNodeModuleRoots) {
   if (!config.watchFolders.includes(folder)) {
     config.watchFolders.push(folder);
   }
+}
+
+// A git worktree may link another checkout's install (node_modules entries are symlinks into it).
+// Metro resolves those to real paths and can only hash files inside its watch set, so the linked
+// install must be watched too. Off unless set; a path-delimiter-separated list of folders.
+for (const folder of String(process.env.HAPPIER_METRO_EXTRA_WATCH_FOLDERS ?? "").split(path.delimiter)) {
+  const resolved = folder.trim() ? path.resolve(folder.trim()) : null;
+  if (resolved && !config.watchFolders.includes(resolved)) config.watchFolders.push(resolved);
 }
 
 // `packages/tests` contains UI e2e artifacts under `packages/tests/.project/**` which can grow very large.

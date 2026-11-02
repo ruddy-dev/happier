@@ -33,6 +33,9 @@ export function isPublicRouteForUnauthenticated(segments: string[]): boolean {
     // mTLS return routes must be reachable before authentication so the callback can finalize.
     if (first === 'mtls') return true;
 
+    // Dev-only desk fixture (screenshots): no account, no server. Off unless built with the flag.
+    if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1' && first === 'dev' && normalized[1] === 'desk-fixture') return true;
+
     // Public share links must work unauthenticated.
     if (first === 'share') return true;
 

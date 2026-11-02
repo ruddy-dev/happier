@@ -268,6 +268,7 @@ export type SessionsDomain = {
     finishSessionProjectScmOperation: (sessionId: string, operationId: string) => boolean;
 
     deleteSession: (sessionId: string) => void;
+    deleteSessions: (sessionIds: readonly string[]) => void;
 };
 
 type SessionsDomainDependencies = {
@@ -1987,101 +1988,106 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
             }
             return finished;
         },
-        deleteSession: (sessionId: string) => set((state) => {
-            optimisticThinkingTimeouts.cancel(sessionId);
-            resumingTimeouts.cancel(sessionId);
-            thinkingGraceTimeouts.cancel(sessionId);
+        deleteSession: (sessionId: string) => get().deleteSessions([sessionId]),
+        deleteSessions: (sessionIds: readonly string[]) => set((initialState) => {
+            if (sessionIds.length === 0) return initialState;
+            let state = initialState;
+            for (const sessionId of new Set(sessionIds)) {
+                optimisticThinkingTimeouts.cancel(sessionId);
+                resumingTimeouts.cancel(sessionId);
+                thinkingGraceTimeouts.cancel(sessionId);
 
-	            // Remove session from sessions
-	            const { [sessionId]: deletedSession, ...remainingSessions } = state.sessions;
-            const { [sessionId]: _deletedRenderable, ...remainingRenderables } = state.sessionListRenderables;
+                // Remove session from sessions
+                const { [sessionId]: deletedSession, ...remainingSessions } = state.sessions;
+                const { [sessionId]: _deletedRenderable, ...remainingRenderables } = state.sessionListRenderables;
             
-            // Remove session messages if they exist, along with the module-scoped
-            // derived caches that root the transcript outside the store.
-            const { [sessionId]: deletedMessages, ...remainingSessionMessages } = state.sessionMessages;
-            const { [sessionId]: _deletedCoverage, ...remainingHistoryStartLoaded } = state.sessionMessagesHistoryStartLoaded ?? {};
-            clearSessionTranscriptDerivedCachesForSession(sessionId);
+                // Remove session messages if they exist, along with the module-scoped
+                // derived caches that root the transcript outside the store.
+                const { [sessionId]: deletedMessages, ...remainingSessionMessages } = state.sessionMessages;
+                const { [sessionId]: _deletedCoverage, ...remainingHistoryStartLoaded } = state.sessionMessagesHistoryStartLoaded ?? {};
+                clearSessionTranscriptDerivedCachesForSession(sessionId);
 
-            // Remove session source-control status if it exists
-            const { [sessionId]: _deletedScmStatus, ...remainingScmStatus } = state.sessionScmStatus;
-            const { [sessionId]: _deletedTreeState, ...remainingTreeState } = state.sessionRepositoryTreeExpandedPathsBySessionId;
-            sessionRepositoryTreeExpandedPathsBySessionId = remainingTreeState;
-            const { [sessionId]: _deletedReviewDrafts, ...remainingReviewDrafts } = state.reviewCommentsDraftsBySessionId;
-            reviewCommentsDraftsBySessionId = remainingReviewDrafts;
-            const { [sessionId]: _deletedActionDrafts, ...remainingActionDrafts } = state.actionDraftsBySessionId;
-            actionDraftsBySessionId = remainingActionDrafts;
+                // Remove session source-control status if it exists
+                const { [sessionId]: _deletedScmStatus, ...remainingScmStatus } = state.sessionScmStatus;
+                const { [sessionId]: _deletedTreeState, ...remainingTreeState } = state.sessionRepositoryTreeExpandedPathsBySessionId;
+                sessionRepositoryTreeExpandedPathsBySessionId = remainingTreeState;
+                const { [sessionId]: _deletedReviewDrafts, ...remainingReviewDrafts } = state.reviewCommentsDraftsBySessionId;
+                reviewCommentsDraftsBySessionId = remainingReviewDrafts;
+                const { [sessionId]: _deletedActionDrafts, ...remainingActionDrafts } = state.actionDraftsBySessionId;
+                actionDraftsBySessionId = remainingActionDrafts;
             
-            // Clear canonical draft and permission modes from persistent storage.
-            const reviewDrafts = loadSessionReviewCommentsDrafts(sessionLocalStateScope);
-            delete reviewDrafts[sessionId];
-            saveSessionReviewCommentsDrafts(reviewDrafts, sessionLocalStateScope);
+                // Clear canonical draft and permission modes from persistent storage.
+                const reviewDrafts = loadSessionReviewCommentsDrafts(sessionLocalStateScope);
+                delete reviewDrafts[sessionId];
+                saveSessionReviewCommentsDrafts(reviewDrafts, sessionLocalStateScope);
 
-            const actionDrafts = loadSessionActionDrafts(sessionLocalStateScope);
-            delete actionDrafts[sessionId];
-            saveSessionActionDrafts(actionDrafts, sessionLocalStateScope);
+                const actionDrafts = loadSessionActionDrafts(sessionLocalStateScope);
+                delete actionDrafts[sessionId];
+                saveSessionActionDrafts(actionDrafts, sessionLocalStateScope);
 
-            if (sessionLocalStateScope) {
-                fireAndForget(
-                    deleteSessionDraft({
-                        scope: sessionLocalStateScope,
-                        address: { kind: 'session', sessionId },
-                    }),
-                    { tag: 'sessions.sessionDeleted.deleteSessionDraft' },
-                );
-            }
-            clearAgentInputLocalUiStateForSession(sessionLocalStateScope, sessionId);
+                if (sessionLocalStateScope) {
+                    fireAndForget(
+                        deleteSessionDraft({
+                            scope: sessionLocalStateScope,
+                            address: { kind: 'session', sessionId },
+                        }),
+                        { tag: 'sessions.sessionDeleted.deleteSessionDraft' },
+                    );
+                }
+                clearAgentInputLocalUiStateForSession(sessionLocalStateScope, sessionId);
             
-            const modes = loadSessionPermissionModes(sessionLocalStateScope);
-            delete modes[sessionId];
-            saveSessionPermissionModes(modes, sessionLocalStateScope);
-            sessionPermissionModes = modes;
+                const modes = loadSessionPermissionModes(sessionLocalStateScope);
+                delete modes[sessionId];
+                saveSessionPermissionModes(modes, sessionLocalStateScope);
+                sessionPermissionModes = modes;
 
-            const updatedAts = loadSessionPermissionModeUpdatedAts(sessionLocalStateScope);
-            delete updatedAts[sessionId];
-            saveSessionPermissionModeUpdatedAts(updatedAts, sessionLocalStateScope);
-            sessionPermissionModeUpdatedAts = updatedAts;
+                const updatedAts = loadSessionPermissionModeUpdatedAts(sessionLocalStateScope);
+                delete updatedAts[sessionId];
+                saveSessionPermissionModeUpdatedAts(updatedAts, sessionLocalStateScope);
+                sessionPermissionModeUpdatedAts = updatedAts;
 
-            const modelModes = loadSessionModelModes(sessionLocalStateScope);
-            delete modelModes[sessionId];
-            saveSessionModelModes(modelModes, sessionLocalStateScope);
-            sessionModelModes = modelModes;
+                const modelModes = loadSessionModelModes(sessionLocalStateScope);
+                delete modelModes[sessionId];
+                saveSessionModelModes(modelModes, sessionLocalStateScope);
+                sessionModelModes = modelModes;
 
-            const modelUpdatedAts = loadSessionModelModeUpdatedAts(sessionLocalStateScope);
-            delete modelUpdatedAts[sessionId];
-            saveSessionModelModeUpdatedAts(modelUpdatedAts, sessionLocalStateScope);
-            sessionModelModeUpdatedAts = modelUpdatedAts;
+                const modelUpdatedAts = loadSessionModelModeUpdatedAts(sessionLocalStateScope);
+                delete modelUpdatedAts[sessionId];
+                saveSessionModelModeUpdatedAts(modelUpdatedAts, sessionLocalStateScope);
+                sessionModelModeUpdatedAts = modelUpdatedAts;
 
-            delete sessionLastViewed[sessionId];
-            saveSessionLastViewed(sessionLastViewed, sessionLocalStateScope);
+                delete sessionLastViewed[sessionId];
+                saveSessionLastViewed(sessionLastViewed, sessionLocalStateScope);
             
-            // Rebuild sessionListViewData without the deleted session
-            const nextState = {
-                ...state,
-                sessions: remainingSessions,
-                sessionListRenderables: remainingRenderables,
-                // The only durable record that this id is gone rather than merely uncached.
-                deletedSessionIds: { ...state.deletedSessionIds, [sessionId]: true as const },
-                sessionMessages: remainingSessionMessages,
-                sessionMessagesHistoryStartLoaded: remainingHistoryStartLoaded,
-                sessionScmStatus: remainingScmStatus,
-                sessionRepositoryTreeExpandedPathsBySessionId: remainingTreeState,
-                reviewCommentsDraftsBySessionId: remainingReviewDrafts,
-                actionDraftsBySessionId: remainingActionDrafts,
-                sessionLastViewed: { ...sessionLastViewed },
-                sessionListViewData: buildSessionListViewDataForState({
+                // Rebuild sessionListViewData without the deleted session
+                state = {
                     ...state,
                     sessions: remainingSessions,
                     sessionListRenderables: remainingRenderables,
-                } as SessionsDomain & SessionsDomainDependencies),
-            };
+                    // The only durable record that this id is gone rather than merely uncached.
+                    deletedSessionIds: { ...state.deletedSessionIds, [sessionId]: true as const },
+                    sessionMessages: remainingSessionMessages,
+                    sessionMessagesHistoryStartLoaded: remainingHistoryStartLoaded,
+                    sessionScmStatus: remainingScmStatus,
+                    sessionRepositoryTreeExpandedPathsBySessionId: remainingTreeState,
+                    reviewCommentsDraftsBySessionId: remainingReviewDrafts,
+                    actionDraftsBySessionId: remainingActionDrafts,
+                    sessionLastViewed: { ...sessionLastViewed },
+                    sessionListViewData: buildSessionListViewDataForState({
+                        ...state,
+                        sessions: remainingSessions,
+                        sessionListRenderables: remainingRenderables,
+                    } as SessionsDomain & SessionsDomainDependencies),
+                };
+            }
             const next = {
-                ...nextState,
+                ...state,
                 sessionListViewDataByServerId: setActiveServerSessionListCache(
                     state.sessionListViewDataByServerId,
-                    nextState.sessionListViewData,
+                    state.sessionListViewData,
                 ),
             };
-            saveWarmSessionCacheForState(next as SessionsDomain & SessionsDomainDependencies);
+            saveWarmSessionCacheImmediately(next);
             return next;
         }),
     };

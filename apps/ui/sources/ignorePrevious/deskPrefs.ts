@@ -4,8 +4,13 @@ import { MMKV } from 'react-native-mmkv';
 const mmkv = new MMKV();
 const KEY = 'ignorePrevious.coordinatorSessionId';
 
-/** The session the user picked as coordinator on this device. */
+// Held in memory only and never written to MMKV. The dev-only desk fixture sets it so its made-up coordinator
+// shows without touching the choice stored on this device. While it is set, picks stay in memory too.
+let coordinatorOverride: { id: string | null } | null = null;
+
+/** The session the user picked as coordinator on this device (or the in-memory override while one is set). */
 export function getStoredCoordinatorId(): string | null {
+    if (coordinatorOverride) return coordinatorOverride.id;
     return mmkv.getString(KEY) ?? null;
 }
 
@@ -13,13 +18,24 @@ export function getStoredCoordinatorId(): string | null {
 // tab's pick is not seen until a reload: MMKV's own change listener isn't used.
 const coordinatorListeners = new Set<() => void>();
 
-export function setStoredCoordinatorId(id: string | null): void {
-    if (id) mmkv.set(KEY, id);
-    else mmkv.delete(KEY);
+function notifyCoordinatorListeners(): void {
     for (const listener of [...coordinatorListeners]) listener();
 }
 
-/** Calls `listener` after every `setStoredCoordinatorId`; returns the unsubscribe. */
+export function setStoredCoordinatorId(id: string | null): void {
+    if (coordinatorOverride) coordinatorOverride = { id };
+    else if (id) mmkv.set(KEY, id);
+    else mmkv.delete(KEY);
+    notifyCoordinatorListeners();
+}
+
+/** Shows `id` as the coordinator without persisting it; `null` drops the override and the stored pick is back. */
+export function setCoordinatorOverride(id: string | null): void {
+    coordinatorOverride = id === null ? null : { id };
+    notifyCoordinatorListeners();
+}
+
+/** Calls `listener` after every `setStoredCoordinatorId` or `setCoordinatorOverride`; returns the unsubscribe. */
 export function subscribeStoredCoordinatorId(listener: () => void): () => void {
     coordinatorListeners.add(listener);
     return () => {
