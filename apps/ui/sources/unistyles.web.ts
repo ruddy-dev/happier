@@ -1,3 +1,5 @@
+import { deskPageThemes } from './ignorePrevious/appearance/deskPageThemes';
+
 import { Appearance } from 'react-native';
 import { StyleSheet, UnistylesRuntime } from 'react-native-unistyles';
 
@@ -14,7 +16,7 @@ const startupThemes = resolveThemeRuntimeStartupThemes({
     themePreference,
     systemTheme: Appearance.getColorScheme(),
 });
-const appThemes = startupThemes.themes;
+const appThemes = { ...startupThemes.themes, ...deskPageThemes };
 
 const breakpoints = {
     xs: 0,

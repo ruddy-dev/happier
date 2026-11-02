@@ -8,6 +8,8 @@ import {
     type TextStyle,
 } from 'react-native';
 
+import { DeskPageThemeContext, deskPageFontStyle } from '@/ignorePrevious/appearance/deskPageThemeContext';
+
 import { Typography } from '@/constants/Typography';
 import { useLocalSetting } from '@/sync/store/hooks';
 
@@ -54,6 +56,7 @@ export const Text = React.memo(
         },
         ref
     ) {
+        const deskPageTheme = React.useContext(DeskPageThemeContext);
         const uiFontScaleSetting = useLocalSetting('uiFontScale');
         const uiFontScale = disableUiFontScaling ? 1 : uiFontScaleSetting;
         const selectableFromScope = React.useContext(TextSelectabilityContext);
@@ -67,8 +70,9 @@ export const Text = React.memo(
             if (defaultStyle) out.push(defaultStyle);
             if (Array.isArray(scaledStyle)) out.push(...scaledStyle);
             else if (scaledStyle) out.push(scaledStyle);
+            if (deskPageTheme) out.push(deskPageFontStyle);
             return out;
-        }, [defaultStyle, scaledStyle]);
+        }, [defaultStyle, scaledStyle, deskPageTheme]);
 
         return (
             <RNText
@@ -93,6 +97,7 @@ export const TextInput = React.memo(
         { style, useDefaultTypography = true, disableUiFontScaling = false, ...props },
         ref
     ) {
+        const deskPageTheme = React.useContext(DeskPageThemeContext);
         const uiFontScaleSetting = useLocalSetting('uiFontScale');
         const uiFontScale = disableUiFontScaling ? 1 : uiFontScaleSetting;
         const { accessibilityLabel, testID, ...restProps } = props;
@@ -105,8 +110,9 @@ export const TextInput = React.memo(
             if (Array.isArray(scaledStyle)) out.push(...scaledStyle);
             else if (scaledStyle) out.push(scaledStyle);
             if (Platform.OS === 'web') out.push(WEB_INPUT_NO_OUTLINE_STYLE);
+            if (deskPageTheme) out.push(deskPageFontStyle);
             return out;
-        }, [defaultStyle, scaledStyle]);
+        }, [defaultStyle, scaledStyle, deskPageTheme]);
 
         return (
             <RNTextInput

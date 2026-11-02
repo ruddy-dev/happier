@@ -771,5 +771,7 @@ vi.mock('react-native-unistyles', () => {
             setTheme: () => {},
             updateTheme: () => {},
         },
+        // Scoped themes are a web CSS concern; in tests the scope renders its children unchanged.
+        ScopedTheme: ({ children }: { children?: unknown }) => children,
     };
 });

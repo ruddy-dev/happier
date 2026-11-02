@@ -39,7 +39,7 @@ describe('desk font route root', () => {
         expect(deskRoot).not.toBeNull();
         expect(getComputedStyle(deskRoot!).fontFamily).toBe(DESK_FONT_STACK);
         const style = document.getElementById('ip-desk-font');
-        for (const pathname of ['/session/example', '/settings/voice', '/']) {
+        for (const pathname of ['/session/example', '/settings', '/restore']) {
             route.pathname = pathname;
             await render();
             expect(container.querySelector('[data-ip-font="desk"]')).toBeNull();
@@ -50,8 +50,8 @@ describe('desk font route root', () => {
         expect(document.getElementById('ip-desk-font')).toBe(style);
     });
 
-    it('keeps the desk font on the settings route', async () => {
-        route.pathname = '/desk/settings';
+    it.each(['/desk/settings', '/', '/restore/manual', '/settings/voice'])('loads the shared font on %s', async (pathname) => {
+        route.pathname = pathname;
         await render();
         expect(container.querySelector('[data-ip-font="desk"]')).not.toBeNull();
         expect(document.getElementById('ip-desk-font')).not.toBeNull();

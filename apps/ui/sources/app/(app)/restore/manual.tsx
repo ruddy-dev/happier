@@ -1,3 +1,4 @@
+import { DeskPageAppearance } from '@/ignorePrevious/appearance/DeskPageAppearance';
 import React, { useState } from 'react';
 import { View, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -90,6 +91,10 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 export default function Restore() {
+    return <DeskPageAppearance><RestoreContent /></DeskPageAppearance>;
+}
+
+function RestoreContent() {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const auth = useAuth();
