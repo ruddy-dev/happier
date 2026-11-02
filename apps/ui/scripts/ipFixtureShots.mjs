@@ -57,7 +57,9 @@ export function buildShotMatrix(mode = 'legacy') {
                 return { ...page, theme, width, height, name, openApprovals: false, mockupHash: mapping.hash,
                     appImage: `app/${name}.png`, mockupImage: `mockup/${name}.png`,
                     note: page.page === 'desk' && mapping.style === 'term'
-                        ? 'Terminal palette is seeded through desk prefs. Current app chrome still uses the light/dark profile.' : '',
+                        ? 'Terminal palette is seeded through desk prefs. Current app chrome still uses the light/dark profile.'
+                        : page.page === 'sign-in' && width === 390
+                            ? 'Phone sign-in shows the form after "Get started". The brand hero is not pictured.' : '',
                 };
             });
         }));
@@ -224,6 +226,11 @@ export async function waitForAppReady(page, shot) {
     const unsupported = () => new Error(`Relay not supported on ${shot.appPath ?? shot.page}; the requested page did not load`);
     const ready = async () => {
         if (shot.page !== 'desk') {
+            if (shot.page === 'sign-in' && shot.width === 390) {
+                const getStarted = page.getByTestId('brand-hero-get-started');
+                await getStarted.waitFor({ state: 'visible', timeout: 60_000 });
+                await getStarted.click();
+            }
             await page.getByTestId(shot.readyTestId).waitFor({ state: 'visible', timeout: 60_000 });
             return;
         }
