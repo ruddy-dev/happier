@@ -11515,7 +11515,12 @@ settingsSession: {
     },
   },
     ignorePrevious: {
-        topBar: { sessions: 'Sessions', usage: 'Max: not available', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
+        topBar: { sessions: 'Sessions', usage: 'Usage', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
+        usage: {
+            maxWeek: 'Max week', lastFiveHours: 'Last five hours', fableShare: 'Fable share',
+            estimate: ' (estimate)', notAvailable: 'Not available', close: 'Close',
+            reason: "Usage isn't connected to this desk yet, so no figures are shown.",
+        },
         chatStyle: {
             appearance: 'Appearance',
             title: 'Chat style',
