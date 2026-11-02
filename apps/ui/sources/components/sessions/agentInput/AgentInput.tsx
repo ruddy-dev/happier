@@ -300,6 +300,10 @@ interface AgentInputProps {
     sessionActive?: boolean;
     onAbort?: () => void | Promise<void>;
     showAbortButton?: boolean;
+    /** Host-owned busy state: Stop takes the submit position without consuming the draft. */
+    sendIsStop?: boolean;
+    /** Hide the secondary action while retaining the submit-position Stop and shortcut. */
+    hideAbortButton?: boolean;
     connectionStatus?: {
         text: string;
         color: string;
@@ -308,6 +312,8 @@ interface AgentInputProps {
     };
     statusBadges?: ReadonlyArray<AgentInputStatusBadgeDescriptor>;
     statusTrailingActions?: React.ReactNode;
+    /** Host actions that remain visible when the built-in controls collapse. */
+    footerLeadingActions?: React.ReactNode;
     /** Hosts with an editable permission chip may omit the repeated status-row label. */
     showStatusPermissionMode?: boolean;
     activeStatusBadgeKey?: string | null;
@@ -1655,6 +1661,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
     // Abort button state
     const [isAborting, setIsAborting] = React.useState(false);
+    const abortInFlightRef = React.useRef(false);
     const abortConfirmationExpiresAtRef = React.useRef(0);
     const shakerRef = React.useRef<ShakeInstance>(null);
     const [isInputFocused, setIsInputFocused] = React.useState(false);
@@ -2475,8 +2482,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const hasPath = Boolean(props.onPathClick || props.pathPopover);
     const hasResume = Boolean(props.onResumeClick || props.resumePopover);
     const hasFiles = Boolean(props.sessionId && props.onFileViewerPress);
-    const canStopFromComposer = Boolean(props.onAbort && props.showAbortButton);
-    const hasStop = canStopFromComposer;
+    const stopHoldsSubmit = Boolean(props.onAbort && props.sendIsStop);
+    const canStopFromComposer = Boolean(props.onAbort && (props.showAbortButton || props.sendIsStop));
+    const hasStop = canStopFromComposer && !props.hideAbortButton;
     const hasAnyActions = getHasAnyAgentInputActions({
         showPermissionChip,
         hasProfile,
@@ -2536,7 +2544,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
     // Handle abort button press
     const handleAbortPress = React.useCallback(async () => {
-        if (!props.onAbort) return;
+        if (!props.onAbort || abortInFlightRef.current) return;
+        abortInFlightRef.current = true;
         abortConfirmationExpiresAtRef.current = 0;
 
         hapticsError();
@@ -2556,9 +2565,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             shakerRef.current?.shake();
             console.error('Abort RPC call failed:', error);
         } finally {
+            abortInFlightRef.current = false;
             setIsAborting(false);
+            if (props.sendIsStop) inputRef.current?.focus();
         }
-    }, [props.onAbort]);
+    }, [props.onAbort, props.sendIsStop]);
 
     const runAbortShortcutAction = React.useCallback((action: 'armAbort' | 'confirmAbort') => {
         if (action === 'confirmAbort') {
@@ -2660,7 +2671,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         onPathClick: handlePathPress,
         onResumeClick: handleResumePress,
         onFileViewerPress: props.onFileViewerPress,
-        canStop: canStopFromComposer,
+        canStop: hasStop,
         onStop: handleStopFromComposer,
         hasProfile,
         hasEnvVars,
@@ -2726,7 +2737,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         resumeSessionId: props.resumeSessionId,
         resumeIsChecking: props.resumeIsChecking,
         onAbort: props.onAbort,
-        showAbortButton: props.showAbortButton,
+        showAbortButton: props.showAbortButton && !props.hideAbortButton,
         isAborting,
         shakerRef,
         onAbortPress: handleAbortPress,
@@ -3035,7 +3046,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         </>
     );
 
-    const renderActionRows = () => (
+    const renderActionRows = (leadingActions: React.ReactNode) => (
         <View style={styles.actionButtonsContainer}>
             <View
                 style={[
@@ -3047,6 +3058,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     key="row1"
                     style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null]}
                 >
+                    {leadingActions}
                     {actionBarShouldScroll ? (
                         <AgentInputScrollableChipRow
                             containerStyle={styles.actionButtonsLeftScroll}
@@ -3067,12 +3079,12 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         testID={props.sessionId ? AGENT_INPUT_TEST_IDS.sessionSend : AGENT_INPUT_TEST_IDS.newSessionSend}
                         sessionId={props.sessionId}
                         submitAccessibilityLabel={props.submitAccessibilityLabel}
-                        disabled={Boolean(props.disabled || props.isSendDisabled || props.isSending || (!hasSendableContent && !micPressHandler && !canStopFromComposer))}
-                        isSending={props.isSending}
+                        disabled={stopHoldsSubmit ? Boolean(props.disabled || isAborting) : Boolean(props.disabled || props.isSendDisabled || props.isSending || (!hasSendableContent && !micPressHandler && !canStopFromComposer))}
+                        isSending={stopHoldsSubmit ? false : props.isSending}
                         isStopping={isAborting}
-                        hasSendableContent={hasSendableContent}
+                        hasSendableContent={stopHoldsSubmit ? false : hasSendableContent}
                         canStop={canStopFromComposer}
-                        micPressHandler={micPressHandler}
+                        micPressHandler={stopHoldsSubmit ? undefined : micPressHandler}
                         micActive={micActive}
                         armedContinuationTarget={props.armedContinuationTarget ?? null}
                         onSend={handleSend}
@@ -3154,12 +3166,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
     const renderActionFooterSection = () => (
         <View
+            testID="agent-input-action-footer"
             style={styles.nativeKeyboardFooterSection}
             onLayout={(event) => {
                 updateLayoutHeight(setActionFooterHeightPx, event.nativeEvent.layout.height);
             }}
         >
-            {renderActionRows()}
+            {renderActionRows(props.footerLeadingActions)}
         </View>
     );
 

@@ -51,6 +51,7 @@ describe('resolveSessionLiveConsumption realtime transcript suppression', () => 
 
         expect(resolveSessionLiveConsumption('session-1', 'identity-a')).toEqual({
             isVisible: true,
+            isRecordConsumer: false,
             isFullContentConsumer: true,
         });
 
@@ -61,6 +62,7 @@ describe('resolveSessionLiveConsumption realtime transcript suppression', () => 
 
         expect(resolveSessionLiveConsumption('session-1', 'identity-a')).toEqual({
             isVisible: false,
+            isRecordConsumer: false,
             isFullContentConsumer: false,
         });
     });
@@ -74,6 +76,7 @@ describe('resolveSessionLiveConsumption realtime transcript suppression', () => 
 
         expect(resolveSessionLiveConsumption('session-1', 'identity-a')).toEqual({
             isVisible: true,
+            isRecordConsumer: false,
             isFullContentConsumer: true,
         });
     });
@@ -87,6 +90,7 @@ describe('resolveSessionLiveConsumption realtime transcript suppression', () => 
 
         expect(resolveSessionLiveConsumption('session-1', 'identity-a')).toEqual({
             isVisible: true,
+            isRecordConsumer: false,
             isFullContentConsumer: true,
         });
     });
@@ -148,6 +152,7 @@ describe('resolveSessionScmMutationSignal', () => {
             expect(resolveSessionScmMutationSignal('hidden-producer')).toBe(true);
             expect(resolveSessionLiveConsumption('hidden-producer')).toEqual({
                 isVisible: false,
+            isRecordConsumer: false,
                 isFullContentConsumer: false,
             });
         } finally {

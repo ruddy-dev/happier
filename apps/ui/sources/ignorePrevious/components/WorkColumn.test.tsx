@@ -2,6 +2,8 @@ import { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
+import { createRootLayoutFeaturesResponse } from '@/dev/testkit/fixtures/featureFixtures';
+import { getServerFeaturesSnapshot, resetServerFeaturesClientForTests } from '@/sync/api/capabilities/serverFeaturesClient';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { flushHookEffects } from '@/dev/testkit/hooks/flushHookEffects';
 import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS as STALE } from '@/sync/domains/session/attention/deriveSessionRuntimePresentationState';
@@ -10,6 +12,7 @@ import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 import { DESK_TICK_MS } from '../model/useDeskNow';
+import { armedUsageLimitRecovery, usageLimitIssue } from '../testkit/usageLimitFixtures';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -102,15 +105,184 @@ async function renderColumn() {
 
 describe('WorkColumn', () => {
     let previous: ReturnType<typeof storage.getState>;
-    beforeEach(() => {
+    beforeEach(async () => {
         previous = storage.getState();
         storage.getState().setSocketStatus('connected');
+        resetServerFeaturesClientForTests();
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(createRootLayoutFeaturesResponse({
+            features: { sessions: { enabled: true, usageLimitRecovery: { enabled: true } } },
+        })), { status: 200, headers: { 'content-type': 'application/json' } })));
+        await getServerFeaturesSnapshot({ force: true });
     });
     afterEach(() => {
         storage.setState(previous, true);
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+        resetServerFeaturesClientForTests();
     });
 
-    it('groups live workers by issue, puts No issue last and leaves out archived ones', async () => {
+    it('finding 6: disabling recovery removes the armed claim but keeps the limit line', async () => {
+        const now = Date.now();
+        const issue = usageLimitIssue(now);
+        seed([session('limited', '/work/atr-7-limited', {
+            active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now, lastRuntimeIssue: issue,
+            metadata: { ...createSessionFixture().metadata!, path: '/work/atr-7-limited', sessionUsageLimitRecoveryV1: armedUsageLimitRecovery(issue) },
+        })]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.getTextContent()).toContain('auto-resume armed');
+        vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(createRootLayoutFeaturesResponse({
+            features: { sessions: { enabled: true, usageLimitRecovery: { enabled: false } } },
+        })), { status: 200, headers: { 'content-type': 'application/json' } }));
+        await act(async () => { await getServerFeaturesSnapshot({ force: true }); });
+        expect(screen.findByTestId('ip-worker-usage-limit-limited')).not.toBeNull();
+        expect(screen.getTextContent()).not.toContain('auto-resume armed');
+    });
+
+    it.each(['today', 'tomorrow', 'past'] as const)('finding 4: formats a %s reset using the local desk clock', async (when) => {
+        vi.useFakeTimers();
+        const now = new Date(2026, 10, 2, 12, 0).getTime();
+        vi.setSystemTime(now);
+        const reset = new Date(2026, 10, when === 'tomorrow' ? 3 : 2, when === 'past' ? 11 : 14, 0);
+        seed([session('limited', '/work/atr-7-limited', {
+            active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: usageLimitIssue(now, reset.getTime()),
+        })]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        const time = reset.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const expected = when === 'past' ? 'Usage limit: reset due'
+            : `Usage limit: waits for reset, ${when === 'tomorrow' ? `${reset.toLocaleDateString(undefined, { weekday: 'short' })}, ` : ''}${time}`;
+        expect(screen.getTextContent()).toContain(expected);
+        if (when === 'past') expect(screen.getTextContent()).not.toContain('waits for reset');
+    });
+
+    it('finding 4: a current limit changes to reset due on the shared clock tick', async () => {
+        vi.useFakeTimers();
+        const now = new Date(2026, 10, 2, 12, 0).getTime();
+        vi.setSystemTime(now);
+        seed([session('limited', '/work/atr-7-limited', {
+            active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: usageLimitIssue(now, now + DESK_TICK_MS),
+        })]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.getTextContent()).toContain('waits for reset');
+        await flushHookEffects({ advanceTimersMs: DESK_TICK_MS, cycles: 1 });
+        expect(screen.getTextContent()).toContain('Usage limit: reset due');
+        expect(screen.getTextContent()).not.toContain('waits for reset');
+    });
+
+    it('finding 5: a permission and limit on the same worker keep its issue in Turn', async () => {
+        const now = Date.now();
+        seed([
+            session('limited', '/work/atr-7-limited', {
+                active: true, activeAt: now, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+                lastRuntimeIssue: usageLimitIssue(now),
+                agentState: { requests: { request: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: now } } },
+            }),
+            session('busy', '/work/atr-6-busy', { active: true, thinking: true, thinkingAt: now }),
+        ]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        const card = screen.findByTestId('ip-issue-ATR-7')!;
+        expect(card.findAll((node) => node.props.testID === 'ip-bulb-dot-turn').length).toBeGreaterThan(0);
+        expect(card.findAll((node) => node.props.testID === 'ip-bulb-dot-waiting')).toHaveLength(0);
+        expect(screen.findByTestId('ip-worker-usage-limit-limited')).not.toBeNull();
+        expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(0);
+        expect(screen.findAll((node) => typeof node.type === 'string' &&
+            typeof node.props.testID === 'string' && node.props.testID.startsWith('ip-issue-'))
+            .map((node) => node.props.testID)).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+    });
+
+    it.each([false, true])('finding 3: a current limit is Waiting until the worker is busy=%s', async (busy) => {
+        const now = Date.now();
+        seed([session('limited', '/work/atr-7-limited', {
+            active: true, activeAt: now, thinking: busy, thinkingAt: now,
+            latestTurnStatus: busy ? 'in_progress' : 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: usageLimitIssue(now),
+        })]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.findByTestId(`ip-count-${busy ? 'working' : 'waiting'}`)?.props.children).toBe(1);
+        expect(screen.findByTestId(`ip-count-${busy ? 'waiting' : 'working'}`)?.props.children).toBe(0);
+        expect(screen.findByTestId('ip-worker-usage-limit-limited')).not.toBeNull();
+    });
+
+    it.each([true, false])('F5: a limited worker stays waiting while active=%s, below a permission request', async (active) => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 10, 3, 12, 0));
+        const now = Date.now();
+        const reset = new Date(2026, 10, 3, 14, 0).getTime();
+        const limited = session('limited', '/work/atr-7-limited', {
+            active, activeAt: now, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: usageLimitIssue(now, reset),
+        });
+        const permission = session('permission', '/work/atr-6-permission', {
+            active: true, activeAt: now,
+            agentState: { requests: { request: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: now } } },
+        });
+        seed([limited, permission]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.getTextContent()).toContain(`Usage limit: waits for reset, ${new Date(reset).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`);
+        const card = screen.findByTestId('ip-issue-ATR-7')!;
+        expect(card.findAll((node) => node.props.testID === 'ip-bulb-dot-waiting').length).toBeGreaterThan(0);
+        expect(card.findAll((node) => node.props.testID === 'ip-bulb-dot-idle' || node.props.testID === 'ip-bulb-dot-stuck')).toHaveLength(0);
+        const order = screen.findAll((node) => typeof node.type === 'string' &&
+            typeof node.props.testID === 'string' && node.props.testID.startsWith('ip-issue-'))
+            .map((node) => node.props.testID);
+        expect(order).toEqual(['ip-issue-ATR-6', 'ip-issue-ATR-7']);
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-count-idle')?.props.children).toBe(0);
+    });
+
+    it('F5: a list-only limit is visible before recovery metadata loads', async () => {
+        const now = Date.now();
+        seedListOnly([session('limited', '/work/atr-7-limited', {
+            active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: usageLimitIssue(now),
+        })]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.getTextContent()).toContain('Usage limit: waits for reset');
+        expect(screen.getTextContent()).not.toContain('auto-resume armed');
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-count-idle')?.props.children).toBe(0);
+    });
+
+    it('F5: loaded auto-resume is explained, then a successful turn removes the line', async () => {
+        const now = Date.now();
+        const issue = usageLimitIssue(now);
+        const limited = session('limited', '/work/atr-7-limited', {
+            active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now, lastRuntimeIssue: issue,
+            metadata: { ...createSessionFixture().metadata!, path: '/work/atr-7-limited', sessionUsageLimitRecoveryV1: armedUsageLimitRecovery(issue) },
+        });
+        seed([limited]);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.getTextContent()).toContain('Usage limit: waits for reset; auto-resume armed');
+        seed([{ ...limited, seq: limited.seq + 1, updatedAt: now + 10_000, latestTurnStatus: 'completed', latestTurnStatusObservedAt: now + 10_000, meaningfulActivityAt: now + 10_000 }]);
+        expect(screen.findByTestId('ip-worker-usage-limit-limited')).toBeNull();
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(0);
+    });
+
+    it.each([[95_500, 43], [197_800, 90], [220_000, 100], [242_000, 110]])(
+        'Finding 4 displays the canonical context percentage for %i tokens', async (used, percent) => {
+            vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE', '220000');
+            seed([session('worker-context', '/workspace/project', { latestUsage: {
+                inputTokens: 0, outputTokens: 0, cacheCreation: 0, cacheRead: 0,
+                contextSize: used, contextSizeIsReported: true, contextWindowTokens: 1_000_000, timestamp: 1,
+            } })]);
+            const screen = await renderColumn();
+            await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+            expect(screen.findByTestId('ip-worker-context-worker-context')?.props.children).toEqual([percent, '%']);
+        },
+    );
+
+    it('groups live workers by issue, puts a working issue above idle No issue and leaves out archived ones', async () => {
         seed([
             session('s1', '/home/u/dev/wt/atr-6-overlay', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev'),
@@ -163,6 +335,50 @@ describe('WorkColumn', () => {
         expect(screen.findByTestId('ip-stop-asleep')).toBeNull();
         expect(screen.findByTestId('ip-resume-asleep')).not.toBeNull();
         expect(screen.findByTestId('ip-resume-busy')).toBeNull();
+    });
+
+    it('C1/C4: offers Stop for background and resuming work, but not failed or idle workers', async () => {
+        const now = Date.now();
+        seed([
+            session('background', '/work/atr-6-background', { active: true, activeAt: now, runtimeActivityState: 'active', runtimeActivityActiveCount: 1, runtimeActivityObservedAt: now }),
+            session('resuming', '/work/atr-6-resuming', { active: true, activeAt: now }),
+            session('failed', '/work/atr-6-failed', { active: true, activeAt: now, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now }),
+            session('idle', '/work/atr-6-idle', { active: true, activeAt: now, thinking: false }),
+        ]);
+        // Resume is a client-owned lifecycle marker, not a field accepted from a server snapshot.
+        act(() => storage.getState().markSessionResuming('resuming'));
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        expect(screen.findByTestId('ip-stop-background')).not.toBeNull();
+        expect(screen.findByTestId('ip-stop-resuming')).not.toBeNull();
+        expect(screen.findByTestId('ip-stop-failed')).toBeNull();
+        expect(screen.findByTestId('ip-stop-idle')).toBeNull();
+    });
+
+    it('ATR-37.3: mode, title and keep-alive updates preserve group order until worker activity arrives', async () => {
+        const now = Date.now();
+        const older = session('older', '/work/atr-6-older', { active: true, activeAt: now - 20_000, runtimeActivityObservedAt: now - 20_000, updatedAt: now - 20_000 });
+        const newer = session('newer', '/work/atr-7-newer', { active: true, activeAt: now - 10_000, runtimeActivityObservedAt: now - 10_000, updatedAt: now - 10_000 });
+        seed([older, newer]);
+        const screen = await renderColumn();
+        const order = () => screen.findAll((node) => typeof node.type === 'string' &&
+            typeof node.props.testID === 'string' && node.props.testID.startsWith('ip-issue-'))
+            .map((node) => node.props.testID);
+        expect(order()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        const edited = { ...older, seq: older.seq + 1, updatedAt: now, permissionMode: 'yolo' as const,
+            metadataVersion: older.metadataVersion + 1,
+            metadata: { ...older.metadata!, summary: { text: 'Renamed worker', updatedAt: now } },
+        };
+        seed([edited]);
+        expect(storage.getState().sessions.older.permissionMode).toBe('yolo');
+        expect(screen.getTextContent()).toContain('Renamed worker');
+        expect(order()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        const heartbeat = { ...edited, seq: edited.seq + 1, activeAt: now };
+        seed([heartbeat]);
+        expect(storage.getState().sessions.older.activeAt).toBe(now);
+        expect(order()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        seed([{ ...heartbeat, seq: heartbeat.seq + 1, runtimeActivityObservedAt: now }]);
+        expect(order()).toEqual(['ip-issue-ATR-6', 'ip-issue-ATR-7']);
     });
 
     it('prefers the session branch over the folder name', async () => {

@@ -18,14 +18,14 @@ vi.mock('react-native', async () => {
 });
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-type PanelProps = { id: string; presentation?: 'docked' | 'overlay'; hasHalfAnsweredCard?: boolean; children?: React.ReactNode; forcedOpen?: boolean; hideOpener?: boolean };
-function Panel({ id, presentation = 'overlay', hasHalfAnsweredCard = false, children, forcedOpen, hideOpener }: PanelProps) {
+type PanelProps = { id: string; presentation?: 'docked' | 'overlay'; hasHalfAnsweredCard?: boolean; children?: React.ReactNode; forcedOpen?: boolean; hideOpener?: boolean; returnFocusOnClose?: boolean };
+function Panel({ id, presentation = 'overlay', hasHalfAnsweredCard = false, children, forcedOpen, hideOpener, returnFocusOnClose }: PanelProps) {
     const [open, setOpen] = useState(false);
     const visible = forcedOpen ?? open;
     const openerRef = useRef<HTMLButtonElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const close = () => setOpen(false);
-    useDeskPopup({ open: visible, onClose: () => setOpen(false), openerRef, contentRef, presentation, hasHalfAnsweredCard });
+    useDeskPopup({ open: visible, onClose: () => setOpen(false), openerRef, contentRef, presentation, hasHalfAnsweredCard, returnFocusOnClose });
     return <>
         {!hideOpener && <button ref={openerRef} data-testid={`${id}-opener`} onClick={() => setOpen(value => !value)}><span>{id}</span></button>}
         {visible && createPortal(<div ref={contentRef} data-testid={id}>
@@ -222,6 +222,21 @@ describe('desk popup interaction', () => {
         await click(element('composer'));
         expect(document.querySelector('[data-testid="panel"]')).toBeNull();
         expect(document.activeElement).toBe(element('composer'));
+    });
+
+    it.each(['input', 'textarea', 'button', 'a'] as const)('Finding 2 pinned popups preserve outside %s focus', async (tag) => {
+        await render(<><Panel id="panel" returnFocusOnClose />{React.createElement(tag, { 'data-testid': 'composer', ...(tag === 'a' ? { href: '#destination', onClick: (event: React.MouseEvent) => event.preventDefault() } : {}) })}</>);
+        await click(element('panel-opener'));
+        await click(element('composer'));
+        expect(document.querySelector('[data-testid="panel"]')).toBeNull();
+        expect(document.activeElement).toBe(element('composer'));
+    });
+
+    it('Finding 2 C9 uses the last open focus policy when the closing render clears pinned state', async () => {
+        await render(<><Panel id="panel" forcedOpen returnFocusOnClose /><input data-testid="composer" /></>);
+        element('composer').focus();
+        await render(<><Panel id="panel" forcedOpen={false} returnFocusOnClose={false} /><input data-testid="composer" /></>);
+        expect(document.activeElement).toBe(element('panel-opener'));
     });
 
     it('M1 opens the second popup with one click', async () => {

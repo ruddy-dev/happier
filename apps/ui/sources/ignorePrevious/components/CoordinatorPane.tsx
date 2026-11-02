@@ -1,21 +1,29 @@
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
+import { useCoordinatorTranscriptAppearance } from '../useCoordinatorTranscriptAppearance';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
+import { isMobileLayoutWidth } from '@/components/sessions/layout/isMobileLayoutWidth';
+import type { SessionViewComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
 import { SessionView } from '@/components/sessions/shell/SessionView';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { useHydrateSessionForRoute } from '@/hooks/session/useHydrateSessionForRoute';
 import { Modal } from '@/modal';
-import { useSession } from '@/sync/store/hooks';
+import { useSession, useSetting } from '@/sync/store/hooks';
 import { t } from '@/text';
 
-import { ContextMeter } from './ContextMeter';
+import { RunSettingsMenu } from './RunSettingsMenu';
+import { ContextGauge } from './ContextGauge';
+import { sessionContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
 import { ShogView } from './ShogView';
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { useWaitingCount } from '../model/useDeskWaits';
+import { DeskText } from '../typography/DeskText';
+import { useDeskComposerControls } from '../model/useDeskComposerControls';
 
 /**
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit
@@ -35,8 +43,9 @@ function openShog() {
  * fixtures folder is the second defence). The import is also directly inside a try block, which Metro counts as
  * an optional dependency, so a dev bundle made without the flag, which does not fold, still builds.
  */
-let fixtureBody: React.ComponentType | null = null;
-function getFixtureBody(inFixtureRoute: boolean): React.ComponentType | null {
+type FixtureBodyProps = { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode };
+let fixtureBody: React.ComponentType<FixtureBodyProps> | null = null;
+function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBodyProps> | null {
     if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') {
         if (!inFixtureRoute) return null;
         try {
@@ -53,8 +62,30 @@ function getFixtureBody(inFixtureRoute: boolean): React.ComponentType | null {
 
 export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: React.ReactNode }) {
     const { theme } = useUnistyles();
-    // The meter needs the full record; it appears once the coordinator's record has loaded.
+    const appearance = useCoordinatorTranscriptAppearance();
+    const { width: windowWidth } = useWindowDimensions();
+    const [chatWidth, setChatWidth] = React.useState(0);
+    const enterToSend = useSetting(Platform.OS === 'web' ? 'agentInputEnterToSend' : 'agentInputEnterToSendNative');
+    const showEnterHint = enterToSend === true && !isMobileLayoutWidth(windowWidth) && !isMobileLayoutWidth(chatWidth);
+    const placeholder = t('ignorePrevious.composer.placeholder');
+    const enterHint = t('ignorePrevious.composer.enterHint');
     const coordinator = useSession(sessionId);
+    const controls = useDeskComposerControls(sessionId);
+    const composer = React.useMemo<SessionViewComposerOverrides>(() => ({
+        ...controls,
+        placeholder,
+        footerLeadingActions: <RunSettingsMenu key={sessionId} />,
+        providerUsageGauge: null,
+        hide: { ...controls.hide, contextUsage: true },
+        statusTrailingActions: (showEnterHint || (coordinator && sessionContextMeter(coordinator))) ? <>
+            {showEnterHint ? (
+                <DeskText testID="ip-composer-enter-hint" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
+                    {enterHint}
+                </DeskText>
+            ) : null}
+            {coordinator ? <ContextGauge session={coordinator} /> : null}
+        </> : null,
+    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary, sessionId, coordinator, controls]);
     // On a cold load the desk knows the coordinator from the sidebar's list before its record has
     // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does,
     // and hand SessionView the state so it shows loading or retrying instead of "isn't available".
@@ -63,7 +94,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const FixtureBody = getFixtureBody(React.useContext(DeskFixtureRouteContext));
 
     return (
-        <View style={{ flex: 1, minHeight: 480 }}>
+        <View testID="ip-coordinator-pane" onLayout={(event) => setChatWidth(event.nativeEvent.layout.width)} style={{ flex: 1, minHeight: 480 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
                 <Pressable
                     testID="ip-shog-open"
@@ -79,27 +110,29 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                 </Text>
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 13 }}>{t('ignorePrevious.coordinatorNickname')}</Text>
                 <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    {coordinator ? <ContextMeter session={coordinator} /> : null}
                     {headerAccessory}
                 </View>
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
-                {FixtureBody ? (
-                    <React.Suspense fallback={null}>
-                        <FixtureBody />
-                    </React.Suspense>
-                ) : (
-                    <SessionView
-                        id={sessionId}
-                        routeHydrationState={hydration}
-                        routeAnchorOverride={true}
-                        surfaceFocusedOverride={true}
-                        safeAreaTopMode="internal"
-                        headerSafeAreaTopMode="internal"
-                        chatBottomSpacing="none"
-                    />
-                )}
+                <TranscriptAppearanceContext.Provider value={appearance}>
+                    {FixtureBody ? (
+                        <React.Suspense fallback={null}>
+                            <FixtureBody footerLeadingActions={composer.footerLeadingActions} statusTrailingActions={composer.statusTrailingActions} />
+                        </React.Suspense>
+                    ) : (
+                        <SessionView
+                            id={sessionId}
+                            composer={composer}
+                            routeHydrationState={hydration}
+                            routeAnchorOverride={true}
+                            surfaceFocusedOverride={true}
+                            safeAreaTopMode="internal"
+                            headerSafeAreaTopMode="internal"
+                            chatBottomSpacing="none"
+                        />
+                    )}
+                </TranscriptAppearanceContext.Provider>
             </View>
         </View>
     );

@@ -6495,6 +6495,7 @@ function SessionViewLoaded({
                 onProfileClick={liveComposerState.profileId !== null ? handleProfileClick : undefined}
                 statusBadges={resolvedComposer.statusBadges}
                 statusTrailingActions={resolvedComposer.statusTrailingActions}
+                footerLeadingActions={resolvedComposer.footerLeadingActions}
                 providerUsageGauge={resolvedComposer.providerUsageGauge}
                 onProviderUsageRecoveryCreditPress={providerUsageRecoveryCreditAction}
                 providerUsageRecoveryCreditPending={providerUsageRecoveryCreditActionPending}
@@ -6507,6 +6508,8 @@ function SessionViewLoaded({
                 onMicPress={resolvedComposer.onMicPress}
                 isMicActive={resolvedComposer.isMicActive}
                 onAbort={resolvedComposer.onAbort}
+                sendIsStop={resolvedComposer.sendIsStop}
+                hideAbortButton={resolvedComposer.hideAbortButton}
                 inactiveStatusText={inactiveStatusText}
                 onFileViewerPress={handleAgentInputFileViewerPress}
                 // Autocomplete configuration

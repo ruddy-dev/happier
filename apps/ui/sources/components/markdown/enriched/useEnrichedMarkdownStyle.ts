@@ -1,3 +1,4 @@
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import * as React from 'react';
 import { type StyleProp, type TextStyle } from 'react-native';
 import type { EnrichedMarkdownTextProps, MarkdownStyle } from 'react-native-enriched-markdown';
@@ -100,6 +101,7 @@ export function buildEnrichedMarkdownStyle(params: Readonly<{
     colors: ThemeColors;
     profile: MarkdownRenderingProfile;
     uiFontScale: number;
+    fontFamily?: string;
     textStyle?: StyleProp<TextStyle>;
 }>): EnrichedMarkdownStyleBundle {
     const uiFontScale = typeof params.uiFontScale === 'number' && Number.isFinite(params.uiFontScale)
@@ -126,10 +128,13 @@ export function buildEnrichedMarkdownStyle(params: Readonly<{
     const h2LineHeight = Math.max(baseLineHeight, scaledMetric(h2FontSize, 1.35));
     const h3LineHeight = Math.max(baseLineHeight, scaledMetric(h3FontSize, 1.4));
     const h6LineHeight = Math.max(scaledMetric(baseLineHeight, 0.875), scaledMetric(h6FontSize, 1.4));
-    const defaultTypography = Typography.default();
-    const semiBoldTypography = Typography.default('semiBold');
-    const italicTypography = Typography.default('italic');
-    const monoTypography = Typography.mono();
+    const face = (style: TextStyle): TextStyle => params.fontFamily ? { ...style, fontFamily: params.fontFamily } : style;
+    const defaultTypography = face(Typography.default());
+    const semiBoldTypography = face(Typography.default('semiBold'));
+    if (params.fontFamily) semiBoldTypography.fontWeight = '600';
+    const italicTypography = face(Typography.default('italic'));
+    if (params.fontFamily) italicTypography.fontStyle = 'italic';
+    const monoTypography = face(Typography.mono());
     const defaultFace = blockFontFace(defaultTypography);
     const semiBoldFace = blockFontFace(semiBoldTypography);
 
@@ -192,12 +197,12 @@ export function buildEnrichedMarkdownStyle(params: Readonly<{
         },
         strong: {
             fontFamily: readFontFamily(semiBoldTypography),
-            fontWeight: readFontFamily(semiBoldTypography) ? 'normal' : 'bold',
+            fontWeight: params.fontFamily ? 'bold' : readFontFamily(semiBoldTypography) ? 'normal' : 'bold',
             color: baseColor,
         },
         em: {
             fontFamily: readFontFamily(italicTypography),
-            fontStyle: readFontFamily(italicTypography) ? 'normal' : readFontStyle(italicTypography) ?? 'italic',
+            fontStyle: params.fontFamily ? 'italic' : readFontFamily(italicTypography) ? 'normal' : readFontStyle(italicTypography) ?? 'italic',
             color: baseColor,
         },
         link: {
@@ -311,12 +316,14 @@ export function useEnrichedMarkdownStyle(params: Readonly<{
     textStyle?: StyleProp<TextStyle>;
 }>): EnrichedMarkdownStyleBundle {
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
     const uiFontScale = useLocalSetting('uiFontScale') ?? 1;
 
     return React.useMemo(() => buildEnrichedMarkdownStyle({
-        colors: theme.colors,
+        colors: appearance?.markdownColors ?? theme.colors,
+        fontFamily: appearance?.fontFamily,
         profile: params.profile,
-        textStyle: params.textStyle,
+        textStyle: appearance?.markdownColors ? [params.textStyle, { color: appearance.markdownColors.text.primary }] : params.textStyle,
         uiFontScale,
-    }), [params.profile, params.textStyle, theme.colors, uiFontScale]);
+    }), [params.profile, params.textStyle, theme.colors, uiFontScale, appearance]);
 }

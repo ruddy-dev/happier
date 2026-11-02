@@ -1,9 +1,9 @@
-import * as React from 'react';
+import { shallow } from 'zustand/shallow';
 
 import { isUserFacingSession } from '@/sync/domains/session/listing/isUserFacingSession';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
-import { useAllSessionListRenderables, useAllSessions, useIsDataReady } from '@/sync/store/hooks';
+import { storage } from '@/sync/domains/state/storage';
 import { getSessionStatus } from '@/utils/sessions/sessionUtils';
 
 export type DeskSessions = Readonly<{
@@ -28,30 +28,38 @@ function isWaitingOnYou(row: SessionListRenderableSession): boolean {
     return state === 'permission_required' || state === 'action_required';
 }
 
+type DeskSource = Pick<ReturnType<typeof storage.getState>, 'sessions' | 'sessionListRenderables' | 'isDataReady'>;
+let previousSource: DeskSource | undefined;
+let previousDesk: DeskSessions | undefined;
+
 /**
  * The desk's one source of sessions. On a cold load the sidebar's list arrives first and full
  * records load per session later, so which sessions exist always comes from the list.
+ * Shared by React consumers and the waits selector, including modal roots.
  */
+export function selectDeskSessions(state: DeskSource): DeskSessions {
+    if (previousDesk && previousSource?.sessions === state.sessions
+        && previousSource.sessionListRenderables === state.sessionListRenderables
+        && previousSource.isDataReady === state.isDataReady) return previousDesk;
+    const renderables = state.isDataReady
+        ? Object.values(state.sessionListRenderables).sort((a, b) => b.updatedAt - a.updatedAt) : [];
+    const list = renderables.filter((session) => !session.archivedAt && isUserFacingSession(session));
+    const unreadable = renderables.filter((session) => !session.archivedAt
+        && session.metadataUnavailable === true
+        && isUserFacingSession({ ...session, metadataUnavailable: false })
+        && isWaitingOnYou(session));
+    const lookup = new Map(state.isDataReady ? Object.values(state.sessions).map((session) => [session.id, session] as const) : []);
+    const next = {
+        list: previousDesk && shallow(previousDesk.list, list) ? previousDesk.list : list,
+        unreadable: previousDesk && shallow(previousDesk.unreadable, unreadable) ? previousDesk.unreadable : unreadable,
+        lookup: previousDesk && shallow(previousDesk.lookup, lookup) ? previousDesk.lookup : lookup,
+        ready: state.isDataReady,
+    };
+    previousSource = state;
+    previousDesk = previousDesk && shallow(previousDesk, next) ? previousDesk : next;
+    return previousDesk;
+}
+
 export function useDeskSessions(): DeskSessions {
-    const renderables = useAllSessionListRenderables();
-    const sessions = useAllSessions();
-    const ready = useIsDataReady();
-    const list = React.useMemo(
-        () => renderables.filter((session) => !session.archivedAt && isUserFacingSession(session)),
-        [renderables],
-    );
-    const unreadable = React.useMemo(
-        () =>
-            renderables.filter(
-                (session) =>
-                    !session.archivedAt
-                    && session.metadataUnavailable === true
-                    // Still a hidden system session if its flags survived; the unavailable flag alone isn't the question here.
-                    && isUserFacingSession({ ...session, metadataUnavailable: false })
-                    && isWaitingOnYou(session),
-            ),
-        [renderables],
-    );
-    const lookup = React.useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
-    return React.useMemo(() => ({ list, lookup, ready, unreadable }), [list, lookup, ready, unreadable]);
+    return storage(selectDeskSessions);
 }

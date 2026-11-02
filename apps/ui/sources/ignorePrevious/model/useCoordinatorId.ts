@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 
-import { getStoredCoordinatorId, subscribeStoredCoordinatorId } from '../deskPrefs';
+import { useDeskPref } from '../deskPrefs';
 import { pickCoordinatorSessionId } from './coordinator';
 
 /** The folder the coordinator runs in, for picking it without a stored choice. */
@@ -14,7 +14,7 @@ export const COORDINATOR_PATH = process.env.EXPO_PUBLIC_IP_COORDINATOR_PATH ?? n
  * context, so a card opened through `Modal.show` sees the same id as the desk.
  */
 export function useCoordinatorId(list: readonly SessionListRenderableSession[]): string | null {
-    const storedId = React.useSyncExternalStore(subscribeStoredCoordinatorId, getStoredCoordinatorId, getStoredCoordinatorId);
+    const [storedId] = useDeskPref('coordinatorSessionId');
     return React.useMemo(
         () =>
             pickCoordinatorSessionId(

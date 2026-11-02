@@ -1,21 +1,22 @@
 import * as React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Animated, Easing, Platform, Pressable, ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Icon } from '@/components/ui/icons/Icon';
-import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
-import { type CustomModalInjectedProps } from '@/modal';
-import { useModalCardChrome } from '@/modal/components/card/useModalCardChrome';
+import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 import { t } from '@/text';
 
-import { useDeskWaits } from '../model/useDeskWaits';
-import { WaitingPanel } from './WaitingPanel';
+import { drawerPlacement } from '../model/drawerPlacement';
+import { useDeskPopup } from '../popups/useDeskPopup';
+import { useDeskWaitsSummary } from '../model/useDeskWaits';
+import { DeskText as Text } from '../typography/DeskText';
+import { WaitingPanel, type WaitingHistory } from './WaitingPanel';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
-export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () => void }) {
+export function ApprovalsButton({ open, onPress, openerRef }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null> }) {
     const { theme } = useUnistyles();
-    const { count, ready } = useDeskWaits();
+    const { count, ready } = useDeskWaitsSummary();
     const waiting = ready && count > 0;
     // Before the first sync the count is not known yet; 0 would say nothing waits (F4).
     const label = open
@@ -23,6 +24,7 @@ export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () 
         : (ready ? t('ignorePrevious.openApprovals', { count }) : t('ignorePrevious.openApprovalsConnecting'));
     return (
         <Pressable
+            ref={openerRef}
             testID="ip-approvals-open"
             accessibilityRole="button"
             accessibilityState={{ expanded: open }}
@@ -49,52 +51,83 @@ export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () 
     );
 }
 
-/**
- * The same list as a card, for layouts with no room for a drawer: a phone, or multi-pane panels
- * switched off. The card chrome carries the title and the close button.
- */
-export function ApprovalsCard({ onClose, setChrome }: CustomModalInjectedProps) {
-    const chrome = React.useMemo(() => ({
-        kind: 'card' as const,
-        title: t('ignorePrevious.title'),
-        testID: 'ip-approvals-card',
-        closeButtonTestID: 'ip-approvals-card-close',
-        dimensions: { width: 480, maxHeightRatio: 0.85, size: 'dialog' as const },
-    }), []);
-    useModalCardChrome(setChrome, chrome);
-    return (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-            <WaitingPanel onOpenSession={onClose} />
-        </ScrollView>
-    );
-}
-
 /** The drawer beside the coordinator: everything that waits on you, with Allow and Deny. */
-export function ApprovalsDrawer({ onClose }: { onClose: () => void }) {
+export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, hasHalfAnsweredCard = false, onDirtyChange, onClose, history, children }: {
+    open: boolean;
+    width: number;
+    openerRef: React.RefObject<View | null>;
+    /** True only for an explicit user open. Restoring or resizing never moves focus. */
+    focusOnOpen?: boolean;
+    /** Question-card owner supplies whether any option or unsent text is pending. */
+    hasHalfAnsweredCard?: boolean;
+    onDirtyChange?: (dirty: boolean) => void;
+    onClose: () => void;
+    history?: WaitingHistory;
+    children?: React.ReactNode;
+}) {
     const { theme } = useUnistyles();
+    const placement = drawerPlacement(width);
+    const contentRef = React.useRef<View>(null);
+    const closeRef = React.useRef<View>(null);
+    const reducedMotion = useReducedMotionPreference();
+    const [entrance] = React.useState(() => new Animated.Value(1));
+    useDeskPopup({ open, onClose, openerRef, contentRef, hasHalfAnsweredCard,
+        presentation: placement === 'docked' ? 'docked' : 'overlay' });
+    const wasOpen = React.useRef(false);
+    React.useEffect(() => {
+        const opening = open && !wasOpen.current;
+        wasOpen.current = open;
+        if (opening && focusOnOpen && placement !== 'docked' && Platform.OS === 'web'
+            && typeof HTMLElement !== 'undefined' && closeRef.current instanceof HTMLElement) closeRef.current.focus();
+    }, [open, focusOnOpen, placement]);
+    React.useEffect(() => {
+        if (!open) return;
+        // One finite entrance, following mockup 12's din. Resizing never replays it.
+        entrance.setValue(reducedMotion ? 1 : 0);
+        const animation = Animated.timing(entrance, {
+            toValue: 1, duration: reducedMotion ? 0 : 220, easing: Easing.out(Easing.ease), useNativeDriver: true,
+        });
+        animation.start();
+        return () => animation.stop();
+    }, [open, reducedMotion, entrance]);
+    if (!open) return null;
     return (
-        <View testID="ip-approvals-drawer" style={{ flex: 1, backgroundColor: theme.colors.surface.base }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}>
-                <Text
-                    accessibilityRole="header"
-                    style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}
-                >
-                    {t('ignorePrevious.title')}
-                </Text>
-                <Pressable
-                    testID="ip-approvals-close"
-                    accessibilityRole="button"
-                    accessibilityLabel={t('common.close')}
-                    onPress={onClose}
-                    hitSlop={8}
-                    style={{ marginLeft: 'auto', padding: 6, borderRadius: 8 }}
-                >
-                    <Icon name="x" size={18} color={theme.colors.text.secondary} />
-                </Pressable>
+        <Animated.View style={[
+            { minWidth: 0, width: 390, maxWidth: '100%', flexShrink: 0 },
+            placement === 'docked' ? { alignSelf: 'stretch' } : {
+                position: 'absolute', top: 0, bottom: 0, right: 0, zIndex: 20,
+                ...(placement === 'fullscreen' ? { left: 0, width: '100%' } : {}),
+            },
+            { opacity: entrance, transform: [{ translateX: entrance.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }] },
+        ]}>
+            <View ref={contentRef} testID="ip-approvals-drawer" accessibilityLabel={t('ignorePrevious.title')}
+                style={{ flex: 1, minHeight: 0, backgroundColor: theme.colors.surface.base,
+                    borderLeftWidth: placement === 'fullscreen' ? 0 : 1, borderLeftColor: theme.colors.border.default }}>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}>
+                    <Text
+                        accessibilityRole="header"
+                        style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}
+                    >
+                        {t('ignorePrevious.title')}
+                    </Text>
+                    <Pressable
+                        ref={closeRef}
+                        testID="ip-approvals-close"
+                        accessibilityRole="button"
+                        accessibilityLabel={t('common.close')}
+                        onPress={onClose}
+                        hitSlop={8}
+                        style={{ marginLeft: 'auto', padding: 6, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 8 }}
+                    >
+                        <Icon name="x" size={18} color={theme.colors.text.secondary} />
+                    </Pressable>
+                </View>
+                <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+                    <WaitingPanel history={history} onDirtyChange={onDirtyChange} onOpenSession={placement === 'fullscreen' ? onClose : undefined} />
+                    {children}
+                </ScrollView>
             </View>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-                <WaitingPanel />
-            </ScrollView>
-        </View>
+        </Animated.View>
     );
 }
