@@ -50,7 +50,7 @@ function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisab
 type State = ReturnType<typeof storage.getState>;
 type WaitInput = Readonly<{ row: SessionListRenderableSession; requests: readonly SessionPendingRequest[] }>;
 type UnloadedInput = Readonly<{ row: SessionListRenderableSession; reason: UnloadedWait['reason'] }>;
-type SessionWait = { input: WaitInput; unloaded: UnloadedInput | null };
+type SessionWait = { input: WaitInput; unloaded: UnloadedInput | null; stillLoading: boolean };
 type CachedSessionWait = {
     row: SessionListRenderableSession;
     session: Session | undefined;
@@ -70,6 +70,7 @@ function collectSessionWait(row: SessionListRenderableSession, session: Session 
     const fullyRead = session !== undefined && (!needsTranscript || transcript?.isLoaded === true);
     return {
         input: { row, requests },
+        stillLoading: !fullyRead,
         unloaded: requests.length === 0 && (status === 'permission_required' || status === 'action_required')
             ? { row, reason: fullyRead ? 'unreadable' : 'notLoaded' } : null,
     };
@@ -80,14 +81,17 @@ type NotificationWaits = Readonly<{
     waitIds: readonly string[];
     /** Session ownership lets the pure alert rule recognize placeholders gaining request details. */
     waitSessionIds: Readonly<Record<string, string>>;
+    loadingSessionIds: readonly string[];
     ready: boolean;
 }>;
 type Projection = {
     summary: DeskWaitsSummary;
     sourceInputs: readonly WaitInput[];
     sourceUnloaded: readonly UnloadedInput[];
+    sourceLoading: readonly string[];
     inputs: readonly WaitInput[];
     unloaded: UnloadedInput[];
+    loadingSessionIds: readonly string[];
     details?: DeskWaits;
     previousDetails?: DeskWaits;
     notificationWaits?: NotificationWaits;
@@ -95,6 +99,7 @@ type Projection = {
 type WaitSnapshot = {
     inputs: readonly WaitInput[];
     unloaded: UnloadedInput[];
+    loadingSessionIds: readonly string[];
     ready: boolean;
     projections: Map<string | undefined, Projection>;
 };
@@ -109,6 +114,7 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
     const nextCache = new Map<string, CachedSessionWait>();
     const inputs: WaitInput[] = [];
     const unloaded: UnloadedInput[] = [];
+    const loadingSessionIds: string[] = [];
     for (const row of desk.list) {
         const session = desk.lookup.get(row.id);
         const needsTranscript = session !== undefined && shouldReadTranscriptForPendingRequests(session);
@@ -132,21 +138,24 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
         nextCache.set(row.id, cached);
         if (cached.value.input.requests.length > 0) inputs.push(cached.value.input);
         if (cached.value.unloaded) unloaded.push(cached.value.unloaded);
+        if (cached.value.unloaded || (cached.value.input.requests.length > 0 && cached.value.stillLoading)) loadingSessionIds.push(row.id);
     }
     for (const row of desk.unreadable) {
         const value: UnloadedInput = { row, reason: 'unreadable' };
         const previous = snapshot?.unloaded.find((item) => item.row.id === row.id);
         unloaded.push(previous && shallow(previous, value) ? previous : value);
+        loadingSessionIds.push(row.id);
     }
     sessionCache = nextCache;
     lastState = state;
-    if (snapshot && snapshot.ready === desk.ready && shallow(snapshot.inputs, inputs) && shallow(snapshot.unloaded, unloaded)) return snapshot;
+    if (snapshot && snapshot.ready === desk.ready && shallow(snapshot.inputs, inputs) && shallow(snapshot.unloaded, unloaded)
+        && shallow(snapshot.loadingSessionIds, loadingSessionIds)) return snapshot;
     // Keep only currently reachable exclusions, and reuse unchanged projections across writes.
     const projections = new Map(snapshot?.projections);
     for (const id of projections.keys()) {
         if (id !== undefined && !desk.lookup.has(id) && !desk.unreadable.some((row) => row.id === id)) projections.delete(id);
     }
-    snapshot = { inputs, unloaded, ready: desk.ready, projections };
+    snapshot = { inputs, unloaded, loadingSessionIds, ready: desk.ready, projections };
     return snapshot;
 }
 
@@ -154,20 +163,24 @@ function selectProjection(state: State, excludeSessionId?: string): { snapshot: 
     const current = selectWaitSnapshot(state);
     let projection = current.projections.get(excludeSessionId);
     if (projection?.sourceInputs === current.inputs && projection.sourceUnloaded === current.unloaded
+        && projection.sourceLoading === current.loadingSessionIds
         && projection.summary.ready === current.ready) return { snapshot: current, projection };
     const inputs = current.inputs.filter((input) => input.row.id !== excludeSessionId);
     const unloaded = current.unloaded.filter((item) => item.row.id !== excludeSessionId);
+    const loadingSessionIds = current.loadingSessionIds.filter((id) => id !== excludeSessionId);
     if (!projection || projection.summary.ready !== current.ready
-        || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)) {
+        || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)
+        || !shallow(projection.loadingSessionIds, loadingSessionIds)) {
         const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
         const summary = projection?.summary.count === count && projection.summary.ready === current.ready
             ? projection.summary : { count, ready: current.ready };
-        projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded,
-            inputs, unloaded, previousDetails: projection?.details ?? projection?.previousDetails };
+        projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
+            inputs, unloaded, loadingSessionIds, previousDetails: projection?.details ?? projection?.previousDetails };
         current.projections.set(excludeSessionId, projection);
     }
     projection.sourceInputs = current.inputs;
     projection.sourceUnloaded = current.unloaded;
+    projection.sourceLoading = current.loadingSessionIds;
     return { snapshot: current, projection };
 }
 
@@ -226,6 +239,7 @@ export function selectDeskNotificationWaits(state: State): NotificationWaits {
             ready: projection.summary.ready,
             waitIds: Object.keys(waitSessionIds).sort(),
             waitSessionIds,
+            loadingSessionIds: projection.loadingSessionIds,
         };
     }
     return projection.notificationWaits;
