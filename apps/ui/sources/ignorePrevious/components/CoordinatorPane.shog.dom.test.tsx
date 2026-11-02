@@ -77,3 +77,40 @@ it('M13 mask opens the panel, Escape returns focus to that mask, and no Expand c
     await click('ip-shog-done');
     expect(document.activeElement).toBe(opener);
 });
+
+it('M13 bare creature remains a pointer target without a keyboard stop or named button', async () => {
+    await act(async () => root.render(<SafeAreaInsetsContext.Provider value={{ top: 0, left: 0, right: 0, bottom: 0 }}>
+        <CoordinatorPane sessionId="coord" />
+    </SafeAreaInsetsContext.Provider>));
+    const creature = element('ip-creature');
+    const pointerOpener = creature.parentElement!;
+    expect(pointerOpener.tabIndex).toBe(-1);
+    expect(creature.closest('button,[role="button"]')).toBeNull();
+    expect(pointerOpener.hasAttribute('aria-label')).toBe(false);
+    expect(pointerOpener.hasAttribute('aria-labelledby')).toBe(false);
+    await act(async () => creature.click());
+    expect(element('ip-shog')).toBeTruthy();
+});
+
+it('M13 clicking the bare creature while open closes the panel and returns focus to the mask', async () => {
+    await act(async () => root.render(<SafeAreaInsetsContext.Provider value={{ top: 0, left: 0, right: 0, bottom: 0 }}>
+        <CoordinatorPane sessionId="coord" />
+    </SafeAreaInsetsContext.Provider>));
+    const opener = element('ip-shog-open');
+    const creature = element('ip-creature');
+    await click('ip-shog-open');
+    await act(async () => element('ip-shog-done').focus());
+    await act(async () => creature.click());
+    expect(container.querySelector('[data-testid="ip-shog"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+});
+
+it('M13 mask identifies the open panel with aria-controls', async () => {
+    await act(async () => root.render(<SafeAreaInsetsContext.Provider value={{ top: 0, left: 0, right: 0, bottom: 0 }}>
+        <CoordinatorPane sessionId="coord" />
+    </SafeAreaInsetsContext.Provider>));
+    await click('ip-shog-open');
+    const panel = element('ip-shog');
+    expect(panel.id).not.toBe('');
+    expect(element('ip-shog-open').getAttribute('aria-controls')).toBe(panel.id);
+});
