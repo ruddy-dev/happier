@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    areAskUserQuestionsAnswered,
     buildAskUserQuestionAnswerPayload,
     normalizeAskUserQuestionRenderQuestions,
     tryBuildAskUserQuestionAnswerPayload,
@@ -18,6 +19,29 @@ const questions = [
         ],
     },
 ];
+
+describe('areAskUserQuestionsAnswered', () => {
+    it('preserves the historical completion rule for a null question', () => {
+        const params = { selections: new Map(), freeformAnswers: new Map<number, string>() };
+        // @ts-expect-error Historical persisted inputs can contain null despite the render-model type.
+        expect(areAskUserQuestionsAnswered({ ...params, questions: [null] })).toBe(false);
+        params.freeformAnswers.set(0, 'answer');
+        // @ts-expect-error Exercise the same historical malformed input with a typed answer.
+        expect(areAskUserQuestionsAnswered({ ...params, questions: [null] })).toBe(true);
+    });
+
+    it('accepts an optionless allowEmpty question without input', () => {
+        expect(areAskUserQuestionsAnswered({ questions: [{ multiSelect: false, freeform: { allowEmpty: true } }], selections: new Map(), freeformAnswers: new Map() })).toBe(true);
+    });
+
+    it.each(['typed', 'selection', 'neither'])('accepts options with freeform when answered by %s', (answer) => {
+        expect(areAskUserQuestionsAnswered({
+            questions: [{ ...questions[0]!, freeform: {} }],
+            selections: answer === 'selection' ? new Map([[0, new Set([0])]]) : new Map(),
+            freeformAnswers: answer === 'typed' ? new Map([[0, 'custom']]) : new Map(),
+        })).toBe(answer !== 'neither');
+    });
+});
 
 describe('buildAskUserQuestionAnswerPayload', () => {
     it('uses exact arrays on the modern method', () => {

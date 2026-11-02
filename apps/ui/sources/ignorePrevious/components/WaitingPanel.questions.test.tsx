@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
-import { renderScreen, pressTestInstanceAsync, createSessionFixture, createDeferred } from '@/dev/testkit';
+import { renderScreen, pressTestInstanceAsync, createSessionFixture, createDeferred, makeToolCall, makeToolViewProps } from '@/dev/testkit';
+import { AskUserQuestionView } from '@/components/tools/renderers/workflow/AskUserQuestionView';
+import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { buildAskUserQuestionAnswerPayload } from '@/components/tools/renderers/workflow/buildAskUserQuestionAnswerPayload';
@@ -78,6 +80,70 @@ beforeEach(() => {
 afterEach(() => { act(() => { setCoordinatorOverride(null); storage.setState(previous, true); }); });
 
 describe('Waiting worker questions', () => {
+    it.each(['desk', 'session'] as const)('W5: %s submits first; both mounted question views share one pending answer', async (first) => {
+        const gate = createDeferred<void>(); boundary.answer.mockReturnValue(gate.promise);
+        seed(); const desk = await render();
+        const tool = makeToolCall({ name: 'AskUserQuestion', state: 'running', input: { questions: [question] }, permission: { id: 'request', status: 'pending' } });
+        const session = await renderScreen(<AppPaneProvider><AskUserQuestionView {...makeToolViewProps(tool, { sessionId: 'worker' })} /></AppPaneProvider>);
+        await pick(desk);
+        await pressTestInstanceAsync(session.findByTestId('ask-user-question.option:0:1'), 'session option');
+        const deskPress = desk.findByTestId(sendId)!.props.onPress;
+        const sessionPress = session.findByTestId('ask-user-question.submit')!.props.onPress;
+        try {
+            await act(async () => { void (first === 'desk' ? deskPress() : sessionPress()); });
+            await act(async () => { void (first === 'desk' ? sessionPress() : deskPress()); });
+            expect(boundary.answer).toHaveBeenCalledExactlyOnceWith('worker', 'request', expectedPayload([question], new Map([[0, new Set([first === 'desk' ? 0 : 1])]])));
+            expect(boundary.alert).not.toHaveBeenCalled();
+            expect(desk.findByTestId('ip-waiting-question-error-request')).toBeNull();
+            expect(session.findByTestId('ask-user-question.submission-guidance')).toBeNull();
+            await act(async () => gate.resolve());
+            if (first === 'session') {
+                // The session view retains a successful request until its pending state leaves.
+                await send(desk);
+                expect(boundary.answer).toHaveBeenCalledTimes(1);
+            } else {
+                expect(session.findByTestId('ask-user-question.submit')?.props.disabled).toBe(false);
+            }
+        } finally {
+            await act(async () => gate.resolve());
+            act(() => session.tree.unmount());
+        }
+    });
+
+    it('W5: replacing questions at the same request id discards selections and typed drafts', async () => {
+        const original = seed(worker({ questions: [question, multi] })); const dirty = vi.fn();
+        const screen = await render(dirty); await pick(screen);
+        act(() => screen.tree.changeTextByTestId(otherId(1), 'old draft'));
+        const replacement = { ...question, question: 'Which channel?', options: [{ label: 'Nightly', value: 'nightly-id' }] };
+        act(() => storage.getState().applySessions([{ ...original, agentStateVersion: 2, agentState: worker({ questions: [replacement, multi] }).agentState }]));
+        expect(screen.getTextContent()).toContain(replacement.question);
+        expect(screen.findByTestId(optionId())?.props.accessibilityState.selected).toBe(false);
+        expect(screen.findByTestId(otherId(1))?.props.value).toBe('');
+        expect(screen.findByTestId(sendId)?.props.disabled).toBe(true);
+        expect(dirty).toHaveBeenLastCalledWith(false);
+        await send(screen); expect(boundary.answer).not.toHaveBeenCalled();
+        await pick(screen); await pick(screen, 1); await send(screen);
+        expect(boundary.answer).toHaveBeenCalledExactlyOnceWith('worker', 'request', expectedPayload([replacement, multi], new Map([[0, new Set([0])], [1, new Set([0])]])));
+    });
+
+    it.each([
+        ['content', {}, { questions: [{ ...question, question: 'Changed question' }] }],
+        ['tool', { tool: 'ExitPlanMode' }, { questions: [question] }],
+        ['kind', { kind: 'permission' }, { questions: [question] }],
+        ['terminal', { source: 'claude_unified_terminal_dialog_choice' }, { questions: [question] }],
+        ['dialog', {}, { questions: [question], happierDialog: {} }],
+    ])('W5: a request changing %s between render and press sends nothing', async (_name, request, input) => {
+        const original = seed(); const screen = await render(); await pick(screen);
+        const press = screen.findByTestId(sendId)!.props.onPress;
+        await act(async () => {
+            storage.getState().applySessions([{ ...original, agentStateVersion: 2, agentState: worker(input, request).agentState }]);
+            press();
+        });
+        expect(boundary.answer).not.toHaveBeenCalled();
+        expect(boundary.alert).not.toHaveBeenCalled();
+        expect(screen.findByTestId('ip-waiting-question-error-request')).toBeNull();
+    });
+
     it('W5: shows questions and options; picking never sends; explicit Send uses the builder', async () => {
         seed(); const screen = await render();
         expect(screen.getTextContent()).toContain(question.question);
