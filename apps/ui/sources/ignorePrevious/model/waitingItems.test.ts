@@ -57,6 +57,15 @@ describe('describeRequest', () => {
         );
     });
 
+    it('shows what the extra arguments of a shell wrapper become, so a script that runs $0 says what $0 is', () => {
+        const out = describeRequest('CodexBash', { command: ['bash', '-lc', 'eval "$0"', 'rm -rf ~'] });
+        expect(out).toContain('eval "$0"');
+        expect(out).toContain('$0 = "rm -rf ~"');
+        const two = describeRequest('CodexBash', { command: ['bash', '-lc', 'echo "$1"', 'x', 'y z'] });
+        expect(two).toContain('$0 = "x"');
+        expect(two).toContain('$1 = "y z"');
+    });
+
     it('shows every field beside the command, since each can change what runs', () => {
         const cwd = describeRequest('CodexBash', { command: 'rm -rf *', cwd: '/work/home' });
         expect(cwd).toContain('rm -rf *');

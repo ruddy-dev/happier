@@ -67,10 +67,15 @@ function parseArguments(args: unknown): unknown {
 /**
  * An argument list as shell text, only where that text reads exactly as what runs: the script of a
  * `bash -lc` wrapper, or arguments that are all plain. Null otherwise, so the caller shows the list itself.
+ * A wrapper's arguments after the script become `$0`, `$1`, …, which the script can run: each is
+ * listed under it, quoted.
  */
 function argvText(argv: readonly string[]): string | null {
     const wrapped = argv.length >= 3 && SHELL_WRAPPERS.has(argv[0]!) && argv[1] === '-lc';
-    if (wrapped) return argv.length === 3 ? argv[2]! : null;
+    if (wrapped) {
+        const positional = argv.slice(3).map((value, index) => `$${index} = ${JSON.stringify(value)}`);
+        return [argv[2]!, ...positional].join('\n');
+    }
     return argv.every((part) => PLAIN_ARGUMENT.test(part)) ? argv.join(' ') : null;
 }
 
