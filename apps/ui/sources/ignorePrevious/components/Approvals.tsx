@@ -10,7 +10,7 @@ import { useModalCardChrome } from '@/modal/components/card/useModalCardChrome';
 import { t } from '@/text';
 
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
-import { WaitingPanel } from './WaitingPanel';
+import { WaitingPanel, type WaitingHistory } from './WaitingPanel';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () => void }) {
@@ -53,7 +53,7 @@ export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () 
  * The same list as a card, for layouts with no room for a drawer: a phone, or multi-pane panels
  * switched off. The card chrome carries the title and the close button.
  */
-export function ApprovalsCard({ onClose, setChrome }: CustomModalInjectedProps) {
+export function ApprovalsCard({ onClose, setChrome, history }: CustomModalInjectedProps & { history?: WaitingHistory }) {
     const chrome = React.useMemo(() => ({
         kind: 'card' as const,
         title: t('ignorePrevious.title'),
@@ -64,13 +64,13 @@ export function ApprovalsCard({ onClose, setChrome }: CustomModalInjectedProps) 
     useModalCardChrome(setChrome, chrome);
     return (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-            <WaitingPanel onOpenSession={onClose} />
+            <WaitingPanel onOpenSession={onClose} history={history} />
         </ScrollView>
     );
 }
 
 /** The drawer beside the coordinator: everything that waits on you, with Allow and Deny. */
-export function ApprovalsDrawer({ onClose }: { onClose: () => void }) {
+export function ApprovalsDrawer({ onClose, history }: { onClose: () => void; history?: WaitingHistory }) {
     const { theme } = useUnistyles();
     return (
         <View testID="ip-approvals-drawer" style={{ flex: 1, backgroundColor: theme.colors.surface.base }}>
@@ -93,7 +93,7 @@ export function ApprovalsDrawer({ onClose }: { onClose: () => void }) {
                 </Pressable>
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-                <WaitingPanel />
+                <WaitingPanel history={history} />
             </ScrollView>
         </View>
     );
