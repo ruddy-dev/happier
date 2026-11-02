@@ -171,26 +171,35 @@ test('HTML pairs app left and mockup right using relative paths, and makes missi
 
 function readinessPage({ relayVisible = false, readyError } = {}) {
     const waits = [];
+    const actions = [];
     const locator = id => ({
         first() { return this; },
         isVisible: async () => id === 'Relay not supported' && relayVisible,
+        click: async () => { actions.push(['click', id]); },
         waitFor: async options => {
             if (id === 'Relay not supported') {
                 if (relayVisible) return;
                 return new Promise(() => {}); // Browser locator stays pending until ready or context close.
             }
             waits.push([id, options.state ?? 'visible']);
+            actions.push(['wait', id, options.state ?? 'visible']);
             if (readyError) throw readyError;
         },
     });
-    return { waits, getByTestId: locator, getByText: locator };
+    return { waits, actions, getByTestId: locator, getByText: locator };
 }
 
 test('signed-out readiness requires the real form rather than the shell', async () => {
     for (const shot of buildShotMatrix('sheet').filter(shot => ['sign-in', 'restore'].includes(shot.page))) {
         const page = readinessPage();
         await waitForAppReady(page, shot);
-        assert.deepEqual(page.waits, [[shot.page === 'sign-in' ? 'welcome-secondary-login' : 'restore-manual-secret-input', 'visible']]);
+        const form = shot.page === 'sign-in' ? 'welcome-secondary-login' : 'restore-manual-secret-input';
+        assert.deepEqual(page.actions, [
+            ...(shot.page === 'sign-in' && shot.width === 390 ? [
+                ['wait', 'brand-hero-get-started', 'visible'], ['click', 'brand-hero-get-started'],
+            ] : []),
+            ['wait', form, 'visible'],
+        ], shot.name);
     }
 });
 
@@ -207,20 +216,35 @@ test('readiness fails clearly when Relay not supported appears instead of a form
     await assert.rejects(waitForAppReady(pendingForm, { page: 'sign-in', readyTestId: 'welcome-secondary-login' }), /Relay not supported/);
 });
 
-test('a relay error appearing while the form is pending fails without waiting for its selector timeout', async () => {
-    let showRelayError;
-    let visible = false;
-    const page = {
-        getByTestId: () => ({ waitFor: () => new Promise(() => {}) }),
-        getByText: () => ({ first() { return this; },
-            waitFor: () => new Promise(resolve => { showRelayError = resolve; }),
-            isVisible: async () => visible,
-        }),
-    };
-    const ready = waitForAppReady(page, { page: 'restore', readyTestId: 'restore-manual-secret-input' });
-    visible = true;
-    showRelayError();
-    await assert.rejects(ready, /Relay not supported/);
+test('a relay error fails readiness while restore or any phone sign-in step is pending', async () => {
+    for (const [shot, pendingAction] of [
+        [{ page: 'restore', readyTestId: 'restore-manual-secret-input' }, 'wait:restore-manual-secret-input'],
+        [{ page: 'sign-in', width: 390, readyTestId: 'welcome-secondary-login' }, 'wait:brand-hero-get-started'],
+        [{ page: 'sign-in', width: 390, readyTestId: 'welcome-secondary-login' }, 'click:brand-hero-get-started'],
+        [{ page: 'sign-in', width: 390, readyTestId: 'welcome-secondary-login' }, 'wait:welcome-secondary-login'],
+    ]) {
+        let showRelayError;
+        let visible = false;
+        let reachPending;
+        const pending = new Promise(resolve => { reachPending = resolve; });
+        const action = key => {
+            if (key !== pendingAction) return Promise.resolve();
+            reachPending();
+            return new Promise(() => {});
+        };
+        const page = {
+            getByTestId: id => ({ waitFor: () => action(`wait:${id}`), click: () => action(`click:${id}`) }),
+            getByText: () => ({ first() { return this; },
+                waitFor: () => new Promise(resolve => { showRelayError = resolve; }),
+                isVisible: async () => visible,
+            }),
+        };
+        const ready = waitForAppReady(page, shot);
+        await Promise.race([pending, ready.then(() => assert.fail(`Readiness completed before ${pendingAction}`))]);
+        visible = true;
+        showRelayError();
+        await assert.rejects(ready, /Relay not supported/, pendingAction);
+    }
 });
 
 test('an unavailable failure screenshot preserves the original failure and never links a missing image', async () => {
