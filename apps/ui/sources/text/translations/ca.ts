@@ -10701,6 +10701,13 @@ settingsSession: {
         friendAcceptedGeneric: 'Sol·licitud d\'amistat acceptada',
     },
     ignorePrevious: {
+        connection: {
+            lastSeen: ({ time }: { time: string }) => `Not connected. Last connected at ${time}.`,
+            noData: 'Not connected. Waiting for the first update.',
+            actionsUnavailable: 'Reconnect to Allow, Deny or Stop.',
+            unheard: ({ minutes }: { minutes: number }) => `Not heard from in ${minutes} min`,
+            staleRequest: 'This worker may be gone. You can still try Allow or Deny.',
+        },
         title: 'Your turn',
         themeName: 'Ignore Previous',
         themeNameLight: 'Ignore Previous Light',

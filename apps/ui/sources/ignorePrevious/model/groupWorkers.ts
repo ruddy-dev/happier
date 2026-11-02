@@ -12,6 +12,8 @@ export type WorkerRow = {
     contextPercent?: number | null;
     /** The worker is mid-turn or held at a prompt, so its turn can be stopped. */
     canStop?: boolean;
+    /** Minutes since the last worker signal, only when the canonical freshness budget expired. */
+    unheardMinutes?: number | null;
     /** The worker's session isn't running; opening it lets its session view resume it. */
     inactive?: boolean;
 };

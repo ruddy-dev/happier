@@ -15,6 +15,7 @@ import { getPermissionModeOptionsForSession, normalizePermissionModeForAgentType
 import type { PermissionMode } from '@/sync/domains/permissions/permissionTypes';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { storage, useSession, useSetting, useSettings } from '@/sync/domains/state/storage';
+import { useSocketStatus } from '@/sync/store/hooks';
 import { sessionAbort } from '@/sync/ops';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
@@ -29,12 +30,14 @@ function RowButton({
     accessibilityLabel,
     onPress,
     disabled,
+    accessibilityHint,
 }: {
     testID: string;
     label: string;
     accessibilityLabel?: string;
     onPress: () => void;
     disabled?: boolean;
+    accessibilityHint?: string;
 }) {
     const { theme } = useUnistyles();
     return (
@@ -42,6 +45,7 @@ function RowButton({
             testID={testID}
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel ?? label}
+            accessibilityHint={accessibilityHint}
             accessibilityState={{ disabled: Boolean(disabled) }}
             disabled={disabled}
             onPress={onPress}
@@ -154,14 +158,20 @@ function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessi
 }
 
 function StopControl({ sessionId }: { sessionId: string }) {
-    const [stopping, stop] = useHappyAction(() => sessionAbort(sessionId));
+    const { status } = useSocketStatus();
+    const disconnected = status !== 'connected';
+    const [stopping, stop] = useHappyAction(async () => {
+        if (storage.getState().socketStatus !== 'connected') return;
+        await sessionAbort(sessionId);
+    });
     return (
         <RowButton
             testID={`ip-stop-${sessionId}`}
             label={t('ignorePrevious.stopTurn')}
             accessibilityLabel={t('ignorePrevious.stopTurnLabel')}
             onPress={() => void stop()}
-            disabled={stopping}
+            disabled={stopping || disconnected}
+            accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
         />
     );
 }

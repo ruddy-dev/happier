@@ -8,10 +8,26 @@ import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { Modal } from '@/modal';
 import { sessionAllow, sessionDeny } from '@/sync/ops';
+import { storage } from '@/sync/domains/state/storage';
+import { useSessionListRenderable, useSocketStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 
+import { useDeskNow } from '../model/useDeskNow';
+import { workerUnheardMinutes } from '../model/workerFreshness';
 import { useDeskWaits } from '../model/useDeskWaits';
 import type { WaitingItem } from '../model/waitingItems';
+
+function StaleRequestNote({ sessionId, requestId }: { sessionId: string; requestId: string }) {
+    const session = useSessionListRenderable(sessionId);
+    const now = useDeskNow();
+    const { theme } = useUnistyles();
+    if (!session || workerUnheardMinutes(session, now) === null) return null;
+    return (
+        <Text testID={`ip-waiting-stale-${requestId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
+            {t('ignorePrevious.connection.staleRequest')}
+        </Text>
+    );
+}
 
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
@@ -118,13 +134,16 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
 
     const [phase, setPhase] = React.useState<'idle' | 'sending' | 'sent'>('idle');
     const busy = phase === 'sending';
-    const disabled = phase !== 'idle';
+    const { status } = useSocketStatus();
+    const disconnected = status !== 'connected';
+    const disabled = disconnected || phase !== 'idle';
     // Whether this card holds the request (its own answer is in flight or sent). Read in the press
     // handler, where a second press in the same commit can't see the state update yet.
     const holdsRef = React.useRef(false);
     const [elsewhere, setElsewhere] = React.useState(false);
 
     const send = async (call: () => Promise<void>) => {
+        if (storage.getState().socketStatus !== 'connected') return;
         try {
             // The guard runs the action only when this press wins the request. A press refused
             // while this card is answering changes nothing; one refused because another screen
@@ -151,6 +170,7 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
             accessibilityRole="button"
             accessibilityLabel={label}
             accessibilityState={{ disabled, busy }}
+            accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
             disabled={disabled}
             style={[styles.button, disabled ? { opacity: 0.5 } : null]}
             // Not awaited: the press returns at once and the guard owns the in-flight answer.
@@ -177,6 +197,9 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
                         {item.detail}
                     </Text>
                 </>
+            )}
+            {item.kind === 'user_action' ? null : (
+                <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId} />
             )}
             {item.kind !== 'user_action' && item.disabledReason ? (
                 <Text style={styles.secondary}>

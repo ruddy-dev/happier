@@ -207,6 +207,8 @@ export async function startDeskScenario(options: DeskScenarioOptions): Promise<D
 
     act(() => {
         const state = storage.getState();
+        state.setSocketStatus('connected');
+        if (options.dataReady !== false) state.setLastSyncAt(t0);
         if (full.length > 0) state.applySessions(full);
         if (listOnly.size > 0) {
             state.mergeSessionListRenderables([...listOnly.values()].map((session) => buildSessionListRenderableFromSession(session)));

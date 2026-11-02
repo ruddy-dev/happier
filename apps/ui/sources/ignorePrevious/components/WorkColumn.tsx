@@ -12,6 +12,7 @@ import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState 
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { useCoordinatorId } from '../model/useCoordinatorId';
+import { workerUnheardMinutes } from '../model/workerFreshness';
 import { useDeskNow } from '../model/useDeskNow';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { bulbColour, useIpColours } from '../palette';
@@ -32,6 +33,7 @@ function toWorkerRows(
         const meter = loaded ? sessionContextMeter(loaded) : null;
         // Freshness is judged against the desk clock, so a worker that falls silent goes stale without a store write.
         const state = getSessionStatus(row, nowMs).state;
+        const unheardMinutes = workerUnheardMinutes(row, nowMs);
         return {
             sessionId: row.id,
             title: getSessionName(row),
@@ -41,7 +43,8 @@ function toWorkerRows(
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
             contextPercent: meter ? Math.round(meter.ratio * 100) : null,
-            canStop: shouldShowAbortButtonForSessionState(state),
+            canStop: shouldShowAbortButtonForSessionState(state) && unheardMinutes === null,
+            unheardMinutes,
             inactive: row.active !== true,
         };
     });
