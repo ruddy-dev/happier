@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { ESCAPE_LAYER_PRIORITIES, registerEscapeKeyBlocker } from '@/keyboard/escape';
 import {
     View,
     TouchableWithoutFeedback,
@@ -167,6 +168,10 @@ export function BaseModal({
     zIndexBase,
     webPortalTarget = null,
 }: BaseModalProps) {
+    useEffect(() => {
+        if (Platform.OS !== 'web' || !visible) return;
+        return registerEscapeKeyBlocker(ESCAPE_LAYER_PRIORITIES.modal);
+    }, [visible]);
     const { theme } = useUnistyles();
     const uiBackdropBlurEnabled = useLocalSetting('uiBackdropBlurEnabled') !== false;
     const insets = useChromeSafeAreaInsets();

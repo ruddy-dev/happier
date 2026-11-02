@@ -1403,7 +1403,7 @@ export function Popover(props: PopoverWithBackdrop | PopoverWithoutBackdrop) {
                     ? ({ onWheel: stopScrollEventPropagationOnWeb, onTouchMove: stopScrollEventPropagationOnWeb } as any)
                     : {})}
                 {...(Platform.OS === 'web' && shouldPortalWeb
-                    ? ({ nativeID: portalIdRef.current, testID: portalIdRef.current } as any)
+                    ? ({ nativeID: portalIdRef.current, testID: portalIdRef.current, dataSet: { happyPopoverContent: '' } } as any)
                     : {})}
                 style={[
                     placementStyle,
