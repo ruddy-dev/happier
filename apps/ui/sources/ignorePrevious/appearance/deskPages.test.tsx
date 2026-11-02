@@ -204,3 +204,86 @@ it.each([
         await React.act(async () => Modal.hideAll());
     }
 });
+
+it('preserves a retained restore form and its scope when the current path leaves and returns', async () => {
+    route.pathname = '/restore/manual';
+    route.dark = false;
+    const Restore = (await import('@/app/(app)/restore/manual')).default;
+    const screen = await renderScreen(<AuthProvider initialCredentials={null}><Restore /></AuthProvider>);
+    await React.act(async () => {
+        screen.findHostByTestId('restore-manual-secret-input')!.props.onChangeText('fixture-key');
+    });
+    for (const path of ['/restore', '/', '/restore/manual']) {
+        route.pathname = path;
+        await screen.update(<AuthProvider initialCredentials={null}><Restore /></AuthProvider>);
+        const input = screen.findHostByTestId('restore-manual-secret-input')!;
+        expect.soft(input.props.value).toBe('fixture-key');
+        expect.soft(StyleSheet.flatten(input.props.style)?.fontFamily).toBe(DESK_FONT_STACK);
+    }
+});
+
+it('preserves an open Voice prompt across navigation away and back', async () => {
+    route.pathname = '/settings/voice';
+    route.dark = false;
+    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    const { Modal } = await import('@/modal');
+    const Voice = (await import('@/app/(app)/settings/voice')).default;
+    const { t } = await import('@/text');
+    const screen = await renderScreen(<AuthProvider initialCredentials={null}>
+        <AppPaneModalProvider><Voice /></AppPaneModalProvider>
+    </AuthProvider>);
+    try {
+        const countItem = screen.findAll((node) => node.props.title === t('settingsVoice.privacy.recentMessagesCount') && typeof node.props.onPress === 'function')[0];
+        await React.act(async () => { countItem.props.onPress(); });
+        await React.act(async () => { screen.findHostByTestId('web-prompt-input')!.props.onChangeText('23'); });
+        for (const path of ['/settings', '/settings/voice']) {
+            route.pathname = path;
+            await screen.update(<AuthProvider initialCredentials={null}>
+                <AppPaneModalProvider><Voice /></AppPaneModalProvider>
+            </AuthProvider>);
+            const input = screen.findHostByTestId('web-prompt-input')!;
+            expect.soft(input.props.value).toBe('23');
+            expect.soft(StyleSheet.flatten(input.props.style)?.fontFamily).toBe(DESK_FONT_STACK);
+        }
+    } finally {
+        await React.act(async () => Modal.hideAll());
+    }
+});
+
+it('keeps each overlapping dialog in the appearance where it opened', async () => {
+    route.pathname = '/settings';
+    route.dark = false;
+    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    const { Modal } = await import('@/modal');
+    const { WebPromptModal } = await import('@/modal/components/WebPromptModal');
+    const screen = await renderScreen(<AuthProvider initialCredentials={null}>
+        <AppPaneModalProvider><></></AppPaneModalProvider>
+    </AuthProvider>);
+    try {
+        await React.act(async () => { void Modal.prompt('Ordinary', 'Message'); });
+        await React.act(async () => { screen.findHostByTestId('web-prompt-input')!.props.onChangeText('ordinary draft'); });
+        route.pathname = '/settings/voice';
+        await screen.update(<AuthProvider initialCredentials={null}>
+            <AppPaneModalProvider><></></AppPaneModalProvider>
+        </AuthProvider>);
+        const ordinary = screen.findHostByTestId('web-prompt-input')!;
+        expect.soft(ordinary.props.value).toBe('ordinary draft');
+        expect.soft(StyleSheet.flatten(ordinary.props.style)?.fontFamily).not.toBe(DESK_FONT_STACK);
+        await React.act(async () => { void Modal.prompt('Desk', 'Message'); });
+        const dialogs = screen.findAllByType(WebPromptModal);
+        expect(dialogs).toHaveLength(2);
+        const inputs = dialogs.map((dialog) => dialog.findAll((node) => typeof node.type === 'string' && node.props.testID === 'web-prompt-input')[0]);
+        expect.soft(inputs[0].props.value).toBe('ordinary draft');
+        expect.soft(StyleSheet.flatten(inputs[0].props.style)?.fontFamily).not.toBe(DESK_FONT_STACK);
+        expect.soft(StyleSheet.flatten(inputs[1].props.style)?.fontFamily).toBe(DESK_FONT_STACK);
+        await React.act(async () => Modal.hideAll());
+        route.pathname = '/settings';
+        await screen.update(<AuthProvider initialCredentials={null}>
+            <AppPaneModalProvider><></></AppPaneModalProvider>
+        </AuthProvider>);
+        await React.act(async () => { void Modal.prompt('New ordinary', 'Message'); });
+        expect(StyleSheet.flatten(screen.findHostByTestId('web-prompt-input')!.props.style)?.fontFamily).not.toBe(DESK_FONT_STACK);
+    } finally {
+        await React.act(async () => Modal.hideAll());
+    }
+});

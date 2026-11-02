@@ -91,3 +91,19 @@ it('restores the CSS theme scope inside the real modal owner’s body portal', a
         container.remove();
     }
 });
+
+
+it('keeps the local font installed for the lifetime of a page or dialog scope', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+        await act(async () => root.render(<DeskPageScope name="deskPageLight"><Text>Retained dialog</Text></DeskPageScope>));
+        expect(document.getElementById('ip-desk-font')).not.toBeNull();
+        await act(async () => root.render(<Text>Ordinary page</Text>));
+        expect(document.getElementById('ip-desk-font')).toBeNull();
+    } finally {
+        await act(async () => root.unmount());
+        container.remove();
+    }
+});
