@@ -98,9 +98,10 @@ function OpenSessionButton({ sessionId, onOpen }: { sessionId: string; onOpen: (
 
 /**
  * One request waiting on you. Allow and Deny go through the same dispatch guard as the session's
- * own permission footer, under the same key, so one request gets one answer whichever surface
- * (or how many presses) sends it. Once an answer is sent the buttons stay off until the request
- * leaves the list; a send that fails turns them back on.
+ * own permission footer, under the same key, so two surfaces (or two presses) never send at once.
+ * Once this card's answer is sent its buttons stay off until the request leaves the list; a send
+ * that fails turns them back on. The desk holds the request only while its answer is in flight:
+ * if the agent never drops the request, the session's footer can still answer it.
  */
 function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: string) => void }) {
     const { theme } = useUnistyles();
@@ -109,16 +110,11 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
     const requestKey = `${item.sessionId}\u0000${item.requestId}`;
     const guardRef = React.useRef<ReturnType<typeof createPermissionActionDispatchGuard> | null>(null);
     if (guardRef.current === null) {
-        guardRef.current = createPermissionActionDispatchGuard(requestKey);
+        guardRef.current = createPermissionActionDispatchGuard(requestKey, { holdAfterSuccess: false });
     } else {
         guardRef.current.setRequestKey(requestKey);
     }
     const guard = guardRef.current;
-    // A card exists only while its request is pending, so it holds the request for as long as it is mounted.
-    React.useEffect(() => {
-        guard.retainRequest(requestKey);
-        return () => guard.releaseRequest(requestKey);
-    }, [guard, requestKey]);
 
     const [phase, setPhase] = React.useState<'idle' | 'sending' | 'sent'>('idle');
     const busy = phase === 'sending';

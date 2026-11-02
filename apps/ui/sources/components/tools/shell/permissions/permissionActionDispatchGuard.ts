@@ -5,6 +5,17 @@ export type PermissionActionDispatchGuard = Readonly<{
     dispatch: (requestKey: string, action: () => Promise<void>) => Promise<boolean>;
 }>;
 
+export type PermissionActionDispatchGuardOptions = Readonly<{
+    /**
+     * Whether a successful answer from this guard keeps the request settled for every surface until
+     * they all release it (the default, for surfaces that show the request only while it is pending
+     * in the session). False holds the request only while the answer is in flight: a surface that
+     * may outlive the request's own state (the Ignore Previous desk) must not lock the session's
+     * footer out of a request that never left.
+     */
+    holdAfterSuccess?: boolean;
+}>;
+
 type GuardState = {
     requestKey: string;
     phase: 'idle' | 'in_flight' | 'settled';
@@ -42,7 +53,11 @@ function removeUnretainedRequest(requestKey: string, sharedRequest: SharedReques
     }
 }
 
-export function createPermissionActionDispatchGuard(initialRequestKey: string): PermissionActionDispatchGuard {
+export function createPermissionActionDispatchGuard(
+    initialRequestKey: string,
+    options: PermissionActionDispatchGuardOptions = {},
+): PermissionActionDispatchGuard {
+    const holdAfterSuccess = options.holdAfterSuccess ?? true;
     const ownerToken = {};
     const state: GuardState = {
         requestKey: initialRequestKey,
@@ -77,7 +92,7 @@ export function createPermissionActionDispatchGuard(initialRequestKey: string): 
             state.phase = 'in_flight';
             try {
                 await action();
-                sharedRequest.settled = true;
+                if (holdAfterSuccess) sharedRequest.settled = true;
                 if (state.requestKey === requestKey) {
                     state.phase = 'settled';
                 }

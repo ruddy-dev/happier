@@ -237,6 +237,36 @@ describe('WaitingPanel safety', () => {
         await expect(footerSend).resolves.toBe(true);
     });
 
+    it('C: after a desk answer settles, the session footer can still answer a request that has not left', async () => {
+        seed([sessionWithRequest('s1', 'r16', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        // The session is open on top of the desk: its footer is mounted and holds the same request.
+        const footer = createPermissionActionDispatchGuard('s1\u0000r16');
+        footer.retainRequest('s1\u0000r16');
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r16'), 'allow');
+        expect(permissionCalls()).toHaveLength(1);
+        // The answer was sent, but the agent never dropped the request: the desk card stays, sent.
+        expect(screen.findByTestId('ip-waiting-allow-r16')?.props.accessibilityState).toMatchObject({ disabled: true });
+        const footerAction = vi.fn(async () => {});
+        await expect(footer.dispatch('s1\u0000r16', footerAction)).resolves.toBe(true);
+        expect(footerAction).toHaveBeenCalledTimes(1);
+        footer.releaseRequest('s1\u0000r16');
+    });
+
+    it('C: after a desk answer settles and the desk closes, the footer still answers', async () => {
+        seed([sessionWithRequest('s1', 'r17', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        const footer = createPermissionActionDispatchGuard('s1\u0000r17');
+        footer.retainRequest('s1\u0000r17');
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r17'), 'allow');
+        act(() => {
+            screen.tree.unmount();
+        });
+        const footerAction = vi.fn(async () => {});
+        await expect(footer.dispatch('s1\u0000r17', footerAction)).resolves.toBe(true);
+        footer.releaseRequest('s1\u0000r17');
+    });
+
     it('J3: a network error on Allow says the answer did not go through, not "already answered"', async () => {
         state.rpc.mockImplementation(async (call: RpcCall) => {
             if (call.method === 'permission') throw new Error('network down');
