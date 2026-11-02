@@ -176,7 +176,7 @@ it('shows desk chrome and phone panes at the agreed boundary', async () => {
     expect([...bar.children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-sessions', 'ip-top-usage', 'ip-top-waiting', 'ip-top-settings']);
     expect(container.querySelectorAll('[data-testid="ip-approvals-open"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
-    expect(element('ip-top-usage').textContent).toContain('not available');
+    expect(element('ip-top-usage').textContent).toBe('Usage');
     expect(element('ip-approvals-count').textContent).toBe('0');
     await render(390);
     expect(element('ip-top-sessions')).toBeTruthy();
@@ -256,11 +256,11 @@ it.each([390, 820])('keeps phone top bar controls and accessible tabs at %i', as
     expect(element('ip-tab-waiting').closest('[role="tablist"]')).not.toBeNull();
     expect(element('ip-tab-shog').getAttribute('aria-selected')).toBe('true');
 });
-it('gives the Max meter the same visible and accessible text without a percentage', async () => {
+it('M12: gives Usage the same visible and accessible text without a percentage', async () => {
     await render(1440);
     const usage = element('ip-top-usage');
     expect(usage.getAttribute('aria-label')).toBe(usage.textContent);
-    expect(usage.textContent).toContain('not available');
+    expect(usage.textContent).toBe('Usage');
     expect(element('ip-top-bar').textContent).not.toContain('%');
 });
 it('uses a muted zero while preserving the waiting label', async () => {
