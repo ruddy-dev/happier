@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
+import type { ReactTestInstance } from 'react-test-renderer';
 
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
@@ -49,6 +50,13 @@ type RpcCall = { sessionId: string; method: string; payload: Record<string, unkn
 
 function permissionCalls(): RpcCall[] {
     return state.rpc.mock.calls.map(([call]) => call as RpcCall).filter((call) => call.method === 'permission');
+}
+
+/** Every string under an element, joined. */
+function textUnder(node: ReactTestInstance | string | null): string {
+    if (node === null) return '';
+    if (typeof node === 'string') return node;
+    return node.children.map(textUnder).join('');
 }
 
 let previous: ReturnType<typeof storage.getState>;
@@ -215,4 +223,27 @@ describe('WaitingPanel safety', () => {
     });
 
     it.todo('D1: should an { ok:false } reply show "already answered" or silently drop the card? (Seam PR, sessionAllowResult)');
+
+    it('W1: the card shows a 300-character command including its tail', async () => {
+        const command = 'cd build && ' + 'echo a '.repeat(40) + '&& rm -rf /tmp/x';
+        seed([sessionWithRequest('s1', 'r10', { tool: 'Bash', arguments: { command } })]);
+        const screen = await renderPanel();
+        const waiting = textUnder(screen.findByTestId('ip-waiting'));
+        expect(command.length).toBeGreaterThan(290);
+        expect(waiting).toContain(command);
+        expect(waiting).not.toContain('…');
+    });
+
+    it('W1: a CodexBash argv request shows its command', async () => {
+        seed([sessionWithRequest('s1', 'r11', { tool: 'CodexBash', arguments: { command: ['bash', '-lc', 'git push --force'] } })]);
+        const screen = await renderPanel();
+        const waiting = textUnder(screen.findByTestId('ip-waiting'));
+        expect(waiting).toContain('git push --force');
+    });
+
+    it('W1: a WebFetch request shows its arguments', async () => {
+        seed([sessionWithRequest('s1', 'r12', { tool: 'WebFetch', arguments: { url: 'https://example.invalid/x' } })]);
+        const screen = await renderPanel();
+        expect(textUnder(screen.findByTestId('ip-waiting'))).toContain('https://example.invalid/x');
+    });
 });

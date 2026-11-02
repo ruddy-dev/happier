@@ -165,8 +165,9 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
                             {t('ignorePrevious.agentSays', { name: item.sessionTitle })} {item.agentNote}
                         </Text>
                     ) : null}
-                    <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }}>
-                        {item.summary}
+                    {/* Whole and selectable: what Allow runs must be readable to its last character. */}
+                    <Text selectable style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }}>
+                        {item.detail}
                     </Text>
                 </>
             )}
