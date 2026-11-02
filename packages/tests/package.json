@@ -14,6 +14,8 @@
     "test:stress": "node scripts/run-vitest-with-heartbeat.mjs --config vitest.stress.config.ts",
     "test:providers": "node scripts/run-vitest-with-heartbeat.mjs --config vitest.providers.config.ts",
     "test:ui:e2e": "node scripts/run-playwright-with-heartbeat.mjs --config playwright.ui.config.mjs",
+    "desk:export": "node scripts/desk-env.mjs -- tsx scripts/desk-export.ts",
+    "desk:test": "node scripts/desk-env.mjs -- playwright test -c playwright.desk.config.mjs",
     "test:ui:e2e:wsrepl:lima": "node scripts/run-wsrepl-lima-matrix.mjs",
     "test:ui:e2e:wsrepl:lima:self": "node --test ../../apps/stack/scripts/testkit/core/lima_guest_harness.test.mjs scripts/lima-vm.test.mjs scripts/wsrepl-lima-matrix.test.mjs",
     "test:mobile:e2e:android": "node scripts/run-maestro-with-heartbeat.mjs --platform android --flows suites/mobile-e2e/flows/smoke.yaml --appId dev.happier.app.internaldev",
@@ -76,6 +78,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
+    "playwright-core": "1.58.2",
     "@types/archiver": "^7.0.0",
     "@types/node": ">=20",
     "archiver": "^7.0.1",
