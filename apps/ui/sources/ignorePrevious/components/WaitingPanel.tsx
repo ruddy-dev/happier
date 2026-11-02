@@ -7,9 +7,25 @@ import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { Modal } from '@/modal';
 import { sessionAllow, sessionDeny } from '@/sync/ops';
+import { storage } from '@/sync/domains/state/storage';
+import { useSessionListRenderable, useSocketStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 
+import { useDeskNow } from '../model/useDeskNow';
+import { workerUnheardMinutes } from '../model/workerFreshness';
 import { useDeskWaits } from '../model/useDeskWaits';
+
+function StaleRequestNote({ sessionId, requestId }: { sessionId: string; requestId: string }) {
+    const session = useSessionListRenderable(sessionId);
+    const now = useDeskNow();
+    const { theme } = useUnistyles();
+    if (!session || workerUnheardMinutes(session, now) === null) return null;
+    return (
+        <Text testID={`ip-waiting-stale-${requestId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
+            {t('ignorePrevious.connection.staleRequest')}
+        </Text>
+    );
+}
 
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
@@ -21,8 +37,11 @@ export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } =
     const { items, unloaded, ready } = useDeskWaits();
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
+    const { status } = useSocketStatus();
+    const disconnected = status !== 'connected';
 
     const answer = React.useCallback(async (call: () => Promise<void>) => {
+        if (storage.getState().socketStatus !== 'connected') return;
         try {
             await call();
         } catch {
@@ -89,19 +108,28 @@ export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } =
                             </Text>
                         </>
                     )}
+                    {item.kind === 'user_action' ? null : (
+                        <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId} />
+                    )}
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                         {item.kind === 'user_action' ? null : (
                             <>
                                 <Pressable
                                     accessibilityRole="button"
-                                    style={buttonStyle}
+                                    disabled={disconnected}
+                                    accessibilityState={{ disabled: disconnected }}
+                                    accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
+                                    style={[buttonStyle, disconnected ? { opacity: 0.5 } : null]}
                                     onPress={() => void answer(() => sessionAllow(item.sessionId, item.requestId))}
                                 >
                                     <Text style={buttonText}>{t('ignorePrevious.allow', { tool: item.tool })}</Text>
                                 </Pressable>
                                 <Pressable
                                     accessibilityRole="button"
-                                    style={buttonStyle}
+                                    disabled={disconnected}
+                                    accessibilityState={{ disabled: disconnected }}
+                                    accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
+                                    style={[buttonStyle, disconnected ? { opacity: 0.5 } : null]}
                                     onPress={() => void answer(() => sessionDeny(item.sessionId, item.requestId))}
                                 >
                                     <Text style={buttonText}>{t('ignorePrevious.deny')}</Text>

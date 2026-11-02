@@ -16,6 +16,7 @@ import { getSessionName } from '@/utils/sessions/sessionUtils';
 
 import { CoordinatorPane } from '../components/CoordinatorPane';
 import { ApprovalsButton, ApprovalsCard, ApprovalsDrawer } from '../components/Approvals';
+import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
 import {
     getApprovalsOpen,
@@ -250,5 +251,10 @@ export function DeskScreen() {
         </View>
     );
 
-    return <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} />} />;
+    return (
+        <View style={{ flex: 1 }}>
+            <DeskConnectionBanner />
+            <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} />} />
+        </View>
+    );
 }
