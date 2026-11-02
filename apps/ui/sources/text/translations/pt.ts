@@ -11618,6 +11618,32 @@ settingsSession: {
     friendAcceptedGeneric: "Pedido de amizade aceito",
   },
     ignorePrevious: {
+        runSettings: {
+            title: 'Run settings', model: 'Model', effort: 'Effort',
+            effortLocked: 'Effort: extra high, set by Ultracode',
+            effortUnavailable: 'This model has no effort setting.',
+            ultracode: 'Ultracode', ultracodeOn: 'Ultracode on', ultracodeOff: 'Ultracode off',
+            ultracodeDescription: 'Maximum reasoning with dynamic workflows (forces extra high effort).',
+            ultracodeUnavailable: 'Only on Opus 5.5, Sonnet 5.5 and Fable 5.1.',
+            plansOnly: 'plans only', permissionMode: 'Permission mode',
+            permissionNote: 'Plans only. Shog plans and starts workers and never edits files. Each worker gets its own mode when it starts.',
+            nextTurn: 'applies next turn',
+            footer: 'Changes Shog only, from your next message. Workers get their model when they start.',
+            models: { default: 'Default model', opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5', fable: 'Fable 5.1' },
+            modelDescriptions: {
+                default: 'Use CLI settings.', opus: 'Best at planning and reviews.',
+                sonnet: 'Quicker for everyday back and forth.', haiku: 'Fast lookups and summaries.',
+                fable: 'For the hardest calls. Uses your allowance fastest.',
+            },
+            efforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max' },
+            effortDescriptions: {
+                low: 'Quick replies with less deliberation.',
+                medium: 'A little more thought before replying.',
+                high: 'Thorough reasoning, the desk default for planning.',
+                xhigh: 'More time and allowance for difficult design decisions.',
+                max: 'The most reasoning effort; expect slower replies and higher usage.',
+            },
+        },
         composer: {
             placeholder: 'Talk to Shog',
             enterHint: 'Enter sends, Shift+Enter for a new line',
