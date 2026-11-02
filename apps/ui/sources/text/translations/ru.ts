@@ -11438,6 +11438,13 @@ settingsSession: {
             dracula: 'Dracula',
             terminalPaper: 'Paper',
         },
+        freshStart: {
+            title: 'Fresh start', more: '...', moreLabel: 'Shog: Brief me, Compact, New conversation',
+            brief: 'Brief me', compact: 'Compact', keepsSummary: 'Keeps a summary',
+            newConversation: 'New conversation', question: 'Start a new conversation?', cancel: 'Cancel',
+            fixtureTitle: 'Fresh start preview', fixtureReplying: 'Simulate a reply',
+            fixtureLog: ({ action }: { action: string }) => `Preview action: ${action}`,
+        },
         settings: {
             title: 'Settings',
             backToDesk: 'Back to desk',
@@ -11574,6 +11581,13 @@ settingsSession: {
         countStuck: 'Stuck',
         countWorking: 'Working',
         countIdle: 'Idle',
+        usageLimit: {
+            waiting: 'Waiting',
+            waitsForReset: 'Usage limit: waits for reset',
+            resetDue: 'Usage limit: reset due',
+            waitsForResetAt: ({ time }: { time: string }) => `Usage limit: waits for reset, ${time}`,
+            autoResumeArmed: ({ line }: { line: string }) => `${line}; auto-resume armed`,
+        },
         screenTitle: 'Sleeper Agents',
         coordinator: 'Coordinator',
         coordinatorNickname: 'Shog',

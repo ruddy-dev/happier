@@ -23,6 +23,7 @@ import { ShogView } from './ShogView';
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { useWaitingCount } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
+import { useDeskComposerControls } from '../model/useDeskComposerControls';
 
 /**
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit
@@ -69,11 +70,13 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const placeholder = t('ignorePrevious.composer.placeholder');
     const enterHint = t('ignorePrevious.composer.enterHint');
     const coordinator = useSession(sessionId);
+    const controls = useDeskComposerControls(sessionId);
     const composer = React.useMemo<SessionViewComposerOverrides>(() => ({
+        ...controls,
         placeholder,
         footerLeadingActions: <RunSettingsMenu key={sessionId} />,
         providerUsageGauge: null,
-        hide: { contextUsage: true },
+        hide: { ...controls.hide, contextUsage: true },
         statusTrailingActions: (showEnterHint || (coordinator && sessionContextMeter(coordinator))) ? <>
             {showEnterHint ? (
                 <DeskText testID="ip-composer-enter-hint" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
@@ -82,7 +85,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             ) : null}
             {coordinator ? <ContextGauge session={coordinator} /> : null}
         </> : null,
-    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary, sessionId, coordinator]);
+    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary, sessionId, coordinator, controls]);
     // On a cold load the desk knows the coordinator from the sidebar's list before its record has
     // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does,
     // and hand SessionView the state so it shows loading or retrying instead of "isn't available".

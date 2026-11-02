@@ -175,7 +175,7 @@ type PresentationParams = Readonly<{
     formatTime: (timeMs: number) => string;
 }>;
 
-function isUsageLimitIssue(issue: SessionRuntimeIssueV1 | null | undefined): issue is SessionRuntimeIssueV1 {
+export function isUsageLimitIssue(issue: SessionRuntimeIssueV1 | null | undefined): issue is SessionRuntimeIssueV1 {
     return issue?.v === 1
         && issue.scope === 'primary_session'
         && issue.status === 'failed'
@@ -190,7 +190,7 @@ function isTemporaryThrottleIssue(issue: SessionRuntimeIssueV1 | null | undefine
         && issue.temporaryThrottle.recoverability === 'retry';
 }
 
-function shouldSurfaceRecoveryIssue(params: Readonly<{
+export function shouldSurfaceRecoveryIssue(params: Readonly<{
     latestTurnStatus?: PrimaryTurnStatusV1 | null;
     issue: SessionRuntimeIssueV1 | null | undefined;
     recovery?: SessionUsageLimitRecoveryV1 | null;
@@ -227,7 +227,7 @@ function shouldSurfaceRecoveryIssue(params: Readonly<{
     return true;
 }
 
-function readResetAtMs(
+export function readResetAtMs(
     issue: SessionRuntimeIssueV1,
     recovery: SessionUsageLimitRecoveryV1 | null | undefined,
 ): number | null {

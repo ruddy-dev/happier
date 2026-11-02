@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act } from 'react';
+import { act, createRef } from 'react';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
@@ -96,10 +96,10 @@ describe('WaitingPanel', () => {
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
     });
 
-    it('closes the approvals card when it opens a session from it', async () => {
-        const { ApprovalsCard } = await import('./Approvals');
+    it('D-series: closes fullscreen Waiting when it opens a session', async () => {
+        const { ApprovalsDrawer } = await import('./Approvals');
         const onClose = vi.fn();
-        const screen = await renderScreen(<ApprovalsCard onClose={onClose} />);
+        const screen = await renderScreen(<ApprovalsDrawer open width={390} openerRef={createRef()} onClose={onClose} />);
         await pressTestInstanceAsync(button(screen as Awaited<ReturnType<typeof renderPanel>>, 'Open session'));
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
         expect(onClose).toHaveBeenCalled();

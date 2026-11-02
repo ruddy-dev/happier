@@ -14,10 +14,15 @@ describe('M16: one face per model', () => {
 });
 
 describe('pixel grids consumable at every detail, state and theme', () => {
+    it('F5: waiting has a lit neutral signal and reuses each working still', () => {
+        expect(spriteStateTokens.waiting).toBe(spriteStateTokens.working);
+        for (const states of Object.values(spriteGrids)) expect(states.waiting).toEqual(states.working);
+    });
     it('preserves the pixel content of every kind, state and detail', () => {
         const hashes: Record<string, string> = {};
         for (const [kind, states] of Object.entries(spriteGrids)) {
             for (const [state, details] of Object.entries(states)) {
+                if (state === 'waiting') continue; // F5 reuses the working still; covered above.
                 for (const [detail, grid] of Object.entries(details)) {
                     hashes[`${kind}/${state}/${detail}`] = createHash('sha256').update(grid.join('\n')).digest('hex');
                 }

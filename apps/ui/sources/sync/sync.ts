@@ -367,6 +367,7 @@ import { readStoredSessionRawRecord } from '@/sync/runtime/readStoredSessionCont
 import { resolvePreferredServerIdForSessionId } from '@/sync/runtime/orchestration/serverScopedRpc/resolvePreferredServerIdForSessionId';
 import { resolveServerIdForSessionIdFromLocalCache } from '@/sync/runtime/orchestration/serverScopedRpc/resolveServerIdForSessionIdFromLocalCache';
 import { emitSessionMetadataUpdateWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/emitSessionMetadataUpdateWithServerScope';
+import { readMountedSessionRealtimeRecordConsumerSessionIds, subscribeSessionRealtimeRecordConsumers } from '@/sync/runtime/sessionRealtimeRecordConsumers';
 import { fetchSessionByIdWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/fetchSessionByIdWithServerScope';
 import type {
     EnsureSessionVisibleForRouteResult,
@@ -983,6 +984,14 @@ class Sync {
       private isForeground = this.usesPersistentDesktopSync || AppState.currentState === 'active';
       public encryptionCache = new EncryptionCache();
     private sessionsSync: InvalidateSync;
+    // Record-only consumers share the snapshot's exact-fetch path, with the approved
+    // four-request bound across concurrent late registrations and snapshot exact reads.
+    private readonly recordConsumerHydrationLimiter = createTaskLimiter(4);
+    private readonly requiredSessionRecordHydrations = new Map<string, Promise<void>>();
+    private recordConsumerHydrationScheduled = false;
+    private recordConsumerAttemptsKey = '';
+    private recordConsumerAttemptedIds = new Set<string>();
+    private sessionListFetchesInFlight = 0;
     private fetchSessionsInFlight: { generation: number; promise: Promise<void> } | null = null;
     private fetchMoreSessionsInFlight: Promise<void> | null = null;
     private sessionListNextCursor: string | null = null;
@@ -1193,6 +1202,7 @@ class Sync {
             },
         });
         subscribeSessionTranscriptConsumerReleases(() => this.sessionTranscriptRetention.scheduleSweep());
+        subscribeSessionRealtimeRecordConsumers(() => this.scheduleRecordConsumerHydration());
         fireAndForget(Promise.resolve().then(() => {
             const pruned = pruneStaleInstanceChangesCursors({
                 nowMs: Date.now(),
@@ -4043,6 +4053,105 @@ class Sync {
         ]));
     }
 
+    private readRecordConsumerHydrationDemand(serverId: string | null, generation: number): string[] {
+        const ids = readMountedSessionRealtimeRecordConsumerSessionIds(serverId)
+            .filter(id => resolveSessionLiveConsumption(id, serverId).isRecordConsumer).sort();
+        const key = JSON.stringify([generation, serverId, ids]);
+        if (key !== this.recordConsumerAttemptsKey) {
+            this.recordConsumerAttemptsKey = key;
+            this.recordConsumerAttemptedIds.clear();
+        }
+        return ids;
+    }
+
+    private scheduleRecordConsumerHydration(): void {
+        if (this.recordConsumerHydrationScheduled) return;
+        this.recordConsumerHydrationScheduled = true;
+        void Promise.resolve().then(() => {
+            this.recordConsumerHydrationScheduled = false;
+            if (!this.credentials || !this.encryption || !this.hasFetchedSessionsSnapshotForActiveServer
+                || this.sessionListFetchesInFlight > 0) return;
+            const serverId = String(getActiveServerSnapshot().serverId ?? '').trim() || null;
+            const generation = this.serverScopeGeneration;
+            const ids = this.readRecordConsumerHydrationDemand(serverId, generation);
+            for (const sessionId of ids) {
+                if (storage.getState().sessions[sessionId] || this.recordConsumerAttemptedIds.has(sessionId)) continue;
+                this.recordConsumerAttemptedIds.add(sessionId);
+                // No retry loop: only a membership change or an explicit snapshot retries a failure.
+                fireAndForget(this.hydrateRequiredSessionRecord(sessionId, serverId, generation), {
+                    tag: 'Sync.recordConsumerHydration',
+                });
+            }
+        });
+    }
+
+    private hydrateRequiredSessionRecord(sessionId: string, activeServerId: string | null, generation: number): Promise<void> {
+        const isRecordConsumer = resolveSessionLiveConsumption(sessionId, activeServerId).isRecordConsumer;
+        const key = JSON.stringify([generation, activeServerId, sessionId]);
+        const existing = isRecordConsumer ? this.requiredSessionRecordHydrations.get(key) : undefined;
+        if (existing) return existing;
+        const activeCredentials = this.credentials;
+        const activeEncryption = this.encryption;
+        if (!activeCredentials || !activeEncryption) return Promise.resolve();
+        const shouldContinue = () => this.serverScopeGeneration === generation;
+        const hydrate = async () => {
+            if (!shouldContinue()) return;
+            const stagedSessionDataKeys = new Map(this.sessionDataKeys);
+            const stagedSessionDataKeyEnvelopes = new Map(this.sessionDataKeyEnvelopes);
+            const exactResult = await fetchSessionByIdWithServerScope({
+                sessionId,
+                serverId: activeServerId,
+                activeCredentials,
+                activeEncryption,
+                sessionDataKeys: stagedSessionDataKeys,
+                sessionDataKeyEnvelopes: stagedSessionDataKeyEnvelopes,
+                activeRequest: (path, init) => apiSocket.request(path, init),
+                getExistingSession: (targetSessionId) => storage.getState().sessions[targetSessionId] ?? null,
+                applySessions: (sessions) => {
+                    if (!shouldContinue()) return;
+                    this.applySessions(sessions);
+                },
+                log,
+                includeTurnsProjection: false,
+            });
+            if (!shouldContinue()) return;
+            if (!exactResult.ok) {
+                if (exactResult.errorCode === 'not_found') {
+                    stagedSessionDataKeys.delete(sessionId);
+                    stagedSessionDataKeyEnvelopes.delete(sessionId);
+                    handleDeleteSessionSocketUpdate({
+                        sessionId,
+                        deleteSession: (targetSessionId) => storage.getState().deleteSession(targetSessionId),
+                        removeSessionEncryption: (targetSessionId) => activeEncryption.removeSessionEncryption(targetSessionId),
+                        removeProjectManagerSession: (targetSessionId) => projectManager.removeSession(targetSessionId),
+                        clearScmStatusForSession: (targetSessionId) => scmStatusSync.clearForSession(targetSessionId),
+                        log,
+                    });
+                    this.commitSessionDataKeyCacheEntry(
+                        sessionId,
+                        stagedSessionDataKeys,
+                        stagedSessionDataKeyEnvelopes,
+                    );
+                    return;
+                }
+                throw new Error(
+                    `Required session shell hydration failed for ${sessionId}: ${exactResult.errorCode ?? 'unknown'}`,
+                );
+            }
+            this.commitSessionDataKeyCacheEntry(
+                sessionId,
+                stagedSessionDataKeys,
+                stagedSessionDataKeyEnvelopes,
+            );
+        };
+        const work = isRecordConsumer ? this.recordConsumerHydrationLimiter.run(hydrate) : hydrate();
+        const shared = work.finally(() => {
+            if (this.requiredSessionRecordHydrations.get(key) === shared) this.requiredSessionRecordHydrations.delete(key);
+        });
+        if (isRecordConsumer) this.requiredSessionRecordHydrations.set(key, shared);
+        return shared;
+    }
+
     private fetchSessions = async (options?: FetchSessionsOptions) => {
         if (!this.credentials) return;
         const generation = this.serverScopeGeneration;
@@ -4052,7 +4161,11 @@ class Sync {
                 return existing.promise;
             }
         }
-        const runFetch = this.fetchSessionsOnce(options, generation);
+        this.sessionListFetchesInFlight += 1;
+        const runFetch = this.fetchSessionsOnce(options, generation).finally(() => {
+            this.sessionListFetchesInFlight -= 1;
+            this.scheduleRecordConsumerHydration();
+        });
         if (canShareFetchSessionsInFlight(options)) {
             const sharedFetch = runFetch.finally(() => {
                 if (this.fetchSessionsInFlight?.promise === sharedFetch) {
@@ -4144,12 +4257,27 @@ class Sync {
         if (hasOrganizationSnapshot) {
             persistSessionOrganizationWarmCache(activeServerId, warmCacheAccountId, organizationProjection);
         }
-        const requiredHydrationSessionIds = Array.from(new Set([
+        // Ordinary snapshots reuse loaded records. Resume refreshes possibly missed updates;
+        // changes catch-up already supplies changed ids as explicit hydration requirements.
+        const refreshLoadedRecordConsumers = this.resumeInFlight !== null;
+        const recordConsumerSessionIds = isAppend ? []
+            : this.readRecordConsumerHydrationDemand(activeServerId, generation).filter(
+                sessionId => refreshLoadedRecordConsumers || !storage.getState().sessions[sessionId],
+            );
+        // This snapshot is already attempting these records. Its completion must not
+        // silently retry failed exact reads for the same mounted set.
+        for (const sessionId of recordConsumerSessionIds) this.recordConsumerAttemptedIds.add(sessionId);
+        const upstreamRequiredSessionIds = new Set([
             ...normalizeSessionListHydrationSessionIds(options?.requiredHydrationSessionIds),
             ...organizationRequiredSessionIds,
+        ]);
+        const requiredHydrationSessionIds = Array.from(new Set([
+            ...upstreamRequiredSessionIds,
+            ...recordConsumerSessionIds,
         ]));
         const awaitSessionListHydration = options?.awaitSessionListHydration === true
-            || organizationRequiredSessionIds.length > 0;
+            || organizationRequiredSessionIds.length > 0
+            || recordConsumerSessionIds.length > 0;
         if (syncPerformanceTelemetry.isEnabled()) {
             syncPerformanceTelemetry.count(
                 'sync.sessions.fetch.hydrationInputs',
@@ -4210,6 +4338,7 @@ class Sync {
             prioritizeSessionIds: prioritizedHydrationIds,
             activeSessionIds: activeHydrationSessionIds,
             requiredHydrationSessionIds,
+            softRequiredHydrationSessionIds: recordConsumerSessionIds.filter(id => !upstreamRequiredSessionIds.has(id)),
             awaitSessionListHydration,
             sessionListEagerHydrationCount: isAppend
                 ? this.syncTuning.sessionListAppendEagerHydrationCount
@@ -4234,58 +4363,16 @@ class Sync {
         const missingRequiredHydrationSessionIds = requiredHydrationSessionIds.filter(
             (sessionId) => !fetchedSessionIdSet.has(sessionId),
         );
-        const activeCredentials = this.credentials;
-        const activeEncryption = this.encryption;
-        if (!activeCredentials || !activeEncryption) return;
         await runTasksWithLimit(
-            missingRequiredHydrationSessionIds.map((sessionId) => async () => {
-                const stagedSessionDataKeys = new Map(this.sessionDataKeys);
-                const stagedSessionDataKeyEnvelopes = new Map(this.sessionDataKeyEnvelopes);
-                const exactResult = await fetchSessionByIdWithServerScope({
-                    sessionId,
-                    serverId: activeServerId,
-                    activeCredentials,
-                    activeEncryption,
-                    sessionDataKeys: stagedSessionDataKeys,
-                    sessionDataKeyEnvelopes: stagedSessionDataKeyEnvelopes,
-                    activeRequest: (path, init) => apiSocket.request(path, init),
-                    getExistingSession: (targetSessionId) => storage.getState().sessions[targetSessionId] ?? null,
-                    applySessions: (sessions) => {
-                        if (!shouldContinue()) return;
-                        this.applySessions(sessions);
-                    },
-                    log,
-                    includeTurnsProjection: false,
-                });
-                if (!shouldContinue()) return;
-                if (!exactResult.ok) {
-                    if (exactResult.errorCode === 'not_found') {
-                        stagedSessionDataKeys.delete(sessionId);
-                        stagedSessionDataKeyEnvelopes.delete(sessionId);
-                        handleDeleteSessionSocketUpdate({
-                            sessionId,
-                            deleteSession: (targetSessionId) => storage.getState().deleteSession(targetSessionId),
-                            removeSessionEncryption: (targetSessionId) => activeEncryption.removeSessionEncryption(targetSessionId),
-                            removeProjectManagerSession: (targetSessionId) => projectManager.removeSession(targetSessionId),
-                            clearScmStatusForSession: (targetSessionId) => scmStatusSync.clearForSession(targetSessionId),
-                            log,
-                        });
-                        this.commitSessionDataKeyCacheEntry(
-                            sessionId,
-                            stagedSessionDataKeys,
-                            stagedSessionDataKeyEnvelopes,
-                        );
-                        return;
-                    }
-                    throw new Error(
-                        `Required session shell hydration failed for ${sessionId}: ${exactResult.errorCode ?? 'unknown'}`,
-                    );
+            missingRequiredHydrationSessionIds.map(sessionId => async () => {
+                try {
+                    await this.hydrateRequiredSessionRecord(sessionId, activeServerId, generation);
+                } catch (error) {
+                    // Preserve upstream failure semantics for pins/organization/explicit requirements,
+                    // including ids also consumed by the desk. Desk-only demand cannot stall paging.
+                    if (upstreamRequiredSessionIds.has(sessionId)) throw error;
+                    console.warn('[sync] Record consumer hydration failed', sessionId, error);
                 }
-                this.commitSessionDataKeyCacheEntry(
-                    sessionId,
-                    stagedSessionDataKeys,
-                    stagedSessionDataKeyEnvelopes,
-                );
             }),
             this.syncTuning.sessionListHydrationConcurrencyLimit,
         );

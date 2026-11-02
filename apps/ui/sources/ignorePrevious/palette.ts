@@ -51,6 +51,7 @@ export function bulbColour(colours: IpColours, bulb: Bulb): string {
             return colours.turnSignal;
         case 'stuck':
             return colours.red;
+        case 'waiting':
         case 'working':
             return colours.work;
         case 'idle':
@@ -558,4 +559,4 @@ export const spriteColours = {
 } as const;
 
 /** O is the outline and L the lamp/eye; both always follow the work state. */
-export const spriteStateTokens = { turn: 'yel', stuck: 'bad', working: 'work', idle: 'off' } as const satisfies Readonly<Record<Bulb, keyof typeof deskThemes.night>>;
+export const spriteStateTokens = { turn: 'yel', stuck: 'bad', working: 'work', waiting: 'work', idle: 'off' } as const satisfies Readonly<Record<Bulb, keyof typeof deskThemes.night>>;

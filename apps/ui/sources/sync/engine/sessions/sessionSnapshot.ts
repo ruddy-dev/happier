@@ -1285,6 +1285,9 @@ export async function fetchAndApplySessions(params: {
     prioritizeSessionIds?: ReadonlyArray<string>;
     activeSessionIds?: ReadonlyArray<string>;
     requiredHydrationSessionIds?: ReadonlyArray<string>;
+    // Required rows whose hydration errors are terminal but must not reject the snapshot.
+    // Omitted by upstream callers, preserving their required-row rejection behavior.
+    softRequiredHydrationSessionIds?: ReadonlyArray<string>;
     awaitSessionListHydration?: boolean;
     sessionListEagerHydrationCount?: number;
     sessionListHydrationConcurrencyLimit?: number;
@@ -1487,6 +1490,7 @@ export async function fetchAndApplySessions(params: {
 
     const cachedSessionListEntries = params.cachedSessionListEntries ?? {};
     const requestedRequiredHydrationSessionIds = normalizeSessionListHydrationSessionIds(params.requiredHydrationSessionIds);
+    const softRequiredHydrationSessionIds = new Set(normalizeSessionListHydrationSessionIds(params.softRequiredHydrationSessionIds));
     const nonAwaitedRequiredHydrationLimit = params.sessionListBackgroundHydrationMaxRows === undefined
         ? Number.POSITIVE_INFINITY
         : Math.max(0, Math.trunc(params.sessionListBackgroundHydrationMaxRows));
@@ -1859,6 +1863,16 @@ export async function fetchAndApplySessions(params: {
                                         return decryptedSession;
                                     } catch (error) {
                                         if (pendingRequiredHydrationIds.has(row.id)) {
+                                            if (softRequiredHydrationSessionIds.has(row.id)) {
+                                                console.warn('[sessionsSnapshot] Soft-required row hydration failed', row.id, error);
+                                                failedHydrationRows += 1;
+                                                hydrationAttribution.failedRows += 1;
+                                                markRequiredHydrationResult(row, null);
+                                                if (params.awaitSessionListHydration === true && pendingRequiredHydrationIds.size === 0) {
+                                                    hydratedSessionBatcher.flush('required');
+                                                }
+                                                return null;
+                                            }
                                             rejectRequiredHydration(error);
                                         }
                                         throw error;
@@ -1928,7 +1942,8 @@ export async function fetchAndApplySessions(params: {
                 // The gate's contract is "every required row reached a terminal state", which
                 // `requiredHydrationPromise` already enforces: it resolves only once
                 // `pendingRequiredHydrationIds` is empty, and a genuine hydration error rejects it
-                // through `rejectRequiredHydration`. A required row that decrypted to nothing or was
+                // through `rejectRequiredHydration` unless the caller made that row soft-required.
+                // A required row that decrypted to nothing or was
                 // superseded by newer list state has a terminal disposition that was already applied
                 // (unavailable / stale renderable patches), so the refresh completed. Treating those
                 // as a failed refresh made the caller's `refreshedByCatchUp.sessions` stay false and
