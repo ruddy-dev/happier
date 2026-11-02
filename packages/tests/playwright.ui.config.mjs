@@ -3,6 +3,8 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'suites/ui-e2e',
+  // The desk specs need system Chrome and their own export: playwright.desk.config.mjs.
+  testIgnore: /\/desk\.(j\d+|guard)\.spec\.ts$/,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

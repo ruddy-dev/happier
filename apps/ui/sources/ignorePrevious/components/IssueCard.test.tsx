@@ -7,7 +7,7 @@ import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { t } from '@/text';
 
-import type { IssueGroup } from '../model/groupWorkers';
+import { groupWorkersByIssue, type IssueGroup } from '../model/groupWorkers';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,14 +28,10 @@ vi.mock('expo-router', async () => {
     return createExpoRouterMock({ router: { navigate: state.navigate } }).module;
 });
 
-const group: IssueGroup = {
-    issueKey: 'ATR-6',
-    bulb: 'turn',
-    workers: [
-        { sessionId: 's1', title: 'Builder', issueKey: 'ATR-6', bulb: 'turn', permissionMode: 'default', updatedAt: 20 },
-        { sessionId: 's2', title: 'Reviewer', issueKey: 'ATR-6', bulb: 'working', permissionMode: 'acceptEdits', updatedAt: 10, contextPercent: 64 },
-    ],
-};
+const group: IssueGroup = groupWorkersByIssue([
+    { sessionId: 's1', title: 'Builder', issueKey: 'ATR-6', model: 'claude-sonnet-5.5', bulb: 'idle', permissionMode: 'default', updatedAt: 20 },
+    { sessionId: 's2', title: 'Reviewer', issueKey: 'ATR-6', model: 'gpt-6.1-sol', bulb: 'turn', permissionMode: 'acceptEdits', updatedAt: 10, contextPercent: 64 },
+])[0];
 
 async function renderCard(open: boolean, onToggle = vi.fn()) {
     const { IssueCard } = await import('./IssueCard');
@@ -43,6 +39,23 @@ async function renderCard(open: boolean, onToggle = vi.fn()) {
 }
 
 describe('IssueCard', () => {
+    it('draws the state-owning model on its 40 px card and each worker with its own state at 24 px', async () => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const { screen } = await renderCard(true);
+        const card = screen.findByTestId('ip-work-card-face-ATR-6')!;
+        expect(card.findByType(WorkerSprite.type).props).toMatchObject({ kind: 'cxloupe', size: 40, bulb: 'turn' });
+        expect(screen.findByTestId('ip-worker-face-s1')!.findByType(WorkerSprite.type).props)
+            .toMatchObject({ kind: 'ginger', size: 24, bulb: 'idle' });
+        expect(screen.findByTestId('ip-worker-face-s2')!.findByType(WorkerSprite.type).props)
+            .toMatchObject({ kind: 'cxloupe', size: 24, bulb: 'turn' });
+    });
+
+    it('draws Droid when the issue has no worker', async () => {
+        const { IssueCard } = await import('./IssueCard');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const screen = await renderScreen(<IssueCard group={{ ...group, stateWorker: undefined, workers: [] }} open={false} onToggle={() => {}} />);
+        expect(screen.findByTestId('ip-work-card-face-ATR-6')!.findByType(WorkerSprite.type).props.kind).toBe('ipdroid');
+    });
     let previous: ReturnType<typeof storage.getState>;
     beforeEach(() => {
         previous = storage.getState();

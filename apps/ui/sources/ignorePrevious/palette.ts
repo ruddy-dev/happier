@@ -2,6 +2,7 @@
 import { useUnistyles } from 'react-native-unistyles';
 
 import type { Bulb } from './model/bulb';
+import type { SpriteKind } from './sprites';
 
 /**
  * The Ignore Previous overlay's own colours: the mask's yellow and ink, and the four antenna-bulb
@@ -560,3 +561,30 @@ export const spriteColours = {
 
 /** O is the outline and L the lamp/eye; both always follow the work state. */
 export const spriteStateTokens = { turn: 'yel', stuck: 'bad', working: 'work', waiting: 'work', idle: 'off' } as const satisfies Readonly<Record<Bulb, keyof typeof deskThemes.night>>;
+
+export type SpriteTheme = typeof deskThemes[keyof typeof deskThemes];
+const spriteRobots = { ipdroid: 'droid', ipb: 'b', cxprompt: 'prompt', cxloupe: 'loupe', cxlab: 'lab' } as const satisfies Partial<Record<SpriteKind, RobotVariant>>;
+
+/** The external cue has page contrast; brand-yellow outlines retain the approved ATR-32 colours. */
+export function spriteSignalColour(theme: SpriteTheme, bulb: Bulb): string {
+    return bulb === 'turn' ? theme.turnSignal : bulb === 'idle' ? theme.idleSignal : theme[spriteStateTokens[bulb]];
+}
+
+export function spritePixelColour(theme: SpriteTheme, kind: SpriteKind, bulb: Bulb, pixel: string): string {
+    if (pixel === 'O' || pixel === 'L') return theme[spriteStateTokens[bulb]];
+    if (kind in spriteRobots) {
+        const robotKind = kind as keyof typeof spriteRobots;
+        const roles: Readonly<Record<string, RobotPaintRole>> = robotPaintMap[robotKind];
+        const role = roles[pixel];
+        if (role) return robotPresets[robotColourDefaults[spriteRobots[robotKind]]][role];
+    } else if (pixel === 'e' || (pixel === 'x' && bulb === 'stuck')) {
+        return theme[spriteStateTokens[bulb]];
+    }
+    const colours: Readonly<Record<string, string>> = spriteColours[kind];
+    return colours[pixel];
+}
+
+export function spriteAsciiColour(theme: SpriteTheme, kind: SpriteKind): string {
+    if (kind in spriteRobots) return theme.robotInk[robotColourDefaults[spriteRobots[kind as keyof typeof spriteRobots]]];
+    return theme.spriteInk[kind as keyof typeof theme.spriteInk];
+}

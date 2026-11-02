@@ -835,6 +835,61 @@ export const spriteGrids = {
 } as const satisfies Readonly<Record<string, Readonly<Record<Bulb, Readonly<Record<SpriteDetail, SpriteGrid>>>>>>;
 export type SpriteKind = keyof typeof spriteGrids;
 
-// M16: tier resolution belongs to item 1.16; these are model-family choices.
-export const modelSprites = { opus: 'ragdoll', sonnet: 'ginger', haiku: 'tuxedo', codex: 'cxprompt', fable: 'fox' } as const satisfies Readonly<Record<string, SpriteKind>>;
+export const modelSprites = { opus: 'ragdoll', sonnet: 'ginger', haiku: 'tuxedo', codex: 'cxprompt', fable: 'fox', sol: 'cxloupe', terra: 'cxprompt', astra: 'cxlab' } as const satisfies Readonly<Record<string, SpriteKind>>;
 export const noWorkerSprite: SpriteKind = 'ipdroid';
+
+/** Match model identifiers, never the session's agent flavour. Unknown/unloaded models use Droid. */
+export function spriteForModel(model: string | null | undefined): SpriteKind {
+    const id = model?.trim().toLowerCase().replace(/_/g, '-') ?? '';
+    const parts = id.split(/[-./:\s]+/);
+    if (/^(claude\b|opus\b|sonnet\b|haiku\b|fable\b)/.test(id)) {
+        for (const tier of ['opus', 'sonnet', 'haiku', 'fable'] as const) {
+            if (parts.includes(tier)) return modelSprites[tier];
+        }
+        return modelSprites.opus;
+    }
+    if (/^gpt\b/.test(id) || id === 'codex') {
+        for (const tier of ['sol', 'terra', 'astra'] as const) {
+            if (parts.includes(tier)) return modelSprites[tier];
+        }
+        return modelSprites.codex;
+    }
+    return noWorkerSprite;
+}
+
+/** Style B from mockup 12, limited to the approved round-8 cast. E marks a stateful eye. */
+export const asciiSprites = {
+    ragdoll: { full: [' /\\_/\\', '{(E.E)}', ' {"v"}'], face: 1, mini: '{E.E}' },
+    ginger: { full: [' /\\_/\\', '(=E.E=)', ' (")(")'], face: 1, mini: '=E.E=' },
+    tuxedo: { full: [' /\\_/\\', '( E.E )', '  >o<'], face: 1, mini: '(E.E)' },
+    fox: { full: ['/\\   /\\', '\\ E.E /', ' \\_v_/'], face: 1, mini: '\\E.E/' },
+    ipdroid: { full: ['     o', '  .-/-.', ' ( (E) )', "  'u-u'"], face: 2, mini: '((E))' },
+    ipb: { full: ['   o', ' .-|-.', ' |E E|', " '---'", '  [_]'], face: 2, mini: '|E E|' },
+    cxprompt: { full: ['.----.', '|>E  |', "'----'", ' d  b'], face: 1, mini: '[>E]' },
+    cxloupe: { full: [' .---._', ' |E (E))', " '---'"], face: 1, mini: 'E(E))' },
+    cxlab: { full: [' .----.', '[=E==E=]', " /'--'\\"], face: 1, mini: '[=E=E=]' },
+} as const satisfies Readonly<Record<SpriteKind, { full: readonly string[]; face: number; mini: string }>>;
+
+export function spriteAscii(kind: SpriteKind, bulb: Bulb, detail: SpriteDetail) {
+    const base = asciiSprites[kind];
+    let full: readonly string[] = base.full;
+    let mini: string = base.mini;
+    if (kind === 'ipb') {
+        if (bulb === 'working' || bulb === 'waiting') {
+            full = ['  .o.', ' /.-.\\', 'd|E E|b', " '---'", '  [_]'];
+            mini = 'd|E E|b';
+        } else if (bulb === 'idle') {
+            full = ['   o', ' .-|-.', ' |E E|', " '---'", ' d[_]b'];
+        }
+    }
+    const eye = bulb === 'stuck' ? 'x' : kind === 'cxprompt'
+        ? (bulb === 'turn' ? '_' : bulb === 'idle' ? ' ' : '.')
+        : (bulb === 'turn' ? 'o' : '-');
+    const lines = detail === 'S' ? [mini] : full;
+    const runs = lines.map(line => line.split(/(E)/).filter(Boolean).map(text => ({ text: text === 'E' ? eye : text, eye: text === 'E' })));
+    return {
+        lines: runs.map(line => line.map(run => run.text).join('')),
+        runs,
+        face: detail === 'S' ? 0 : base.face,
+    };
+}
