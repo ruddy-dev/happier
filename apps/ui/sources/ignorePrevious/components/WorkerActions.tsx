@@ -5,8 +5,15 @@ import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
 
 import { DEFAULT_AGENT_ID, resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
 import { createSessionActionTarget } from '@/components/sessions/actions/sessionActionContext';
-import { useSessionMachineReachability } from '@/components/sessions/model/useSessionMachineReachability';
-import { Text } from '@/components/ui/text/Text';
+import { useSessionMachineTarget } from '@/components/sessions/model/useSessionMachineTarget';
+import { resolveSessionMachineReachability } from '@/components/sessions/model/resolveSessionMachineReachability';
+import { resolveSessionMachineId } from '@/sync/domains/session/directSessions/resolveSessionMachineId';
+import { isMachineOnline } from '@/utils/sessions/machineUtils';
+import { listPendingPermissionRequests } from '@/utils/sessions/sessionUtils';
+import { deriveTranscriptInteraction } from '@/utils/sessions/deriveTranscriptInteraction';
+import { useDeskNow } from '../model/useDeskNow';
+import { workerPermissionMode, requestsApprovedAfterModeChange, type ModeChangeRequests } from '../model/workerPermissionMode';
+import { DeskText as Text } from '../typography/DeskText';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { useHappyAction } from '@/hooks/ui/useHappyAction';
@@ -16,10 +23,9 @@ import type { PermissionMode } from '@/sync/domains/permissions/permissionTypes'
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { storage, useSession, useSetting, useSettings } from '@/sync/domains/state/storage';
 import { useSocketStatus } from '@/sync/store/hooks';
-import { sessionAbort } from '@/sync/ops';
+import { sessionAbortResult, type SessionAbortResult } from '@/sync/ops';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
-import { fireAndForget } from '@/utils/system/fireAndForget';
 
 import type { WorkerRow } from '../model/groupWorkers';
 
@@ -67,7 +73,14 @@ function RowButton({
  * The worker's permission mode. With write access it opens the agent's modes; choosing one goes
  * through `applyPermissionModeSelection`, the same path the session composer uses.
  */
-function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessionId: string; mode: string; metadata: Session['metadata'] | null; canChange: boolean }) {
+function PermissionModeControl({ session, canChange }: { session: Session; canChange: boolean }) {
+    const sessionId = session.id;
+    const metadata = session.metadata;
+    const mode = session.permissionMode ?? 'default';
+    const presentation = workerPermissionMode(session);
+    const [failed, setFailed] = React.useState(false);
+    const [change, setChange] = React.useState<ModeChangeRequests | null>(null);
+    const cleared = requestsApprovedAfterModeChange(session, change);
     const { theme } = useUnistyles();
     const applyTiming = useSetting('sessionPermissionModeApplyTiming');
     const [open, setOpen] = React.useState(false);
@@ -82,26 +95,36 @@ function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessi
         };
     }, [open, metadata, mode]);
 
-    const choose = React.useCallback(
-        (next: PermissionMode) => {
-            setOpen(false);
-            fireAndForget(
-                applyPermissionModeSelection({
-                    sessionId,
-                    mode: next,
-                    applyTiming: applyTiming === 'next_prompt' ? 'next_prompt' : 'immediate',
-                    updateSessionPermissionMode: (sid, m) => storage.getState().updateSessionPermissionMode(sid, m),
-                    getSessionPermissionModeUpdatedAt: (sid) => storage.getState().sessions[sid]?.permissionModeUpdatedAt ?? null,
-                    publishSessionPermissionModeToMetadata: (payload) => sync.publishSessionPermissionModeToMetadata(payload),
-                }),
-                { tag: 'IgnorePrevious.WorkerActions.permissionMode' },
-            );
-        },
-        [applyTiming, sessionId],
-    );
+    const selection = React.useRef<PermissionMode>('default');
+    const [applying, apply] = useHappyAction(async () => {
+        const next = selection.current;
+        setOpen(false);
+        setFailed(false);
+        const current = storage.getState().sessions[sessionId];
+        setChange({ mode: next, requests: current ? listPendingPermissionRequests(current) : [] });
+        try {
+            await applyPermissionModeSelection({
+                sessionId,
+                mode: next,
+                applyTiming: applyTiming === 'next_prompt' ? 'next_prompt' : 'immediate',
+                updateSessionPermissionMode: (sid, m) => storage.getState().updateSessionPermissionMode(sid, m),
+                getSessionPermissionModeUpdatedAt: (sid) => storage.getState().sessions[sid]?.permissionModeUpdatedAt ?? null,
+                publishSessionPermissionModeToMetadata: (payload) => sync.publishSessionPermissionModeToMetadata(payload),
+            });
+        } catch (error) {
+            setFailed(true);
+            throw error;
+        }
+    });
+    const pendingText = presentation.pending ? (failed
+        ? t('ignorePrevious.workerControl.modeNotSent', { mode: presentation.pending })
+        : applyTiming === 'next_prompt'
+            ? t('ignorePrevious.workerControl.modeNextPrompt', { mode: presentation.pending })
+            : t('ignorePrevious.workerControl.modePending', { mode: presentation.pending })) : null;
 
     const chip = (
         <Text
+            testID={`ip-mode-current-${sessionId}`}
             style={{
                 color: theme.colors.text.secondary,
                 fontSize: 13,
@@ -112,11 +135,17 @@ function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessi
                 backgroundColor: theme.colors.surface.inset,
             }}
         >
-            {mode}
+            {presentation.current ? t('ignorePrevious.workerControl.modePublished', { mode: presentation.current }) : t('ignorePrevious.workerControl.modeUnknown')}
         </Text>
     );
 
-    if (!canChange) return chip;
+    const note = <>
+        {pendingText ? <Text testID={`ip-mode-pending-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>{pendingText}</Text> : null}
+        {cleared.length ? <Text testID={`ip-mode-cleared-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>
+            {t('ignorePrevious.workerControl.modeCleared', { requests: cleared.join('; ') })}
+        </Text> : null}
+    </>;
+    if (!canChange) return <View>{chip}{note}</View>;
 
     return (
         <View style={{ gap: 6 }}>
@@ -124,12 +153,14 @@ function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessi
                 testID={`ip-mode-${sessionId}`}
                 accessibilityRole="button"
                 accessibilityLabel={t('ignorePrevious.changeMode')}
-                accessibilityValue={{ text: mode }}
-                accessibilityState={{ expanded: open }}
+                accessibilityValue={{ text: [presentation.current ? t('ignorePrevious.workerControl.modePublished', { mode: presentation.current }) : t('ignorePrevious.workerControl.modeUnknown'), pendingText].filter(Boolean).join('. ') }}
+                accessibilityState={{ expanded: open, disabled: applying }}
+                disabled={applying}
                 onPress={() => setOpen((value) => !value)}
             >
                 {chip}
             </Pressable>
+            {note}
             {open ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {options.map((option) => (
@@ -138,7 +169,7 @@ function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessi
                             testID={`ip-mode-option-${sessionId}-${option.value}`}
                             accessibilityRole="button"
                             accessibilityState={{ selected: option.value === selected }}
-                            onPress={() => choose(option.value)}
+                            onPress={() => { selection.current = option.value; void apply(); }}
                             style={{
                                 paddingHorizontal: 8,
                                 paddingVertical: 4,
@@ -160,11 +191,16 @@ function PermissionModeControl({ sessionId, mode, metadata, canChange }: { sessi
 function StopControl({ sessionId }: { sessionId: string }) {
     const { status } = useSocketStatus();
     const disconnected = status !== 'connected';
+    const { theme } = useUnistyles();
+    const [failure, setFailure] = React.useState<Extract<SessionAbortResult, { ok: false }>['reason'] | null>(null);
     const [stopping, stop] = useHappyAction(async () => {
         if (storage.getState().socketStatus !== 'connected') return;
-        await sessionAbort(sessionId);
+        setFailure(null);
+        const result = await sessionAbortResult(sessionId);
+        if (!result.ok) setFailure(result.reason);
     });
     return (
+        <View style={{ gap: 6 }}>
         <RowButton
             testID={`ip-stop-${sessionId}`}
             label={t('ignorePrevious.stopTurn')}
@@ -173,6 +209,12 @@ function StopControl({ sessionId }: { sessionId: string }) {
             disabled={stopping || disconnected}
             accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
         />
+        {failure ? <Text testID={`ip-stop-error-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>
+            {failure === 'not_listening' ? t('ignorePrevious.workerControl.stopNotListening')
+                : failure === 'rejected' ? t('ignorePrevious.workerControl.stopRejected')
+                    : t('ignorePrevious.workerControl.stopEncryptionUnavailable')}
+        </Text> : null}
+        </View>
     );
 }
 
@@ -183,33 +225,30 @@ function StopControl({ sessionId }: { sessionId: string }) {
  */
 function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume: boolean }) {
     const { theme } = useUnistyles();
-    const { machineReachable } = useSessionMachineReachability(sessionId);
+    const target = useSessionMachineTarget(sessionId);
+    const originId = storage((state) => resolveSessionMachineId(state.sessions[sessionId]?.metadata));
+    // An unusable RPC target must not turn a known revoked/replaced machine into "unknown".
+    const machine = storage((state) => state.machines[target?.machineId ?? originId ?? ''] ?? null);
+    const nowMs = useDeskNow();
+    const machineReachable = resolveSessionMachineReachability({ machineIsKnown: Boolean(machine), machineIsOnline: machine ? isMachineOnline(machine, nowMs) : false });
     const navigateToSession = useNavigateToSession();
 
-    if (!canResume) {
-        return (
-            <RowButton
-                testID={`ip-open-${sessionId}`}
-                label={t('ignorePrevious.openSession')}
-                accessibilityLabel={t('ignorePrevious.openWorker')}
-                onPress={() => void navigateToSession(sessionId)}
-            />
-        );
-    }
-    if (!machineReachable) {
-        return (
-            <Text testID={`ip-offline-${sessionId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
-                {t('session.machineOfflineNoticeTitle')}
-            </Text>
-        );
-    }
     return (
-        <RowButton
-            testID={`ip-resume-${sessionId}`}
-            label={t('ignorePrevious.openToResume')}
-            accessibilityLabel={t('ignorePrevious.openToResumeLabel')}
-            onPress={() => void navigateToSession(sessionId)}
-        />
+        <View style={{ gap: 6 }}>
+            {!machineReachable ? (
+                <Text testID={`ip-offline-${sessionId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
+                    {t('ignorePrevious.workerControl.machineOffline')}
+                </Text>
+            ) : null}
+            {machineReachable || !canResume ? (
+                <RowButton
+                    testID={`${canResume ? 'ip-resume' : 'ip-open'}-${sessionId}`}
+                    label={canResume ? t('ignorePrevious.openToResume') : t('ignorePrevious.openSession')}
+                    accessibilityLabel={canResume ? t('ignorePrevious.openToResumeLabel') : t('ignorePrevious.openWorker')}
+                    onPress={() => void navigateToSession(sessionId)}
+                />
+            ) : null}
+        </View>
     );
 }
 
@@ -224,13 +263,13 @@ export function WorkerActions({ worker }: { worker: WorkerRow }) {
         [session, settings, worker.inactive],
     );
     // Write access as SessionView decides it: a session you can only view shows its mode and nothing to press.
-    const canWrite = Boolean(session) && (!session?.accessLevel || session.accessLevel === 'edit' || session.accessLevel === 'admin');
+    const canWrite = Boolean(session) && deriveTranscriptInteraction({ kind: 'session', accessLevel: session?.accessLevel, canApprovePermissions: session?.canApprovePermissions }).canSendMessages;
     const canStop = Boolean(worker.canStop) && canWrite;
     if (!worker.permissionMode && !canStop && !worker.inactive) return null;
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingLeft: 18 }}>
-            {worker.permissionMode ? (
-                <PermissionModeControl sessionId={worker.sessionId} mode={worker.permissionMode} metadata={session?.metadata ?? null} canChange={canWrite} />
+            {worker.permissionMode && session ? (
+                <PermissionModeControl session={session} canChange={canWrite} />
             ) : null}
             {canStop ? <StopControl sessionId={worker.sessionId} /> : null}
             {worker.inactive ? <ResumeControl sessionId={worker.sessionId} canResume={canResume} /> : null}

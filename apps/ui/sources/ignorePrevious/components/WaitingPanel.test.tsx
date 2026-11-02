@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act } from 'react';
+import { act, createRef } from 'react';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
@@ -24,8 +24,6 @@ function seed(sessions: Session[]) {
 }
 
 const state = vi.hoisted(() => ({
-    allow: vi.fn(async (..._args: unknown[]) => {}),
-    deny: vi.fn(async (..._args: unknown[]) => {}),
     alert: vi.fn(),
     navigate: vi.fn(),
 }));
@@ -40,10 +38,10 @@ vi.mock('@expo/vector-icons', async () => {
     return createExpoVectorIconsMock();
 });
 
-vi.mock('@/sync/ops', () => ({
-    sessionAllow: state.allow,
-    sessionDeny: state.deny,
-}));
+vi.mock('@/sync/sync', async () => {
+    const { installSyncStub } = await import('@/dev/testkit/mocks/sync');
+    return installSyncStub()();
+});
 
 vi.mock('@/modal', async () => {
     const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');
@@ -84,8 +82,6 @@ describe('WaitingPanel', () => {
 
     beforeEach(() => {
         previous = storage.getState();
-        state.allow.mockReset().mockResolvedValue(undefined);
-        state.deny.mockReset().mockResolvedValue(undefined);
         state.alert.mockReset();
         state.navigate.mockReset();
         seed([
@@ -94,29 +90,16 @@ describe('WaitingPanel', () => {
         ]);
     });
 
-    it('shows a pending request and allows it', async () => {
-        const screen = await renderPanel();
-        expect(screen.getTextContent()).toContain('rm -rf build');
-        await pressTestInstanceAsync(button(screen, 'Allow Bash'));
-        expect(state.allow).toHaveBeenCalledWith('s1', 'r1');
-    });
-
-    it('denies a request', async () => {
-        const screen = await renderPanel();
-        await pressTestInstanceAsync(button(screen, 'Deny'));
-        expect(state.deny).toHaveBeenCalledWith('s1', 'r1', undefined, undefined, 'denied');
-    });
-
     it('opens the session', async () => {
         const screen = await renderPanel();
         await pressTestInstanceAsync(button(screen, 'Open session'));
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
     });
 
-    it('closes the approvals card when it opens a session from it', async () => {
-        const { ApprovalsCard } = await import('./Approvals');
+    it('D-series: closes fullscreen Waiting when it opens a session', async () => {
+        const { ApprovalsDrawer } = await import('./Approvals');
         const onClose = vi.fn();
-        const screen = await renderScreen(<ApprovalsCard onClose={onClose} />);
+        const screen = await renderScreen(<ApprovalsDrawer open width={390} openerRef={createRef()} onClose={onClose} />);
         await pressTestInstanceAsync(button(screen as Awaited<ReturnType<typeof renderPanel>>, 'Open session'));
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
         expect(onClose).toHaveBeenCalled();
@@ -137,17 +120,6 @@ describe('WaitingPanel', () => {
         expect(screen.findByTestId('ip-waiting')).toBeNull();
     });
 
-    it('says the answer was not sent when sending it fails', async () => {
-        state.allow.mockRejectedValue(new Error('gone'));
-        const screen = await renderPanel();
-        await act(async () => {
-            await pressTestInstanceAsync(button(screen, 'Allow Bash'));
-        });
-        expect(state.alert).toHaveBeenCalledWith(
-            'Answer not sent',
-            "Your answer didn't go through. Check the connection and try again.",
-        );
-    });
 
     it('offers only Open session for a question', async () => {
         seed([

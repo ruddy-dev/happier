@@ -7,6 +7,15 @@ function row(partial: Partial<WorkerRow> & Pick<WorkerRow, 'sessionId'>): Worker
 }
 
 describe('groupWorkersByIssue', () => {
+    it('finding 2: a Working issue precedes a newer Waiting issue', () => {
+        const groups = groupWorkersByIssue([
+            row({ sessionId: 'limited', issueKey: 'ATR-7', bulb: 'waiting', updatedAt: 100 }),
+            row({ sessionId: 'busy', issueKey: 'ATR-6', bulb: 'working', updatedAt: 1 }),
+        ]);
+        expect(groups.map((group) => [group.issueKey, group.bulb])).toEqual([
+            ['ATR-6', 'working'], ['ATR-7', 'waiting'],
+        ]);
+    });
     it('groups by issue, most urgent first, then most recent', () => {
         const groups = groupWorkersByIssue([
             row({ sessionId: 'a', issueKey: 'HUB-59', bulb: 'working', updatedAt: 50 }),
@@ -80,6 +89,28 @@ describe('groupWorkersByIssue', () => {
         for (const ordered of [rows, [...rows].reverse(), [rows[1], rows[0], rows[2]]]) {
             expect(groupWorkersByIssue(ordered).map((g) => g.issueKey)).toEqual(['ATR-6', 'ATR-7', null]);
         }
+    });
+
+    it('ATR-37.3: title and mode edits do not reorder groups or workers with observed signals', () => {
+        const older = { ...row({ sessionId: 'older', issueKey: 'ATR-6', updatedAt: 100 }), lastActivityAt: 10 };
+        const newer = { ...row({ sessionId: 'newer', issueKey: 'ATR-7', updatedAt: 200 }), lastActivityAt: 20 };
+        const newest = { ...row({ sessionId: 'newest', issueKey: 'ATR-6', updatedAt: 300 }), lastActivityAt: 30 };
+        const order = (rows: WorkerRow[]) => groupWorkersByIssue(rows).map((group) => [
+            group.issueKey, group.workers.map((worker) => worker.sessionId),
+        ]);
+        const expected = [['ATR-6', ['newest', 'older']], ['ATR-7', ['newer']]];
+        expect(order([older, newer, newest])).toEqual(expected);
+        expect(order([
+            { ...older, title: 'Renamed', permissionMode: 'safe-yolo', updatedAt: 500 },
+            { ...newer, title: 'Also renamed', permissionMode: 'yolo', updatedAt: 600 },
+            newest,
+        ])).toEqual(expected);
+    });
+
+    it('ATR-37.3: uses updatedAt only for workers without a signal', () => {
+        const observed = { ...row({ sessionId: 'observed', issueKey: 'ATR-6', updatedAt: 999 }), lastActivityAt: 10 };
+        const unobserved = row({ sessionId: 'unobserved', issueKey: 'ATR-7', updatedAt: 20 });
+        expect(groupWorkersByIssue([observed, unobserved]).map((group) => group.issueKey)).toEqual(['ATR-7', 'ATR-6']);
     });
 
     it('returns no groups for no workers', () => {

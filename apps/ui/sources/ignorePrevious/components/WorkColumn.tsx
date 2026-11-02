@@ -1,16 +1,19 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
+import { SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY } from '@happier-dev/protocol';
 
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
-import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState } from '@/utils/sessions/sessionUtils';
+import { getSessionName, getSessionStatus } from '@/utils/sessions/sessionUtils';
 
 import { DeskText as Text } from '../typography/DeskText';
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { useCoordinatorId } from '../model/useCoordinatorId';
-import { workerUnheardMinutes } from '../model/workerFreshness';
+import { workerLastActivityAt, workerUnheardMinutes } from '../model/workerFreshness';
+import { isDeskWorkerBusy } from '../model/workerBusy';
+import { workerUsageLimit } from '../model/workerUsageLimit';
 import { useDeskNow } from '../model/useDeskNow';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { bulbColour, useDeskPaint } from '../palette';
@@ -32,28 +35,31 @@ function toWorkerRows(
         // Freshness is judged against the desk clock, so a worker that falls silent goes stale without a store write.
         const state = getSessionStatus(row, nowMs).state;
         const unheardMinutes = workerUnheardMinutes(row, nowMs);
+        const usageLimit = workerUsageLimit(row, loaded ? loaded.metadata?.[SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY] ?? null : undefined);
         return {
             sessionId: row.id,
             title: getSessionName(row),
             // Resolved once per worker from its tag, title, branch and folder (see resolveIssue).
             issueKey: issueKeys.get(row.id) ?? null,
-            bulb: bulbFromSessionState(state),
+            bulb: bulbFromSessionState(state, usageLimit !== null),
+            usageLimit,
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
-            contextPercent: meter ? Math.round(meter.ratio * 100) : null,
-            canStop: shouldShowAbortButtonForSessionState(state) && unheardMinutes === null,
+            lastActivityAt: workerLastActivityAt(row),
+            contextPercent: meter ? meter.percent : null,
+            canStop: isDeskWorkerBusy(state) && unheardMinutes === null,
             unheardMinutes,
             inactive: row.active !== true,
         };
     });
 }
 
-const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'idle'];
+const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'waiting', 'idle'];
 
 /** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
 function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolean }) {
     const { text, colours } = useDeskPaint();
-    const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, idle: 0 };
+    const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, waiting: 0, idle: 0 };
     for (const row of rows) counts[row.bulb] += 1;
 
     const tile = (id: string, value: number, label: string, dot: string | null) => (

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Platform, type View } from 'react-native';
 
-import { ESCAPE_LAYER_PRIORITIES, getMaxEscapeKeyBlockerPriority, useEscapeLayer } from '@/keyboard/escape';
+import { ESCAPE_LAYER_PRIORITIES, getMaxEscapeKeyBlockerPriority, isEditableEscapeTarget, useEscapeLayer } from '@/keyboard/escape';
 import { restoreFocusToBestTarget, useFocusReturnFallbackRef } from '@/keyboard/focusReturn';
 import { shouldCloseOnOutsideClick, type OutsideClickPolicy } from './outsideClickPolicy';
 
@@ -12,6 +12,8 @@ export type DeskPopupOptions = Partial<OutsideClickPolicy> & Readonly<{
     openerRef: RefObject<View | HTMLElement | null>;
     /** Attach to the host containing the whole popup, including when portaled. */
     contentRef: RefObject<View | HTMLElement | null>;
+    /** Return focus on explicit close or Escape, while preserving focus taken by an outside click. */
+    returnFocusOnClose?: boolean;
 }>;
 
 // Pointer ordering only. Keyboard ordering stays with Happier's shared Escape stack.
@@ -33,25 +35,32 @@ function topOutsideClickLayer() {
  * L3: Nested layers mounted open together register child-under-parent.
  * L4: A text drag ending outside can close an overlay via the browser's click.
  * L6: A toggling opener explicitly closes even a half-answered overlay.
+ * A docked drawer is a standing Escape layer, like RunSettingsMenu: Escape from
+ * a non-editable target closes it and returns focus to Waiting (mockup 12).
+ * An editable target outside the docked drawer keeps its own Escape behavior.
  * Desk popups inside a modal do not dismiss while that modal is visible.
  */
 export function useDeskPopup(options: DeskPopupOptions): void {
     const current = useRef(options);
     current.current = options;
+    // Closing can clear the caller's pinned state in the same render. Retain the open policy.
+    const returnFocusOnClose = useRef(false);
+    if (options.open) returnFocusOnClose.current = options.returnFocusOnClose === true;
     const close = useCallback(() => current.current.onClose(), []);
     const focusFallbackRef = useFocusReturnFallbackRef();
+    const escapeFocusReturnRef = useRef<HTMLElement | null>(null);
     const webOpen = Platform.OS === 'web' && options.open;
 
     useEscapeLayer({
         enabled: webOpen,
         priority: ESCAPE_LAYER_PRIORITIES.popover,
         allowEditableTarget: true,
+        focusReturnRef: escapeFocusReturnRef,
         onEscape: (event) => {
             if (getMaxEscapeKeyBlockerPriority() > ESCAPE_LAYER_PRIORITIES.popover) return false;
             const { presentation, contentRef } = current.current;
             const target = event instanceof KeyboardEvent ? event.target : null;
-            if (presentation === 'docked' && target instanceof HTMLElement
-                && (target.isContentEditable || target.closest('input, textarea, select, [contenteditable="true"], [data-keyboard-shortcuts-owned="true"]'))
+            if (presentation === 'docked' && target instanceof HTMLElement && isEditableEscapeTarget(target)
                 && !(contentRef.current instanceof HTMLElement && contentRef.current.contains(target))) return false;
             close();
         },
@@ -64,6 +73,8 @@ export function useDeskPopup(options: DeskPopupOptions): void {
         const opener = current.current.openerRef.current;
         // Capture the actual opener so ref replacement cannot redirect focus to a new element.
         const focusReturnRef = { current: opener instanceof HTMLElement ? opener : null };
+        escapeFocusReturnRef.current = focusReturnRef.current;
+        let closedByOutsideClick = false;
         const onClick = (event: MouseEvent) => {
             if (topOutsideClickLayer() !== layer) return;
             // A modal or command palette above the desk owns its pointer interactions.
@@ -79,6 +90,7 @@ export function useDeskPopup(options: DeskPopupOptions): void {
             if (trigger instanceof HTMLElement && trigger.contains(target)) return;
             if (!shouldCloseOnOutsideClick({ presentation, hasHalfAnsweredCard })) return;
             // Lower layers have already declined this event; let the target handle its click.
+            closedByOutsideClick = true;
             close();
         };
         // Click runs after pointer focus, so cleanup can preserve the newly focused target.
@@ -88,7 +100,7 @@ export function useDeskPopup(options: DeskPopupOptions): void {
             outsideClickLayers.splice(outsideClickLayers.indexOf(layer), 1);
             const active = document.activeElement;
             const content = current.current.contentRef.current;
-            if (active == null || active === document.body || (content instanceof HTMLElement && content.contains(active))) {
+            if ((returnFocusOnClose.current && !closedByOutsideClick) || active == null || active === document.body || (content instanceof HTMLElement && content.contains(active))) {
                 restoreFocusToBestTarget(focusReturnRef, focusFallbackRef);
             }
         };

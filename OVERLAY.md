@@ -7,7 +7,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | What | Where |
 |---|---|
 | Screen, components, model and palette | `apps/ui/sources/ignorePrevious/` (new folder) |
-| Route | `apps/ui/sources/app/(app)/desk/index.tsx` (new, thin) |
+| Routes | `apps/ui/sources/app/(app)/desk/index.tsx` and `apps/ui/sources/app/(app)/desk/settings.tsx` (new, thin) |
 | Theme profile | `apps/ui/sources/theme/profiles/ignorePreviousThemeProfile.ts` (new), registered in two upstream files |
 | Strings | an `ignorePrevious: { … }` block at the end of every locale in `apps/ui/sources/text/translations/` |
 | Upkeep tooling | `scripts/overlay/` (new) |
@@ -16,6 +16,8 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | Desk test harness | `apps/ui/sources/ignorePrevious/testkit/` (scenario driver and JSON scripts); in the UI testkit, `mocks/reducedMotion.ts` and `mocks/sync.ts`; `apps/ui/sources/dev/vitestOriginGuard.ts`; in `packages/tests`, `src/testkit/deskTest/`, `scripts/desk-env.mjs` and `suites/core-e2e/permissions.lifecycle.plain.test.ts` (all new) |
 
 Desk text must use `DeskText` (or `DESK_FONT_STACK` from `ignorePrevious/fonts/deskFont.ts`): Happier `Text` sets Inter/Plex inline, and portaled content (Popover, Modal) does not inherit the root.
+
+Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; the desk header has a minimal Settings button until the top bar lands.
 
 ## Branches
 
@@ -109,6 +111,8 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/keyboard/escape.ts` | Exports the existing editable-target predicate so the desk popup hook uses the keyboard owner's rule instead of duplicating it. |
+| `apps/ui/sources/components/sessions/usageLimitRecovery/sessionUsageLimitRecoveryPresentation.ts` | Exports the existing issue predicate, visibility decision and reset reader so Work cards reuse SessionView's rules without a second parser. Recovery predicate bodies are unchanged; the desk's armed claim excludes paused recovery. |
 | `apps/ui/sources/modal/components/BaseModal.tsx` | Registers a modal-priority Escape blocker while visible on web so desk popups yield keyboard and outside clicks to real dialogs, including the command palette. Side effect: `MultiPaneHost` skips its own Esc handling while a blocker above pane priority is registered, so while a modal is visible, Esc no longer closes an overlay pane or details view; the modal's own handler still gets the key. |
 | `apps/ui/sources/components/ui/popover/Popover.tsx` | Marks portaled web content with `data-happy-popover-content` so desk popups leave menu interactions to Popover. |
 | `apps/ui/public/ignore-previous/fonts/jetbrains-mono-latin.woff2`, `apps/ui/public/ignore-previous/fonts/OFL.txt` | Local JetBrains Mono web asset and its standalone SIL OFL licence. Expo serves public assets; the desk-owned installer applies weights 500–700 only while a listed route is mounted. |
@@ -126,7 +130,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `packages/tests/src/testkit/syntheticAgent/syntheticAgent.ts` | The synthetic agent can run a plain-mode session and send `update-state` (agentState plus the activity summary the server counts requests from). |
 | `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
-| `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. |
+| `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. Adds `sessionAbortResult` for honest Desk failures without local thinking recovery; legacy `sessionAbort` preserves its void semantics through one shared recovery helper. |
 | `apps/ui/sources/auth/routing/authRouting.ts`, `authRouting.test.ts` | One line makes `dev/desk-fixture` public for signed-out users, only in a build with `EXPO_PUBLIC_IP_FIXTURES=1`; the test covers it on and off. |
 | `apps/ui/sources/sync/store/domains/sessions.ts` | Adds `deleteSessions` at the existing deletion owner; single deletion delegates to it, and a batch saves the warm cache only after all sessions and projections are removed. |
 | `apps/ui/sources/sync/store/types.ts` | Exposes the additive batch-deletion method on the public store interface. |
@@ -142,9 +146,10 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/metro.config.js` | Two seams: `HAPPIER_METRO_EXTRA_WATCH_FOLDERS` adds watch folders (off unless set), and a `resolver.blockList` entry drops `ignorePrevious/fixtures/` unless `EXPO_PUBLIC_IP_FIXTURES=1`. |
 | `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.ts` | Adds `holdAfterSuccess`, default true to preserve the session footer; the desk opts out of shared settlement after success while keeping in-flight arbitration. |
 | `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.test.ts` | Covers the option with a retained footer request and release on cleanup. |
-| `apps/ui/sources/components/sessions/agentInput/AgentInput.tsx` | Optional `footerLeadingActions` is inserted at the start of the tools row from the shared action-footer renderer, including collapsed layouts and both web/native branches. Undefined leaves the upstream composer unchanged. The footer View exposes `testID="agent-input-action-footer"` for placement checks. |
-| `apps/ui/sources/components/sessions/model/sessionComposerOverrides.ts` | Threads the optional footer-leading slot through the existing composer override resolver. |
-| `apps/ui/sources/components/sessions/shell/SessionView.composerSeam.test.tsx` | Verifies the footer-leading override reaches AgentInput alongside the existing status actions. |
-| `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing status actions, leading footer actions, gauge and mic replacement, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
+| `apps/ui/sources/components/sessions/agentInput/AgentInput.tsx` | Optional `footerLeadingActions` is inserted at the start of the tools row from the shared action-footer renderer, including collapsed layouts and both web/native branches. Undefined leaves the upstream composer unchanged. The footer View exposes `testID="agent-input-action-footer"` for placement checks. Opt-in `sendIsStop` gives Stop the submit position even with a draft, using the existing abort handler and restoring text-input focus; `hideAbortButton` hides only the secondary Stop. Abort presses share an in-flight guard. Plain composers retain their normal Send/mic/Stop selection. |
+| `apps/ui/sources/components/sessions/model/sessionComposerOverrides.ts` | Threads the optional footer-leading slot through the existing composer override resolver. Opt-in `sendIsStop` retains the existing abort callback when `hide.stop` hides the secondary button, and is disabled for read-only sessions. Without it, `hide.stop` retains its existing behavior. |
+| `apps/ui/sources/components/sessions/shell/SessionView.composerSeam.test.tsx` | Verifies the footer-leading override reaches AgentInput alongside the existing status actions, and Send-as-Stop retains SessionView's existing abort path while hiding the secondary Stop and mic. |
+| `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing status actions, leading footer actions, gauge and mic replacement, Send-as-Stop, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
+| `apps/ui/sources/sync/ops/__tests__/sessionAbortResult.test.ts` | Covers result-bearing abort failures, success recovery, error propagation and legacy compatibility at the RPC boundary. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.

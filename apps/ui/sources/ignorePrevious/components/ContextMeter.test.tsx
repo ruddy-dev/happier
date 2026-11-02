@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderScreen } from '@/dev/testkit';
+import { afterEach, expect, it, vi } from 'vitest';
+import { sessionContextMeter } from './ContextMeter';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+afterEach(() => vi.unstubAllEnvs());
 
 function claudeSession(contextSize: number | null): Session {
     return createSessionFixture({
@@ -16,25 +16,13 @@ function claudeSession(contextSize: number | null): Session {
     });
 }
 
-async function renderMeter(session: Session) {
-    const { ContextMeter } = await import('./ContextMeter');
-    return renderScreen(<ContextMeter session={session} />);
-}
-
-describe('ContextMeter', () => {
-    afterEach(() => vi.unstubAllEnvs());
-
-    it('shows how far the session is towards auto-compact, and the model window', async () => {
-        vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE', '220000');
-        const screen = await renderMeter(claudeSession(110_000));
-        expect(screen.findByTestId('ip-context-percent')?.props.children).toBe(50);
-        const text = screen.getTextContent();
-        expect(text).toContain('220k');
-        expect(text).toContain('1M');
+it('C9 uses one session owner for compact and window percentages and the setting source', () => {
+    vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE', '220000');
+    expect(sessionContextMeter(claudeSession(95_500))).toMatchObject({
+        percent: 43, limit: 220_000, towardsCompact: true,
+        compactSetting: 'EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE',
     });
-
-    it('shows nothing until the session has reported its context', async () => {
-        const screen = await renderMeter(claudeSession(null));
-        expect(screen.findByTestId('ip-context-percent')).toBeNull();
-    });
+    vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE', '');
+    expect(sessionContextMeter(claudeSession(95_500))).toMatchObject({ percent: 10, limit: 1_000_000, towardsCompact: false });
+    expect(sessionContextMeter(claudeSession(null))).toBeNull();
 });

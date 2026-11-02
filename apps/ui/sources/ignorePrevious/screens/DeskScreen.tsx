@@ -1,37 +1,34 @@
 import * as React from 'react';
 import { Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import { useRouter } from 'expo-router';
 
-import { AppPaneScopeHost } from '@/components/appShell/panes/AppPaneScopeHost';
-import { useAppPaneScope } from '@/components/appShell/panes/hooks/useAppPaneScope';
-import { canLayoutHostSessionPane } from '@/components/sessions/panes/open/sessionOpenTarget';
-import { useSessionOpenLayout } from '@/components/sessions/panes/open/useSessionOpenLayout';
 import { Icon, type IconName } from '@/components/ui/icons/Icon';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
-import { Modal } from '@/modal';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { CoordinatorPane } from '../components/CoordinatorPane';
-import { ApprovalsButton, ApprovalsCard, ApprovalsDrawer } from '../components/Approvals';
+import { ApprovalsButton, ApprovalsDrawer } from '../components/Approvals';
+import { createWaitingHistory } from '../components/WaitingPanel';
 import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
 import {
     getApprovalsOpen,
-    getWorkCollapsed,
     setApprovalsOpen,
     setStoredCoordinatorId,
-    setWorkCollapsed,
+    useDeskPref,
 } from '../deskPrefs';
 import { useDeskWorkerRecordConsumers } from '../model/useDeskWorkerRecordConsumers';
+import { DeskText } from '../typography/DeskText';
 import { useCoordinatorId } from '../model/useCoordinatorId';
+import { drawerPlacement } from '../model/drawerPlacement';
 import { useDeskSessions } from '../useDeskSessions';
 
 const WIDE = 1100;
-const SCOPE_ID = 'ignorePrevious:desk';
 
 function CoordinatorPicker({
     sessions,
@@ -101,35 +98,19 @@ function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: I
     );
 }
 
-/**
- * The approvals drawer's open state. Happier's pane state lives in memory, so the last choice is
- * kept in deskPrefs: restored with an in-memory pane open on mount, and saved whenever the drawer
- * opens or closes, including when the pane host closes it (the phone overlay's backdrop).
- */
-function useApprovalsDrawer() {
-    const { scopeState, openRight, closeRight } = useAppPaneScope(SCOPE_ID);
-    // Where no pane can be drawn (a phone, or multi-pane switched off) the list opens as a card
-    // instead, and the stored choice waits for a layout that has room for the drawer.
-    const canDraw = canLayoutHostSessionPane(useSessionOpenLayout(), 'right');
-    const open = canDraw && Boolean(scopeState?.right.isOpen);
-
-    React.useEffect(() => {
-        if (canDraw && getApprovalsOpen()) openRight();
-    }, [canDraw, openRight]);
-
-    const previous = React.useRef(open);
-    React.useEffect(() => {
-        if (previous.current === open) return;
-        previous.current = open;
-        if (canDraw && getApprovalsOpen() !== open) setApprovalsOpen(open);
-    }, [open, canDraw]);
-
-    const toggle = React.useCallback(() => {
-        if (!canDraw) Modal.show({ component: ApprovalsCard });
-        else if (open) closeRight();
-        else openRight();
-    }, [canDraw, open, openRight, closeRight]);
-    return { open, toggle, close: closeRight };
+/** One open state across all placements, persisted only on explicit dismissal or opening. */
+function useApprovalsDrawer(width: number) {
+    const [{ open, focusOnOpen }, setState] = React.useState(() => ({
+        open: drawerPlacement(width) !== 'fullscreen' && getApprovalsOpen(),
+        focusOnOpen: false,
+    }));
+    const change = React.useCallback((next: boolean) => {
+        setApprovalsOpen(next);
+        setState({ open: next, focusOnOpen: next });
+    }, []);
+    const toggle = React.useCallback(() => change(!open), [change, open]);
+    const close = React.useCallback(() => change(false), [change]);
+    return { open, focusOnOpen, toggle, close };
 }
 
 /**
@@ -139,15 +120,16 @@ function useApprovalsDrawer() {
  */
 export function DeskScreen() {
     const { theme } = useUnistyles();
+    const router = useRouter();
     const { width, height } = useWindowDimensions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const { list: sessions, ready: dataReady } = useDeskSessions();
-    const [workCollapsed, setCollapsed] = React.useState(getWorkCollapsed);
-    const collapseWork = React.useCallback((next: boolean) => {
-        setWorkCollapsed(next);
-        setCollapsed(next);
-    }, []);
-    const approvals = useApprovalsDrawer();
+    const [workCollapsed, collapseWork] = useDeskPref('workCollapsed');
+    const [waitingHistory] = React.useState(createWaitingHistory);
+    const [hasHalfAnsweredCard, setHasHalfAnsweredCard] = React.useState(false);
+    const approvals = useApprovalsDrawer(width);
+
+    const approvalsOpenerRef = React.useRef<View>(null);
 
     const coordinatorId = useCoordinatorId(sessions);
     useDeskWorkerRecordConsumers(sessions, coordinatorId);
@@ -160,7 +142,17 @@ export function DeskScreen() {
         setChanging(false);
     }, []);
 
-    const approvalsButton = <ApprovalsButton open={approvals.open} onPress={approvals.toggle} />;
+    const approvalsButton = <ApprovalsButton openerRef={approvalsOpenerRef} open={approvals.open} onPress={approvals.toggle} />;
+    const settingsButton = (
+        <Pressable
+            testID="ip-settings-open"
+            accessibilityRole="button"
+            onPress={() => router.navigate('/desk/settings')}
+            style={{ paddingHorizontal: 12, minHeight: 48, justifyContent: 'center' }}
+        >
+            <DeskText style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.settings.title')}</DeskText>
+        </Pressable>
+    );
     const coordinator = coordinatorId && !changing ? (
         <CoordinatorPane
             sessionId={coordinatorId}
@@ -173,12 +165,16 @@ export function DeskScreen() {
                         onPress={() => setChanging(true)}
                     />
                     {approvalsButton}
+                    {settingsButton}
                 </>
             }
         />
     ) : (
         <ScrollView contentContainerStyle={{ gap: 8 }}>
-            <View style={{ alignSelf: 'flex-end', padding: 12 }}>{approvalsButton}</View>
+            <View style={{ alignSelf: 'flex-end', flexDirection: 'row', alignItems: 'center', padding: 12 }}>
+                {approvalsButton}
+                {settingsButton}
+            </View>
             {dataReady ? (
                 <CoordinatorPicker
                     sessions={sessions}
@@ -260,9 +256,14 @@ export function DeskScreen() {
 
     return (
         <DeskFontRoot>
-            <View style={{ flex: 1 }}>
-                <DeskConnectionBanner />
-                <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} />} />
+            <View style={{ flex: 1, flexDirection: 'row', minWidth: 0, overflow: 'hidden' }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <DeskConnectionBanner />
+                    {main}
+                </View>
+                <ApprovalsDrawer open={approvals.open} width={width} openerRef={approvalsOpenerRef} focusOnOpen={approvals.focusOnOpen}
+                    hasHalfAnsweredCard={hasHalfAnsweredCard} onDirtyChange={setHasHalfAnsweredCard}
+                    onClose={approvals.close} history={waitingHistory} />
             </View>
         </DeskFontRoot>
     );

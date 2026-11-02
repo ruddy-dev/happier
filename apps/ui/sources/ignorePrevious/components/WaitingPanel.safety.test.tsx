@@ -12,6 +12,7 @@ import { buildSessionListRenderableFromSession } from '@/sync/domains/session/li
 import { storage } from '@/sync/domains/state/storage';
 import { parsePlainSessionAgentState } from '@/sync/engine/sessions/parsePlainSessionPayload';
 import type { Session } from '@/sync/domains/state/storageTypes';
+import { t } from '@/text';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -157,6 +158,138 @@ describe('WaitingPanel safety', () => {
         act(() => {
             storage.setState(previous, true);
         });
+    });
+
+    it('W1: each request shows its resolved issue or No issue', async () => {
+        const tagged = sessionWithRequest('s1', 'r1', { tool: 'Bash', arguments: { command: 'npm test' } });
+        tagged.metadata = { ...tagged.metadata!, tag: 'ATR-43-builder' } as Session['metadata'];
+        seed([tagged, sessionWithRequest('s2', 'r2', { tool: 'Bash', arguments: { command: 'npm run lint' } })]);
+        const screen = await renderPanel();
+        expect(textUnder(screen.findByTestId('ip-waiting-issue-r1'))).toBe('ATR-43');
+        expect(textUnder(screen.findByTestId('ip-waiting-issue-r2'))).toBe('No issue');
+    });
+
+    it.each([['allow', 'Allowed'], ['deny', 'Denied']] as const)('W1: a successful desk %s appears in Answered without action buttons', async (action, label) => {
+        const session = sessionWithRequest('s1', 'answered-local', { tool: 'Bash', arguments: { command: 'npm test' } });
+        seed([session]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId(`ip-waiting-${action}-answered-local`), action);
+        act(() => {
+            storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} } }]);
+        });
+        expect(textUnder(screen.findByTestId('ip-answered-answered-local'))).toContain(label);
+        expect(screen.getTextContent()).not.toContain('Answered elsewhere');
+        expect(screen.getTextContent()).toContain('npm test');
+        expect(screen.findByTestId('ip-waiting-allow-answered-local')).toBeNull();
+    });
+
+    it('D1: reopening the drawer keeps at most four answers from this desk page', async () => {
+        const sessions = Array.from({ length: 5 }, (_, index) => sessionWithRequest(`history-${index}`, `history-${index}`, { tool: 'Bash', arguments: { command: `task ${index}` } }));
+        seed(sessions);
+        const { WaitingPanel, createWaitingHistory } = await import('./WaitingPanel');
+        const history = createWaitingHistory();
+        const first = await renderScreen(<WaitingPanel history={history} />);
+        act(() => first.tree.unmount());
+        act(() => storage.getState().applySessions(sessions.map((session) => ({
+            ...session, agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} },
+        }))));
+        const reopened = await renderScreen(<WaitingPanel history={history} />);
+        expect(reopened.getTextContent().split('No longer waiting')).toHaveLength(5);
+        expect(sessions.filter((session) => reopened.findByTestId(`ip-answered-${session.id}`))).toHaveLength(4);
+    });
+
+    it('D1: a canceled completion is neutrally described as no longer waiting', async () => {
+        const session = sessionWithRequest('canceled-session', 'canceled-request', { tool: 'Bash', arguments: { command: 'task' } });
+        seed([session]);
+        const screen = await renderPanel();
+        act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+            agentState: { requests: {}, completedRequests: { 'canceled-request': { tool: 'Bash', arguments: { command: 'task' }, createdAt: 10, completedAt: 20, status: 'canceled' } } },
+        }]));
+        expect(textUnder(screen.findByTestId('ip-answered-canceled-request'))).toContain('No longer waiting');
+        expect(screen.getTextContent()).not.toContain('Answered elsewhere');
+    });
+
+    it.each([['approved', 'Allowed'], ['denied', 'Denied']] as const)('D1: a %s completion is answered elsewhere with its decision', async (status, label) => {
+        const session = sessionWithRequest('remote', 'remote-request', { tool: 'Bash', arguments: { command: 'task' } });
+        seed([session]);
+        const screen = await renderPanel();
+        act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+            agentState: { requests: {}, completedRequests: { 'remote-request': { tool: 'Bash', arguments: { command: 'task' }, createdAt: 10, completedAt: 20, status } } },
+        }]));
+        const answer = textUnder(screen.findByTestId('ip-answered-remote-request'));
+        expect(answer).toContain('Answered elsewhere');
+        expect(answer).toContain(label);
+        expect(answer).not.toContain('No longer waiting');
+    });
+
+    it('D1: a disappearance without a completion is no longer waiting', async () => {
+        const session = sessionWithRequest('unknown', 'unknown-request', { tool: 'Bash', arguments: { command: 'task' } });
+        seed([session]);
+        const screen = await renderPanel();
+        act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} } }]));
+        expect(textUnder(screen.findByTestId('ip-answered-unknown-request'))).toContain('No longer waiting');
+        expect(screen.getTextContent()).not.toContain('Answered elsewhere');
+    });
+
+    it('D1: a session ending does not create an Answered entry', async () => {
+        const session = sessionWithRequest('ending', 'ending-request', { tool: 'Bash', arguments: { command: 'task' } });
+        seed([session]);
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-allow-ending-request')).not.toBeNull();
+        act(() => storage.getState().applySessions([{ ...session, active: false,
+            agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} },
+        }]));
+        expect(screen.findByTestId('ip-waiting-allow-ending-request')).toBeNull();
+        expect(screen.findByTestId('ip-answered-ending-request')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-empty')).not.toBeNull();
+    });
+
+    it.each([false, true])('D1 W6: unreadable or not-loaded request details do not create history, transcript loaded=%s', async (loaded) => {
+        const session = sessionWithRequest('reloading', 'reloading-request', { tool: 'Bash', arguments: { command: 'task' } });
+        seed([session]);
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-allow-reloading-request')).not.toBeNull();
+        act(() => {
+            storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+                agentState: {}, pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now(),
+            }]);
+            if (loaded) storage.getState().applyMessagesLoaded(session.id);
+        });
+        expect(screen.findByTestId('ip-waiting-allow-reloading-request')).toBeNull();
+        expect(screen.getTextContent()).toContain(loaded ? UNREADABLE : 'Waiting on you. Open the session to see what.');
+        expect(screen.findByTestId('ip-answered-reloading-request')).toBeNull();
+    });
+
+    it('D1: a returned request leaves Answered while it waits again', async () => {
+        const session = sessionWithRequest('returning', 'returning-request', { tool: 'Bash', arguments: { command: 'task' } });
+        seed([session]);
+        const screen = await renderPanel();
+        act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} } }]));
+        expect(screen.findByTestId('ip-answered-returning-request')).not.toBeNull();
+        act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 2 }]));
+        expect(screen.findByTestId('ip-waiting-allow-returning-request')).not.toBeNull();
+        expect(screen.findByTestId('ip-answered-returning-request')).toBeNull();
+    });
+
+    it('D1: disappearance before the RPC resolves shows the local outcome only once', async () => {
+        const gate = createDeferred<{ ok: true }>();
+        state.rpc.mockImplementation(async (call: RpcCall) => call.method === 'permission' ? gate.promise : { ok: true });
+        const session = sessionWithRequest('racing', 'racing-request', { tool: 'Bash', arguments: { command: 'task' } });
+        seed([session]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-racing-request'), 'allow');
+        try {
+            act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+                agentState: { requests: {}, completedRequests: { 'racing-request': { tool: 'Bash', arguments: { command: 'task' }, createdAt: 10, completedAt: 20, status: 'approved' } } },
+            }]));
+            expect(textUnder(screen.findByTestId('ip-answered-racing-request'))).toContain('Answered elsewhere');
+        } finally {
+            await act(async () => { gate.resolve({ ok: true }); });
+        }
+        const answer = textUnder(screen.findByTestId('ip-answered-racing-request'));
+        expect(answer.split('Allowed')).toHaveLength(2);
+        expect(answer).not.toContain('Answered elsewhere');
+        expect(screen.findByTestId('ip-waiting-allow-racing-request')).toBeNull();
     });
 
     it("W3: Deny sends decision 'denied' so the agent refuses only this command", async () => {
@@ -316,17 +449,40 @@ describe('WaitingPanel safety', () => {
         expect(JSON.stringify(state.alert.mock.calls)).not.toMatch(/already answered|expired/i);
     });
 
-    // Characterises today's gap: sessionAllow drops the CLI's reply, so an {ok:false} looks like success.
-    it('D1: a { ok: false } reply raises no alert today', async () => {
-        state.rpc.mockResolvedValue({ ok: false, errorCode: 'permission_request_not_found', errorMessage: 'request not found' });
+    it.each(['permission_request_not_found', 'permission_request_expired'])('D1 M4: %s alerts and leaves the transcript footer able to answer', async (errorCode) => {
+        state.rpc.mockResolvedValue({ ok: false, errorCode });
         seed([sessionWithRequest('s1', 'r9', { tool: 'Bash', arguments: { command: 'npm test' } })]);
         const screen = await renderPanel();
-        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r9'), 'allow');
-        expect(permissionCalls()).toHaveLength(1);
-        expect(state.alert).not.toHaveBeenCalled();
+        const key = 's1\u0000r9';
+        const footer = createPermissionActionDispatchGuard(key);
+        footer.retainRequest(key);
+        try {
+            await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r9'), 'allow');
+            expect(state.alert).toHaveBeenCalledWith(
+                'Request no longer available',
+                'This request was already answered or has expired. Open the session to check.',
+            );
+            expect(state.alert).toHaveBeenCalledWith(t('ignorePrevious.waiting.alreadyAnsweredTitle'), t('ignorePrevious.waiting.alreadyAnswered'));
+            expect(screen.findByTestId('ip-waiting-allow-r9')?.props.accessibilityState).toMatchObject({ disabled: false });
+            const action = vi.fn(async () => {});
+            await expect(footer.dispatch(key, action)).resolves.toBe(true);
+            expect(action).toHaveBeenCalledTimes(1);
+        } finally {
+            footer.releaseRequest(key);
+        }
     });
 
-    it.todo('D1: should an { ok:false } reply show "already answered" or silently drop the card? (Seam PR, sessionAllowResult)');
+    it('D1 M4: permission_response_failed gets the generic alert and can retry', async () => {
+        state.rpc.mockResolvedValue({ ok: false, errorCode: 'permission_response_failed' });
+        seed([sessionWithRequest('s1', 'generic-failure', { tool: 'Bash', arguments: { command: 'task' } })]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-generic-failure'), 'allow');
+        expect(state.alert).toHaveBeenCalledWith(t('ignorePrevious.waiting.answerFailedTitle'), t('ignorePrevious.waiting.answerFailed'));
+        expect(screen.findByTestId('ip-waiting-allow-generic-failure')?.props.accessibilityState).toMatchObject({ disabled: false, busy: false });
+        state.rpc.mockResolvedValue({ ok: true });
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-generic-failure'), 'allow');
+        expect(permissionCalls()).toHaveLength(2);
+    });
 
     it('W1: the card shows a 300-character command including its tail', async () => {
         const command = 'cd build && ' + 'echo a '.repeat(40) + '&& rm -rf /tmp/x';
