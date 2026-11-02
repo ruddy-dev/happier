@@ -1,9 +1,13 @@
+import { act } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { storage } from '@/sync/domains/state/storage';
+import { sessionContextMeter } from '../components/ContextMeter';
+import { t } from '@/text';
 
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
 import raw from '../testkit/scripts/L1-coordinator-row.json';
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+const viewport = vi.hoisted(() => ({ width: 1440, height: 900, scale: 1, fontScale: 1 }));
 
 
 vi.mock('@expo/vector-icons', async () => {
@@ -55,6 +59,8 @@ describe('DeskScreen coordinator row (L1)', () => {
     afterEach(async () => {
         await scenario?.dispose();
         scenario = null;
+        viewport.width = 1440;
+        vi.unstubAllEnvs();
     });
 
     it('L1: the Work panel counts only the workers', async () => {
@@ -73,9 +79,99 @@ describe('DeskScreen coordinator row (L1)', () => {
         expect(scenario.textOf('ip-count-turn')).toBe('0');
     });
 
+    it.each([390, 1100, 1440])('card precedes Work at %i and opens the coordinator chat', async (width) => {
+        viewport.width = width;
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        if (width === 390) await scenario.screen.pressByTestIdAsync('ip-tab-work');
+        const form = width === 390 ? 'full' : 'slim';
+        const cardId = `ip-coord-card-${form}`;
+        const work = scenario.screen.findByTestId('ip-work')!;
+        const ids = work.findAll(node => typeof node.type === 'string' && node.props.testID)
+            .map(node => node.props.testID);
+        expect(ids).toContain(cardId);
+        expect(ids.indexOf(cardId)).toBeLessThan(ids.indexOf('ip-count-all'));
+        expect(scenario.textOf('ip-count-all')).toBe('2');
+        await scenario.screen.pressByTestIdAsync(cardId);
+        if (width === 390) expect(scenario.screen.findByTestId('ip-tab-shog')!.props.accessibilityState.selected).toBe(true);
+    });
+
+    it.each([900, 1440])('card is a rail button before worker faces at %i', async (width) => {
+        viewport.width = width;
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        await scenario.screen.pressByTestIdAsync('ip-work-collapse');
+        const rail = scenario.screen.findByTestId('ip-work-rail')!;
+        const ids = rail.findAll(node => typeof node.type === 'string' && node.props.testID)
+            .map(node => node.props.testID);
+        expect(ids).toContain('ip-coord-card-rail');
+        expect(ids.indexOf('ip-coord-card-rail')).toBeLessThan(ids.indexOf('ip-rail-issue-ATR-6'));
+        expect(scenario.screen.findByTestId('ip-rail-issue-none')).toBeNull();
+        expect(scenario.screen.findByTestId('ip-coord-card-rail')!.props.accessibilityRole).toBe('button');
+        await scenario.screen.pressByTestIdAsync('ip-coord-card-rail');
+        expect(scenario.screen.findByTestId('ip-coordinator-pane')).not.toBeNull();
+    });
+
+    it('uses the state-line model with shared waiting N, including the coordinator, without a worker row (L1/L2)', async () => {
+        viewport.width = 390;
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        await scenario.screen.pressByTestIdAsync('ip-tab-work');
+        expect(scenario.textOf('ip-coord-card-state')).toBe('Thinking');
+        await scenario.apply('c1', { thinking: false });
+        expect(scenario.textOf('ip-coord-card-state')).toBe('Idle');
+        await scenario.apply('c1', { requests: { own: { tool: 'AskUserQuestion', arguments: { questions: [] } } } });
+        await scenario.apply('w1', { requests: { worker: { tool: 'Bash', arguments: { command: 'echo ready' } } } });
+        expect(scenario.textOf('ip-coord-card-state')).toBe('Waiting on you: 2');
+        expect(scenario.textOf('ip-coord-card-waiting')).toContain('2');
+        expect(scenario.textOf('ip-count-all')).toBe('2');
+        expect(scenario.textOf('ip-count-turn')).toBe('1');
+        // The existing walk-through excludes the coordinator's own blocked prompt (L2).
+        expect(scenario.textOf('ip-walk-waiting')).toContain('(1)');
+        await scenario.apply('c1', { active: false, thinking: true });
+        expect(scenario.textOf('ip-coord-card-state')).toBe('offline');
+    });
+
+    it('does not claim zero waits or Idle before the coordinator list is ready', async () => {
+        viewport.width = 390;
+        scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
+        await scenario.screen.pressByTestIdAsync('ip-tab-work');
+        expect(scenario.screen.findByTestId('ip-coord-card-full')).toBeNull();
+        expect(scenario.textOf('ip-coord-card-state')).toBeNull();
+        expect(scenario.textOf('ip-coord-card-waiting')).toBeNull();
+        await scenario.apply('c1', { thinking: false });
+        await scenario.ready();
+        expect(scenario.textOf('ip-coord-card-state')).toBe('Idle');
+        expect(scenario.textOf('ip-coord-card-waiting')).toContain('0');
+    });
+
+    it('C9: full card uses the composer meter source and removes missing reports', async () => {
+        viewport.width = 390;
+        vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE', '220000');
+        scenario = await startDeskScenario({ script, coordinator: 'c1' });
+        await scenario.screen.pressByTestIdAsync('ip-tab-work');
+        expect(scenario.textOf('ip-coord-card-context')).toBeNull();
+        const report = (contextSize: number | null) => act(() => {
+            const current = storage.getState().sessions.c1;
+            storage.getState().applySessions([{ ...current, seq: current.seq + 1,
+                metadata: { ...current.metadata!, flavor: 'claude' }, metadataVersion: current.metadataVersion + 1,
+                latestUsage: contextSize === null ? null : {
+                    inputTokens: 0, outputTokens: 0, cacheCreation: 0, cacheRead: 0,
+                    contextSize, contextSizeIsReported: true, contextWindowTokens: 1_000_000, timestamp: Date.now(),
+                },
+            }]);
+        });
+        for (const used of [95_500, 300_000]) {
+            report(used);
+            const meter = sessionContextMeter(storage.getState().sessions.c1)!;
+            expect(scenario.textOf('ip-coord-card-context')).toBe(t('ignorePrevious.contextGauge.percent', { percent: meter.percent }));
+            expect(scenario.screen.findByTestId('ip-coord-card-context-meter')!.props.accessibilityValue.now).toBe(meter.ratio * 100);
+        }
+        report(null);
+        expect(scenario.textOf('ip-coord-card-context')).toBeNull();
+    });
+
     it('must not hide anyone when no coordinator is picked', async () => {
         scenario = await startDeskScenario({ script });
         expect(scenario.textOf('ip-count-all')).toBe('3');
+        expect(scenario.screen.findByTestId('ip-coord-card-slim')).toBeNull();
     });
 
     it('L1: the coordinator\'s request still shows in what waits on you', async () => {
@@ -85,8 +181,8 @@ describe('DeskScreen coordinator row (L1)', () => {
     });
 });
 
-// These scenarios exercise the concurrent desktop panes. Phone navigation has its own tests.
+// Exercise the existing layout modes at their real viewport breakpoints.
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
-    return createReactNativeWebMock({ useWindowDimensions: () => ({ width: 1440, height: 900, scale: 1, fontScale: 1 }) });
+    return createReactNativeWebMock({ useWindowDimensions: () => viewport });
 });
