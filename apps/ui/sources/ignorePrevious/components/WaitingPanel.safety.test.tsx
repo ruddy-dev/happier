@@ -173,6 +173,7 @@ describe('WaitingPanel safety', () => {
         const session = sessionWithRequest('s1', 'answered-local', { tool: 'Bash', arguments: { command: 'npm test' } });
         seed([session]);
         const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-card-answered-local')).not.toBeNull();
         await pressTestInstanceAsync(screen.findByTestId(`ip-waiting-${action}-answered-local`), action);
         act(() => {
             storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} } }]);
@@ -180,6 +181,7 @@ describe('WaitingPanel safety', () => {
         expect(textUnder(screen.findByTestId('ip-answered-answered-local'))).toContain(label);
         expect(screen.getTextContent()).not.toContain('Answered elsewhere');
         expect(screen.getTextContent()).toContain('npm test');
+        expect(screen.findByTestId('ip-waiting-card-answered-local')).toBeNull();
         expect(screen.findByTestId('ip-waiting-allow-answered-local')).toBeNull();
     });
 

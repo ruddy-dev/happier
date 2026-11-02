@@ -20,7 +20,7 @@ let sharedExportPromise: Promise<string> | null = null;
 let sharedExportDir: string | null = null;
 let sharedExportCacheKey: string | null = null;
 const UI_WEB_EXPORT_MANIFEST_VERSION = 1;
-const UI_WEB_EXPORT_SOURCE_FINGERPRINT_VERSION = 1;
+const UI_WEB_EXPORT_SOURCE_FINGERPRINT_VERSION = 2;
 
 type UiWebRuntimeConfig = Readonly<{
   serverUrl: string;
@@ -177,8 +177,8 @@ function buildExportEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
-export function resolveUiWebExportSourceFingerprint(): string {
-  const uiWorkspaceDir = resolvePath(repoRootDir(), 'apps', 'ui');
+export function resolveUiWebExportSourceFingerprint(rootDir = repoRootDir()): string {
+  const uiWorkspaceDir = resolvePath(rootDir, 'apps', 'ui');
   const roots = [
     resolvePath(uiWorkspaceDir, 'app'),
     resolvePath(uiWorkspaceDir, 'sources'),
@@ -189,6 +189,11 @@ export function resolveUiWebExportSourceFingerprint(): string {
     resolvePath(uiWorkspaceDir, 'metro.config.js'),
     resolvePath(uiWorkspaceDir, 'babel.config.js'),
   ];
+  // Metro resolves these workspace packages to source. Keep invalidation at this existing owner.
+  const uiPackage = JSON.parse(readFileSync(resolvePath(uiWorkspaceDir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> };
+  for (const name of Object.keys(uiPackage.dependencies ?? {}).sort()) {
+    if (name.startsWith('@happier-dev/')) roots.push(resolvePath(rootDir, 'packages', name.slice('@happier-dev/'.length)));
+  }
   const skipDirNames = new Set(['.expo', '.git', '.project', 'dist', 'node_modules', 'web-build']);
   const hash = createHash('sha1');
 
@@ -198,7 +203,7 @@ export function resolveUiWebExportSourceFingerprint(): string {
     }
 
     const stats = statSync(targetPath);
-    const relativePath = targetPath.slice(uiWorkspaceDir.length + 1);
+    const relativePath = targetPath.slice(rootDir.length + 1);
     if (stats.isDirectory()) {
       const dirName = relativePath.split('/').pop() ?? '';
       if (skipDirNames.has(dirName)) {
@@ -289,7 +294,18 @@ function canReusePersistedUiWebExport(
   return readPersistedUiWebExportCacheKey(params.cacheKeyPath) === params.cacheKey;
 }
 
-async function ensureUiWebExportBuilt(params: { testDir: string; env: NodeJS.ProcessEnv }): Promise<string> {
+/** True when a persisted export matches this env and the current source, so serving it builds nothing. */
+export function isUiWebExportCurrent(env: NodeJS.ProcessEnv): boolean {
+  const parent = resolveUiWebExportRootDir(env);
+  return canReusePersistedUiWebExport({
+    distDir: resolvePath(parent, 'dist'),
+    cacheKeyPath: resolvePath(parent, 'cache-key.json'),
+    cacheKey: buildUiWebExportCacheKey(env),
+    manifestPath: resolvePath(parent, 'export-manifest.json'),
+  });
+}
+
+export async function ensureUiWebExportBuilt(params: { testDir: string; env: NodeJS.ProcessEnv; rebuild?: boolean }): Promise<string> {
   const cacheKey = buildUiWebExportCacheKey(params.env);
   const clearRaw = (params.env.HAPPIER_E2E_EXPO_CLEAR ?? '').toString().trim().toLowerCase();
   const clearCache = clearRaw === '1' || clearRaw === 'true' || clearRaw === 'yes' || clearRaw === 'y';
@@ -299,9 +315,9 @@ async function ensureUiWebExportBuilt(params: { testDir: string; env: NodeJS.Pro
   const exportedDistCacheKeyPath = resolvePath(exportedDistParent, 'cache-key.json');
   const exportedDistManifestPath = resolvePath(exportedDistParent, 'export-manifest.json');
 
-  if (sharedExportDir && sharedExportCacheKey === cacheKey) return sharedExportDir;
+  if (!params.rebuild && sharedExportDir && sharedExportCacheKey === cacheKey) return sharedExportDir;
   if (sharedExportPromise && sharedExportCacheKey === cacheKey) return await sharedExportPromise;
-  if (canReusePersistedUiWebExport({
+  if (!params.rebuild && canReusePersistedUiWebExport({
     distDir: exportedDistDir,
     cacheKeyPath: exportedDistCacheKeyPath,
     cacheKey,
