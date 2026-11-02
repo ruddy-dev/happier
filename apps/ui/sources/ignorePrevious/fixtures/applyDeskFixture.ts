@@ -2,6 +2,8 @@
  * Dev-only: writes the desk fixture straight into the real store, with no server and no sync.
  * Loaded only by the fixture route when EXPO_PUBLIC_IP_FIXTURES=1; never import it anywhere else.
  */
+import { resolveWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
+import { registerDeskFixtureRelease, releaseDeskFixture } from '../deskFixtureGate';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
@@ -60,14 +62,29 @@ function buildSession(spec: FixtureSession, index: number, now: number): Session
  * puts readiness back as it was.
  */
 export function applyDeskFixture(now: number = Date.now()): () => void {
+    if (resolveWarmCacheAccountScope(storage.getState().profile.id)) {
+        throw new Error('Desk fixture cannot run with an account');
+    }
+    releaseDeskFixture();
     const specs = scenario.sessions as FixtureSession[];
     const wasReady = storage.getState().isDataReady;
-    setCoordinatorOverride(scenario.coordinatorId);
-    storage.getState().applySessions(specs.map((spec, index) => buildSession(spec, index, now)));
-    storage.getState().applyReady();
-    return () => {
-        for (const spec of specs) storage.getState().deleteSession(spec.id);
+    let released = false;
+    const release = () => {
+        if (released) return;
+        released = true;
+        unregister();
+        storage.getState().deleteSessions(specs.map((spec) => spec.id));
         if (!wasReady) storage.setState({ isDataReady: false });
         setCoordinatorOverride(null);
     };
+    const unregister = registerDeskFixtureRelease(release);
+    try {
+        setCoordinatorOverride(scenario.coordinatorId);
+        storage.getState().applySessions(specs.map((spec, index) => buildSession(spec, index, now)));
+        storage.getState().applyReady();
+    } catch (error) {
+        release();
+        throw error;
+    }
+    return release;
 }

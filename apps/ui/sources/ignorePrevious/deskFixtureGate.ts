@@ -14,3 +14,20 @@ export function isDeskFixtureBuild(): boolean {
 
 /** True under the dev-only desk fixture route, so the stub coordinator body shows there and nowhere else. */
 export const DeskFixtureRouteContext = React.createContext(false);
+
+// Sync ends the fixture synchronously before activating an account's persistence scope.
+// The callback keeps fixture data/imports out of the normal build's dependency graph.
+let activeFixtureRelease: (() => void) | null = null;
+
+export function releaseDeskFixture(): void {
+    const release = activeFixtureRelease;
+    activeFixtureRelease = null;
+    release?.();
+}
+
+export function registerDeskFixtureRelease(release: () => void): () => void {
+    activeFixtureRelease = release;
+    return () => {
+        if (activeFixtureRelease === release) activeFixtureRelease = null;
+    };
+}

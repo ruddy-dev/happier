@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 
+import { releaseDeskFixture } from '../deskFixtureGate';
 import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '../deskPrefs';
 import { issueKeyFromPath, issueKeyFromTitle } from '../model/issueKey';
 import scenario from './desk-fixture.json';
@@ -22,6 +23,7 @@ describe('applyDeskFixture', () => {
     });
 
     afterEach(() => {
+        releaseDeskFixture();
         storage.setState(before, true);
         setCoordinatorOverride(null);
         setStoredCoordinatorId(storedBefore);

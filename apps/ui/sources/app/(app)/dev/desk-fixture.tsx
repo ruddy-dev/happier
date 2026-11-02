@@ -7,6 +7,8 @@ import { useAuth } from '@/auth/context/AuthContext';
 import { Text } from '@/components/ui/text/Text';
 import { DeskFixtureRouteContext, isDeskFixtureBuild } from '@/ignorePrevious/deskFixtureGate';
 import { DeskScreen } from '@/ignorePrevious/screens/DeskScreen';
+import { storage } from '@/sync/domains/state/storage';
+import { resolveWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
 import { useProfile } from '@/sync/store/hooks';
 
 /**
@@ -45,7 +47,7 @@ function FixtureDesk() {
         loadFixture()
             .then(({ applyDeskFixture }) => {
                 // The store is filled before DeskScreen mounts, so its first render already has the desk.
-                if (!live) return;
+                if (!live || resolveWarmCacheAccountScope(storage.getState().profile.id)) return;
                 release = applyDeskFixture();
                 setReady(true);
             })
