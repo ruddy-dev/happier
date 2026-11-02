@@ -1,4 +1,7 @@
 import * as React from 'react';
+import * as SecureStore from 'expo-secure-store';
+import { prepareWarmCacheEncryptionKey } from '@/sync/domains/state/warmCacheEncryptionKey';
+import { MMKV } from 'react-native-mmkv';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,13 +9,13 @@ import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
-import { readPersistedSessionListWarmCacheEntries, setWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
+import { loadSessionListWarmCacheEntries, readPersistedSessionListWarmCacheEntries, setWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
 
 import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
 
 import DeskFixturePage from '@/app/(app)/dev/desk-fixture';
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -228,4 +231,31 @@ describe('dev/desk-fixture route', () => {
         expect(persisted).toContain('real-1');
         expect(persisted.filter((id) => id.startsWith('fx-'))).toEqual([]);
     });
+    it('never writes fixture ids during sign-in cleanup, including intermediate writes', async () => {
+        const secureRead = vi.spyOn(SecureStore, 'getItemAsync').mockResolvedValue('test-cache-key-16');
+        await prepareWarmCacheEncryptionKey();
+        secureRead.mockRestore();
+        storage.getState().applySessions([createSessionFixture({ id: 'real-cleanup', active: true })]);
+        const screen = await showFixtureDesk();
+        setWarmCacheAccountScope('acct-cleanup');
+        const observed: string[][] = [];
+        const originalSet = MMKV.prototype.set;
+        // Observe each platform write, reading it back through the real cache parser.
+        const write = vi.spyOn(MMKV.prototype, 'set').mockImplementation(function (this: MMKV, key, value) {
+            originalSet.call(this, key, value);
+            if (key.startsWith('session-list-warm-cache-v1')) {
+                observed.push(Object.keys(loadSessionListWarmCacheEntries('srv-test', 'acct-cleanup')));
+            }
+        });
+        try {
+            await act(async () => { auth.set({ isAuthenticated: true, credentials: { token: 't', secret: 's' } }); });
+            expect(observed.length).toBeGreaterThan(0);
+            expect(observed.flat().filter((id) => id.startsWith('fx-'))).toEqual([]);
+            expect(Object.keys(loadSessionListWarmCacheEntries('srv-test', 'acct-cleanup'))).toEqual(['real-cleanup']);
+        } finally {
+            write.mockRestore();
+            await screen.unmount();
+        }
+    });
+
 });
