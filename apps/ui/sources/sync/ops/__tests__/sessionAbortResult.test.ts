@@ -55,6 +55,16 @@ describe('sessionAbortResult', () => {
     });
 
     it.each([
+        [{ error: 'Method not found', errorCode: RPC_ERROR_CODES.METHOD_NOT_FOUND }, { ok: false, reason: 'not_listening' }],
+        [{ error: 'Abort denied', errorCode: RPC_ERROR_CODES.FORBIDDEN }, { ok: false, reason: 'rejected', error: 'Abort denied' }],
+    ])('reports a resolved RPC error %j without changing thinking markers', async (reply, expected) => {
+        const before = thinkingMarkers();
+        vi.mocked(apiSocket.sessionRPC).mockResolvedValue(reply);
+        await expect(sessionAbortResult(sessionId)).resolves.toEqual(expected);
+        expect(thinkingMarkers()).toEqual(before);
+    });
+
+    it.each([
         [RPC_ERROR_CODES.METHOD_NOT_AVAILABLE, 'not_listening'],
         ['scoped_session_encryption_unavailable', 'encryption_unavailable'],
         ['session_encryption_not_found', 'encryption_unavailable'],

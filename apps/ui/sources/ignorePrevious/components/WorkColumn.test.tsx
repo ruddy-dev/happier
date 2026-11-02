@@ -183,10 +183,10 @@ describe('WorkColumn', () => {
         expect(screen.findByTestId('ip-stop-idle')).toBeNull();
     });
 
-    it('ATR-37.3: mode and title updates preserve equal-urgency group order until a worker signal arrives', async () => {
+    it('ATR-37.3: mode, title and keep-alive updates preserve group order until worker activity arrives', async () => {
         const now = Date.now();
-        const older = session('older', '/work/atr-6-older', { active: true, activeAt: now - 20_000, updatedAt: now - 20_000 });
-        const newer = session('newer', '/work/atr-7-newer', { active: true, activeAt: now - 10_000, updatedAt: now - 10_000 });
+        const older = session('older', '/work/atr-6-older', { active: true, activeAt: now - 20_000, runtimeActivityObservedAt: now - 20_000, updatedAt: now - 20_000 });
+        const newer = session('newer', '/work/atr-7-newer', { active: true, activeAt: now - 10_000, runtimeActivityObservedAt: now - 10_000, updatedAt: now - 10_000 });
         seed([older, newer]);
         const screen = await renderColumn();
         const order = () => screen.findAll((node) => typeof node.type === 'string' &&
@@ -201,7 +201,11 @@ describe('WorkColumn', () => {
         expect(storage.getState().sessions.older.permissionMode).toBe('yolo');
         expect(screen.getTextContent()).toContain('Renamed worker');
         expect(order()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
-        seed([{ ...edited, seq: edited.seq + 1, updatedAt: now + 1, activeAt: now }]);
+        const heartbeat = { ...edited, seq: edited.seq + 1, activeAt: now };
+        seed([heartbeat]);
+        expect(storage.getState().sessions.older.activeAt).toBe(now);
+        expect(order()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        seed([{ ...heartbeat, seq: heartbeat.seq + 1, runtimeActivityObservedAt: now }]);
         expect(order()).toEqual(['ip-issue-ATR-6', 'ip-issue-ATR-7']);
     });
 

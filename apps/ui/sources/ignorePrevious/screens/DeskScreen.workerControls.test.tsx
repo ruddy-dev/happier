@@ -11,7 +11,8 @@ import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit
 import type { Session } from '@/sync/domains/state/storageTypes';
 import type { NormalizedMessage } from '@/sync/typesRaw';
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+// React's test-only act flag is not declared on the platform global type.
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 
 const boundary = vi.hoisted(() => ({ rpc: vi.fn(), alert: vi.fn(), publish: vi.fn() }));
@@ -121,6 +122,16 @@ describe('Desk worker controls catalogue replay', () => {
         await s.screen.pressByTestIdAsync('ip-stop-w1');
         expect(storage.getState().sessions.w1.thinking).toBe(false);
         expect(s.textOf('ip-count-working')).toBe('0');
+    });
+
+    it('C2: a rejected Stop explains the failure without clearing the working bulb', async () => {
+        const s = await start();
+        boundary.rpc.mockResolvedValue({ error: 'Abort denied', errorCode: RPC_ERROR_CODES.FORBIDDEN });
+        const before = storage.getState().sessions.w1;
+        await s.screen.pressByTestIdAsync('ip-stop-w1');
+        expect(storage.getState().sessions.w1).toBe(before);
+        expect(s.textOf('ip-count-working')).toBe('1');
+        expect(s.textOf('ip-stop-error-w1')).toContain('rejected');
     });
 
     it('C5: next-prompt selection stays pending until metadata catches up', async () => {
