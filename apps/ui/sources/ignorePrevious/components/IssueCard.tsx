@@ -10,6 +10,7 @@ import { bulbColour, useDeskPaint } from '../palette';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { WorkerActions } from './WorkerActions';
 import { WorkerUsageLimitLine } from './WorkerUsageLimitLine';
+import { WorkerPrBadge } from './WorkerPrBadge';
 import { WorkerSprite, type WorkerSpriteProps } from './WorkerSprite';
 import { spriteForModel } from '../sprites';
 
@@ -111,7 +112,10 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                                   <Text style={{ color: paint.ink, fontSize: 13 }}>{'>_'}</Text>
                               </Pressable>
                           </View>
-                          <BulbLabel bulb={worker.bulb} />
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                              <BulbLabel bulb={worker.bulb} />
+                              <View style={{ marginLeft: 'auto' }}><WorkerPrBadge sessionId={worker.sessionId} /></View>
+                          </View>
                           {worker.usageLimit ? <WorkerUsageLimitLine status={worker.usageLimit} sessionId={worker.sessionId} /> : null}
                           {worker.unheardMinutes != null ? (
                               <Text testID={`ip-worker-stale-${worker.sessionId}`} style={secondary}>

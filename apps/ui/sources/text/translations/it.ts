@@ -11646,6 +11646,13 @@ settingsSession: {
             cardLabel: ({ key, state, count, summary, unheard }: { key: string; state: string; count: string; summary: string; unheard: string }) => [`${key}: ${state}`, count, summary, unheard].filter(Boolean).join('. '),
             railLabel: ({ key, state, count }: { key: string; state: string; count: string }) => `${key}: ${state}. ${count}`,
         },
+        pullRequest: {
+            open: 'open',
+            merged: 'merged',
+            closed: 'closed',
+            badge: ({ number, state }: { number: string; state: string }) => ['PR', number, state].filter(Boolean).join(' '),
+            asOf: ({ time }: { time: string }) => `PR state as of ${time}`,
+        },
         noIssue: 'No issue',
         faces: 'Faces',
         details: 'Details',
