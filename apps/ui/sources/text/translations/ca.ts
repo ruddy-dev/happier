@@ -10701,6 +10701,7 @@ settingsSession: {
         friendAcceptedGeneric: 'Sol·licitud d\'amistat acceptada',
     },
     ignorePrevious: {
+        topBar: { sessions: 'Sessions', usage: 'Max: not available', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         chatStyle: {
             appearance: 'Appearance',
             title: 'Chat style',

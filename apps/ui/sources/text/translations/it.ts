@@ -11492,6 +11492,7 @@ settingsSession: {
     friendAcceptedGeneric: "Richiesta di amicizia accettata",
   },
     ignorePrevious: {
+        topBar: { sessions: 'Sessions', usage: 'Max: not available', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         chatStyle: {
             appearance: 'Appearance',
             title: 'Chat style',

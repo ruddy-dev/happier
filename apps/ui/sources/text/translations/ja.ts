@@ -11399,6 +11399,7 @@ settingsSession: {
     friendAcceptedGeneric: "友達リクエストが承認されました",
   },
     ignorePrevious: {
+        topBar: { sessions: 'Sessions', usage: 'Max: not available', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         chatStyle: {
             appearance: 'Appearance',
             title: 'Chat style',

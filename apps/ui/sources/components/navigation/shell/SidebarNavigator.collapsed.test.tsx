@@ -346,6 +346,16 @@ describe('SidebarNavigator (collapsed sidebar)', () => {
     hoistedState.inboxContentModelMounts = 0;
   });
 
+  it('hides the sidebar on the desk while retaining it on session routes', async () => {
+    hoistedState.mockPathname = '/desk';
+    const { SidebarNavigator } = await import('./SidebarNavigator');
+    const screen = await renderScreen(<SidebarNavigator />);
+    expect(screen.findAllHostsByTestId('navigation-sidebar')).toHaveLength(0);
+    hoistedState.mockPathname = '/session/s1';
+    await act(async () => notifyViewportChanged());
+    expect(screen.findAllHostsByTestId('navigation-sidebar')).toHaveLength(1);
+  });
+
   it('shares one minimal Inbox summary without mounting the full content model', async () => {
     const { SidebarNavigator } = await import('./SidebarNavigator');
     const { Stack } = await import('expo-router');
