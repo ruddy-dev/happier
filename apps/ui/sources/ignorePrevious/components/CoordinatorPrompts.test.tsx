@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act } from 'react';
+import { act, Profiler, type ProfilerOnRenderCallback } from 'react';
 import { readComposerText, registerComposerRequestHandle } from '@/components/sessions/model/composerRequests';
 import { t } from '@/text';
 import { renderScreen } from '@/dev/testkit';
@@ -20,7 +20,19 @@ function seed(sessions: Session[]) {
 
 const state = vi.hoisted(() => ({
     submit: vi.fn(async (..._args: unknown[]) => undefined),
+    answer: vi.fn(),
+    allow: vi.fn(),
+    deny: vi.fn(),
     alert: vi.fn(),
+}));
+
+// Permission and structured-answer RPCs must never be reached by a draft chip.
+vi.mock('@/sync/ops', () => ({
+    sessionAllowWithAnswers: state.answer,
+    sessionAllow: state.allow,
+    sessionAllowResult: state.allow,
+    sessionDeny: state.deny,
+    sessionDenyResult: state.deny,
 }));
 
 vi.mock('@expo/vector-icons', async () => {
@@ -48,10 +60,18 @@ function session(id: string, request: Record<string, unknown> | null): Session {
     });
 }
 
-async function renderPrompts() {
+async function renderPrompts(onRender?: ProfilerOnRenderCallback) {
     const { CoordinatorPrompts } = await import('./CoordinatorPrompts');
+    if (onRender) return renderScreen(<Profiler id="prompts" onRender={onRender}><CoordinatorPrompts coordinatorId="coord" /></Profiler>);
     return renderScreen(<CoordinatorPrompts coordinatorId="coord" />);
 }
+
+const pendingQuestion = {
+    tool: 'AskUserQuestion', kind: 'user_action', createdAt: 1,
+    arguments: { questions: [{ question: 'Which release?', multiSelect: false, options: [
+        { label: 'Stable', value: 'stable-id' }, { label: 'Preview', choice: 'preview-id' },
+    ] }] },
+};
 
 describe('CoordinatorPrompts', () => {
     let previous: ReturnType<typeof storage.getState>;
@@ -63,6 +83,9 @@ describe('CoordinatorPrompts', () => {
             storage.setState(previous, true);
         });
         expect(state.submit).not.toHaveBeenCalled();
+        expect(state.answer).not.toHaveBeenCalled();
+        expect(state.allow).not.toHaveBeenCalled();
+        expect(state.deny).not.toHaveBeenCalled();
     });
 
     beforeEach(() => {
@@ -75,7 +98,75 @@ describe('CoordinatorPrompts', () => {
             focus: () => { focused = true; },
         });
         state.submit.mockReset().mockResolvedValue(undefined);
+        state.answer.mockReset();
+        state.allow.mockReset();
+        state.deny.mockReset();
         state.alert.mockReset();
+    });
+
+    it('C: coordinator question options follow the fixed chips and tap fills after the draft without sending or answering', async () => {
+        seed([
+            session('coord', pendingQuestion),
+            session('worker', { tool: 'Bash', arguments: { command: 'build' }, createdAt: 2 }),
+        ]);
+        const screen = await renderPrompts();
+        const chips = screen.tree.findAll((node) => typeof node.type === 'string' && node.props.accessibilityRole === 'button');
+        expect(chips.map((node) => node.props.testID)).toEqual([
+            'ip-brief-first', 'ip-start-new', 'ip-walk-waiting', 'ip-walk-prs',
+            'ip-coordinator-reply-0', 'ip-coordinator-reply-1',
+        ]);
+        expect(screen.getTextContent()).toContain('Stable');
+        expect(screen.getTextContent()).toContain('Preview');
+        expect(screen.findByTestId('ip-coordinator-reply-0')?.props.accessibilityLabel)
+            .toBe('Answer to the coordinator\'s question: Stable');
+        await screen.pressByTestIdAsync('ip-brief-first');
+        await screen.pressByTestIdAsync('ip-coordinator-reply-1');
+        expect(readComposerText('coord')).toBe(`${t('ignorePrevious.composer.briefPrompt')}\n\nPreview`);
+        expect(focused).toBe(true);
+        expect(storage.getState().sessions.coord.agentState?.requests?.r1).toEqual(pendingQuestion);
+    });
+
+    it.each(['answered', 'removed'])('C: an %s coordinator request loses its chips through the real store subscription', async (scenario) => {
+        seed([session('coord', pendingQuestion)]);
+        const screen = await renderPrompts();
+        expect(screen.findByTestId('ip-coordinator-reply-0')).not.toBeNull();
+        const next = session('coord', null);
+        if (scenario === 'answered') next.agentState = {
+            requests: {}, completedRequests: { r1: { ...pendingQuestion, status: 'approved', completedAt: 2 } },
+        };
+        seed([next]);
+        expect(screen.findByTestId('ip-coordinator-reply-0')).toBeNull();
+        expect(screen.findByTestId('ip-coordinator-reply-1')).toBeNull();
+    });
+
+    it.each([false, true])('C: no coordinator question shows only fixed chips, worker question pending = %s', async (workerPending) => {
+        seed([session('coord', null), ...(workerPending ? [session('worker', pendingQuestion)] : [])]);
+        const screen = await renderPrompts();
+        const chips = screen.tree.findAll((node) => typeof node.type === 'string' && node.props.accessibilityRole === 'button');
+        expect(chips.map((node) => node.props.testID)).toEqual([
+            'ip-brief-first', 'ip-start-new', ...(workerPending ? ['ip-walk-waiting'] : []), 'ip-walk-prs',
+        ]);
+    });
+
+    it('C: new questions and changed labels arrive live; unrelated state and equivalent labels do not render the row', async () => {
+        seed([session('coord', null)]);
+        const onRender = vi.fn<ProfilerOnRenderCallback>();
+        const screen = await renderPrompts(onRender);
+        expect(screen.findByTestId('ip-coordinator-reply-0')).toBeNull();
+        seed([session('coord', pendingQuestion)]);
+        expect(screen.findByTestId('ip-coordinator-reply-0')).not.toBeNull();
+        const renderCount = onRender.mock.calls.length;
+        act(() => storage.getState().setSocketStatus('connected'));
+        seed([session('coord', { ...pendingQuestion, createdAt: 2 })]);
+        expect(onRender.mock.calls).toHaveLength(renderCount);
+        seed([session('coord', {
+            ...pendingQuestion, arguments: { questions: [{ question: 'Which release?', multiSelect: false, options: [{ label: 'Next release' }] }] },
+        })]);
+        expect(screen.getTextContent()).toContain('Next release');
+        expect(screen.getTextContent()).not.toContain('Stable');
+        await screen.pressByTestIdAsync('ip-coordinator-reply-0');
+        expect(readComposerText('coord')).toBe('Next release');
+        expect(focused).toBe(true);
     });
 
     it('J1: offers the four drafts in order with the current waiting count', async () => {
