@@ -11517,6 +11517,16 @@ settingsSession: {
     },
   },
     ignorePrevious: {
+        dictation: {
+            start: 'Dictate',
+            stop: 'Stop dictation',
+            listening: 'Listening…',
+            instructions: 'Press the mic again to stop. Esc cancels.',
+            failed: 'Mic failed.',
+            privacyShort: 'Audio may go to Google',
+            error: 'Dictation failed. Check microphone permission and try again.',
+            privacy: 'Browser dictation may send audio to its speech service, such as Google.',
+        },
         topBar: { sessions: 'Sessions', usage: 'Usage', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         usage: {
             maxWeek: 'Max week', lastFiveHours: 'Last five hours', fableShare: 'Fable share',

@@ -1,0 +1,232 @@
+/** @vitest-environment jsdom */
+import { act } from 'react-test-renderer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderHook, standardCleanup, resetBrowserSessionDraftPersistenceForTest } from '@/dev/testkit';
+import { createWebAudioBoundary } from '@/dev/testkit/harness/webAudio';
+import { __emitSpeechRecognitionEvent as emit, __resetExpoSpeechRecognitionStub, __setExpoSpeechRecognitionImpls } from '@/dev/expoSpeechRecognitionStub';
+import { storage } from '@/sync/domains/state/storage';
+import { getSessionDraftSnapshot, writeExistingSessionDraft } from '@/sync/ops/sessionDrafts/sessionDraftRepository';
+import { createComposerTextStore } from '@/components/sessions/agentInput/composerTextStore';
+import { useDraft } from '@/hooks/session/useDraft';
+import { useSessionComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
+import { mergeDictationTranscript, useDeskDictation, useDeskDictationControls } from './useDeskDictation';
+
+vi.mock('react-native', async () => {
+    const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
+    return createReactNativeWebMock({ Platform: { OS: 'web' } });
+});
+
+const send = vi.hoisted(() => vi.fn());
+vi.mock('@/sync/sync', async () => {
+    const { createSyncModuleStub } = await import('@/dev/testkit/mocks/sync');
+    return { sync: {
+        ...createSyncModuleStub().sync,
+        submitMessage: send, sendMessage: send, enqueuePendingMessage: send,
+        materializeExistingSessionDraft: async () => {},
+    } };
+});
+
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
+});
+
+vi.mock('@/modal', async () => {
+    const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');
+    return createModalModuleMock().module;
+});
+
+const scope = { serverId: 'dictation-server', accountId: 'dictation-account' };
+const sessionId = 'coordinator';
+const previous = storage.getState();
+let getUserMedia: ReturnType<typeof vi.fn>;
+let start: ReturnType<typeof vi.fn>;
+let abort: ReturnType<typeof vi.fn>;
+let audio: ReturnType<typeof createWebAudioBoundary>;
+function draft(id = sessionId) {
+    return getSessionDraftSnapshot(scope, { kind: 'session', sessionId: id })?.document.composer.text.value ?? '';
+}
+function type(text: string) { writeExistingSessionDraft({ scope, sessionId, patch: { text } }); }
+async function press(hook: { getCurrent: () => ReturnType<typeof useDeskDictation> }) {
+    await act(async () => { hook.getCurrent().mic.onPress(); });
+}
+
+beforeEach(async () => {
+    await resetBrowserSessionDraftPersistenceForTest();
+    __resetExpoSpeechRecognitionStub();
+    storage.setState({ profileScope: scope });
+    type('');
+    audio = createWebAudioBoundary();
+    vi.stubGlobal('AudioContext', audio.AudioContext);
+    getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } });
+    start = vi.fn();
+    abort = vi.fn();
+    __setExpoSpeechRecognitionImpls({ start, abort, stop: () => emit('end') });
+});
+afterEach(async () => {
+    await standardCleanup();
+    expect(send).not.toHaveBeenCalled();
+    send.mockClear();
+    storage.setState(previous, true);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+});
+
+describe('unsent desk dictation', () => {
+    it.each([
+        ['', 'hello', 'hello'], ['Draft', 'hello', 'Draft hello'],
+        ['Draft ', 'hello', 'Draft hello'], ['Draft\n', 'hello', 'Draft\nhello'],
+        ['Draft', '', 'Draft'], ['Draft', '   ', 'Draft'],
+    ])('merges %j and %j', (text, transcript, expected) => {
+        expect(mergeDictationTranscript(text, transcript)).toBe(expected);
+    });
+
+    it('asks permission only on press, stops on second press and appends to the latest draft without sending', async () => {
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        expect(getUserMedia).not.toHaveBeenCalled();
+        expect(start).not.toHaveBeenCalled();
+        await press(hook);
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(hook.getCurrent().state).toBe('listening');
+        expect(hook.getCurrent().mic.isActive).toBe(true);
+        type('Edited while listening');
+        emit('result', { isFinal: true, results: [{ transcript: 'first phrase' }] });
+        emit('result', { isFinal: true, results: [{ transcript: 'dictated text' }] });
+        expect(draft()).toBe('Edited while listening');
+        await press(hook);
+        expect(draft()).toBe('Edited while listening first phrase dictated text');
+        expect(hook.getCurrent().mic.isActive).toBe(false);
+        expect(send).not.toHaveBeenCalled();
+        expect(audio.sources).toHaveLength(0);
+    });
+
+    it('mounts and cleans up without DOM listeners when the native window has no document', async () => {
+        vi.stubGlobal('document', undefined);
+        try {
+            const hook = await renderHook(() => useDeskDictation(sessionId));
+            expect(hook.getCurrent().state).toBe('idle');
+            expect(getUserMedia).not.toHaveBeenCalled();
+            await hook.unmount();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('updates the live composer store through the real draft subscriber', async () => {
+        const textStore = createComposerTextStore('');
+        const hook = await renderHook(() => {
+            const draftOwner = useDraft(sessionId, textStore, { active: true });
+            return { ...useDeskDictation(sessionId), draftOwner };
+        });
+        await act(async () => { hook.getCurrent().draftOwner.setDraftValue('Typed prefix'); });
+        await press(hook);
+        emit('result', { results: [{ transcript: 'spoken suffix' }] });
+        await press(hook);
+        expect(textStore.getPrompt()).toBe('Typed prefix spoken suffix');
+        expect(draft()).toBe(textStore.getPrompt());
+    });
+
+    it('a speech-service end stops and merges without sending', async () => {
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        await press(hook);
+        emit('result', { results: [{ transcript: 'finished speech' }] });
+        await act(async () => { emit('end'); });
+        expect(draft()).toBe('finished speech');
+        expect(hook.getCurrent().state).toBe('idle');
+    });
+
+    it('Escape during a pending stop discards its late result', async () => {
+        __setExpoSpeechRecognitionImpls({ stop: () => {} });
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        await press(hook);
+        emit('result', { results: [{ transcript: 'discard after stop' }] });
+        await press(hook);
+        await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+        emit('end');
+        expect(draft()).toBe('');
+        expect(hook.getCurrent().state).toBe('idle');
+    });
+
+    it('Escape discards the transcript', async () => {
+        type('Keep this');
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        await press(hook);
+        emit('result', { results: [{ transcript: 'discard' }] });
+        await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+        expect(abort).toHaveBeenCalledOnce();
+        expect(draft()).toBe('Keep this');
+        expect(hook.getCurrent().state).toBe('idle');
+    });
+
+    it.each(['blur', 'hidden'])('%s stops and merges', async (event) => {
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        await press(hook);
+        emit('result', { results: [{ transcript: 'keep speech' }] });
+        await act(async () => {
+            if (event === 'blur') window.dispatchEvent(new Event('blur'));
+            else {
+                vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+                document.dispatchEvent(new Event('visibilitychange'));
+            }
+        });
+        expect(draft()).toBe('keep speech');
+        expect(hook.getCurrent().state).toBe('idle');
+    });
+
+    it('cancels on session change and unmount and ignores late recognition events', async () => {
+        const hook = await renderHook(({ id }) => useDeskDictation(id), { initialProps: { id: sessionId } });
+        await press(hook);
+        emit('result', { results: [{ transcript: 'old session' }] });
+        await hook.rerender({ id: 'another-coordinator' });
+        expect(abort).toHaveBeenCalledOnce();
+        expect(hook.getCurrent().mic.isActive).toBe(false);
+        await press(hook);
+        await hook.unmount();
+        emit('result', { results: [{ transcript: 'late result' }] });
+        emit('end');
+        window.dispatchEvent(new Event('blur'));
+        expect(abort).toHaveBeenCalledTimes(2);
+        expect(draft()).toBe('');
+        expect(draft('another-coordinator')).toBe('');
+    });
+
+    it('cancels while permission is pending without late start or draft updates', async () => {
+        let grant!: (value: { getTracks: () => [] }) => void;
+        getUserMedia.mockImplementation(() => new Promise(resolve => { grant = resolve; }));
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        await press(hook);
+        await hook.unmount();
+        await act(async () => { grant({ getTracks: () => [] }); });
+        expect(start).not.toHaveBeenCalled();
+        expect(draft()).toBe('');
+    });
+
+    it.each(['permission', 'start', 'recognition'])('%s failure shows an error and releases the mic', async (failure) => {
+        if (failure === 'permission') getUserMedia.mockRejectedValue(new DOMException('Denied', 'NotAllowedError'));
+        if (failure === 'start') __setExpoSpeechRecognitionImpls({ start: () => { throw new Error('Failed'); } });
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        await press(hook);
+        if (failure === 'recognition') await act(async () => { emit('error', { error: 'network' }); });
+        expect(hook.getCurrent().state).toBe('error');
+        expect(hook.getCurrent().mic.isActive).toBe(false);
+        expect(draft()).toBe('');
+    });
+
+    it('replaces the composer mic and exposes status and privacy through existing badges with voice disabled', async () => {
+        const hook = await renderHook(() => {
+            const controls = useDeskDictationControls(sessionId, { mic: null, hide: { stop: true } });
+            const resolved = useSessionComposerOverrides({
+                isReadOnly: false, placeholder: '', extraActionChips: [], statusBadges: [],
+                providerUsageGauge: null, onMicPress: undefined, isMicActive: false,
+                onAbort: undefined, alwaysShowContextSize: false,
+            }, controls);
+            return { controls, resolved };
+        });
+        expect(hook.getCurrent().resolved.onMicPress).toBeUndefined();
+        expect(hook.getCurrent().resolved.statusBadges.some(badge => badge.testID === 'ip-dictation-status')).toBe(true);
+        await act(async () => { hook.getCurrent().resolved.statusBadges.find(badge => badge.testID === 'ip-dictation-status')?.onPress?.(); });
+        expect(hook.getCurrent().resolved.statusBadges.find(badge => badge.testID === 'ip-dictation-status')?.tone).toBe('active');
+        expect(hook.getCurrent().controls.hide?.stop).toBe(true);
+    });
+});
