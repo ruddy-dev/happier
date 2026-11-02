@@ -24,6 +24,8 @@ export type SessionAgentPickerSelection = Readonly<{
     modelLabel: string | null;
     sessionModeId: string | null;
     configOverrides: Readonly<Record<string, string>>;
+    /** An explicit host contract, retained with the armed draft until submission. */
+    inputPermissionMode?: 'read-only' | 'plan';
 }>;
 
 /**

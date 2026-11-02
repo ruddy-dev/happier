@@ -24,6 +24,7 @@ import { announceAccessibilityMessage } from '@/components/ui/accessibility/anno
 import { Icon } from '@/components/ui/icons/Icon';
 import { randomUUID } from '@/platform/randomUUID';
 import { t } from '@/text';
+import { inspectInputPermissionIntentSupport } from '@/sync/domains/session/input/continueSessionWithArmedAgent';
 
 import { existingSessionDraftSemanticValues } from '@/sync/domains/input/drafts/existingSessionDraftSemanticValues';
 import { useExistingSessionDraftSemanticValue } from '@/hooks/session/useExistingSessionDraftSemanticValue';
@@ -104,7 +105,7 @@ function clearPersistedArmedContinuation(
  * has to survive.
  */
 function buildArmedContinuationIdentityKey(armScopeKey: string, arm: ArmedAgentContinuation): string {
-    return `${armScopeKey} ${arm.backendTargetKey} ${JSON.stringify(arm.intent)}`;
+    return `${armScopeKey} ${arm.backendTargetKey} ${JSON.stringify(arm.intent)} ${arm.inputPermissionMode ?? ''}`;
 }
 
 function isSameArmedContinuation(
@@ -112,6 +113,7 @@ function isSameArmedContinuation(
     expected: ArmedAgentContinuation,
 ): boolean {
     return persisted?.backendTargetKey === expected.backendTargetKey
+        && persisted.inputPermissionMode === expected.inputPermissionMode
         && JSON.stringify(persisted.intent) === JSON.stringify(expected.intent)
         && JSON.stringify(persisted.submission) === JSON.stringify(expected.submission);
 }
@@ -222,6 +224,7 @@ function projectPersistedArmSelection(arm: ArmedAgentContinuation): SessionAgent
     const selection = arm.intent.selection;
     return {
         modelId: selection.modelId ?? 'default',
+        ...(arm.inputPermissionMode ? { inputPermissionMode: arm.inputPermissionMode } : {}),
         modelLabel: arm.modelLabel ?? null,
         sessionModeId: selection.acpSessionModeId ?? null,
         configOverrides: Object.fromEntries(
@@ -246,6 +249,7 @@ function buildArmedContinuation(
         : null;
     return {
         backendTargetKey: entry.targetKey,
+        ...(selection.inputPermissionMode ? { inputPermissionMode: selection.inputPermissionMode } : {}),
         modelLabel: selection.modelId !== 'default' ? selection.modelLabel ?? null : null,
         intent: {
             v: 1,
@@ -283,6 +287,10 @@ export type InSessionAgentPickerControls = Readonly<{
     /** The armed target, or null so the composer keeps selecting the current Agent. */
     agentPickerSelectedOptionId: string | null;
     armedContinuation: ArmedAgentContinuation['intent'] | null;
+    armedContinuationPermissionMode: ArmedAgentContinuation['inputPermissionMode'] | null;
+    /** Hosts use the same exact selection/inspection/arm owner as the Agent rail. */
+    selectAgentForNextMessage: (targetKey: string, selection: SessionAgentPickerSelection) => Promise<'armed' | 'checking' | 'unavailable'>;
+    continuationAvailability: ReadonlyMap<string, SessionAgentContinuationEligibility['status']>;
     /**
      * The stable localId the submit path must carry for {@link armedContinuation}.
      * Non-null exactly when `armedContinuation` is.
@@ -814,6 +822,25 @@ export function useInSessionAgentPickerControls(
         }
     }, [currentAgentId, featureEnabled, persistArmedContinuation, readInspection, readTargetSelection, source, targetEntries]);
 
+    const hostSelectionScope = `${sessionId} ${currentAgentId} ${source.currentBackendTargetKey} ${JSON.stringify(params.machine)} ${accountScope ? serverAccountScopeKeySuffix(accountScope) : ''} ${featureEnabled}`;
+    const hostSelectionScopeRef = React.useRef(hostSelectionScope);
+    hostSelectionScopeRef.current = hostSelectionScope;
+    const selectAgentForNextMessage = React.useCallback(async (targetKey: string, selection: SessionAgentPickerSelection): Promise<'armed' | 'checking' | 'unavailable'> => {
+        const entry = targetEntries.find(candidate => candidate.targetKey === targetKey);
+        if (!featureEnabled || !entry || currentAgentId === null || sessionReason !== null || retainedSubmissionArm !== null) return 'unavailable';
+        if (selection.inputPermissionMode) {
+            if (!params.machine.machineId) return 'unavailable';
+            const support = await inspectInputPermissionIntentSupport(params.machine.machineId, params.machine.serverId);
+            if (hostSelectionScopeRef.current !== hostSelectionScope || support !== 'supported') return 'unavailable';
+        }
+        signalAgentPickerIntent();
+        setSelectionByTargetKey(current => new Map(current).set(targetKey, selection));
+        armExactSelection(entry, currentAgentId, selection);
+        const eligibility = resolveSessionAgentContinuationEligibility({ entry, source, inspection: readInspection(buildTargetSelection(entry, selection)) });
+        return eligibility.status === 'eligible' ? 'armed' : eligibility.status === 'checking' ? 'checking' : 'unavailable';
+    }, [armExactSelection, currentAgentId, featureEnabled, hostSelectionScope, params.machine, readInspection, retainedSubmissionArm, sessionReason, signalAgentPickerIntent, source, targetEntries]);
+    const continuationAvailability = React.useMemo(() => new Map(targetRows.map(row => [row.entry.targetKey, row.eligibility.status])), [targetRows]);
+
     const targetOptions = React.useMemo(() => {
         // A retained submitted snapshot is already in custody reconciliation. It
         // is not a next-message arm, and offering another one before the existing
@@ -1001,6 +1028,9 @@ export function useInSessionAgentPickerControls(
 
     return {
         composeAgentPickerOptions,
+        selectAgentForNextMessage,
+        continuationAvailability,
+        armedContinuationPermissionMode: (submissionArm ?? armed)?.inputPermissionMode ?? null,
         agentPickerSelectedOptionId,
         armedContinuation: featureEnabled ? armed?.intent ?? null : null,
         armedContinuationLocalId: featureEnabled ? armedContinuationLocalId : null,

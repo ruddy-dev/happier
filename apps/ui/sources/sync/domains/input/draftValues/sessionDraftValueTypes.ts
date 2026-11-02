@@ -206,6 +206,7 @@ export type SessionArmedAgentContinuationSubmission = Readonly<
 export const SessionArmedAgentContinuationSchema = z.object({
     backendTargetKey: z.string().trim().min(1),
     intent: ComposerAgentContinuationIntentV1Schema,
+    inputPermissionMode: z.enum(['read-only', 'plan']).optional(),
     // Null when the target is on its own defaults, which is the absence of a model
     // choice rather than a model called default. An unreadable arm is dropped
     // whole: a restored arm that named the wrong model would be worse than none.

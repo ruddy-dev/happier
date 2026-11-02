@@ -4767,9 +4767,9 @@ function SessionViewLoaded({
         return buildSessionComposerNextMessageMetaOverridesFromUiState({
             agentId: targetSelection ? resolveAgentIdFromFlavor(targetSelection.agentId) : liveComposerState.agentId,
             configOptionOverrides: targetSelection ? targetSelection.sessionConfigOptionOverrides : optimisticSessionConfigOptionOverrides,
-            metaOverrides: targetSelection ? { ...metaOverrides, permissionMode: parsePermissionIntentAlias(permissionMode) ?? 'default' } : metaOverrides,
+            metaOverrides: targetSelection ? { ...metaOverrides, permissionMode: inSessionAgentPicker.armedContinuationPermissionMode ?? parsePermissionIntentAlias(permissionMode) ?? 'default' } : metaOverrides,
         });
-    }, [liveComposerState.agentId, optimisticSessionConfigOptionOverrides, permissionMode]);
+    }, [inSessionAgentPicker.armedContinuationPermissionMode, liveComposerState.agentId, optimisticSessionConfigOptionOverrides, permissionMode]);
 
     // Function to update model mode (only for agents that expose model selection in the UI)
     const updateModelMode = React.useCallback((mode: ModelMode, modelOptionsContext?: SessionModelOptionsContext) => {
@@ -5703,6 +5703,7 @@ function SessionViewLoaded({
                 const isScopeCurrent = () => areServerAccountScopesEqual(activeServerAccountScope, getActiveServerAccountScope());
                 const { disposition, result } = await continueSessionWithArmedAgent(submissionForDispatch, {
                     isCurrent: isScopeCurrent,
+                    requireInputPermissionIntentSupport: inSessionAgentPicker.armedContinuationPermissionMode != null,
                     onBeforeTransitionDispatch: () => inSessionAgentPicker.recordArmedContinuationSubmission({
                         localId: destination.localId,
                         input: transitionInput,
@@ -6274,7 +6275,27 @@ function SessionViewLoaded({
         isMicActive: micButtonState.isMicActive,
         onAbort: handleAgentInputAbort,
         alwaysShowContextSize,
-    }, composer);
+    }, composer, composer?.renderFooterLeadingActions ? {
+        agentId: liveComposerState.agentId,
+        modelId: modelMode,
+        configOverrides: Object.fromEntries(Object.entries(optimisticSessionConfigOptionOverrides?.overrides ?? {}).flatMap(([key, override]) => (
+            typeof override.value === 'string' ? [[key, override.value]] : []
+        ))),
+        machineId: typeof machineId === 'string' ? machineId : null,
+        serverId: sessionRouteServerId ?? capabilityServerId,
+        cwd: session.metadata?.path ?? null,
+        canSend: hasWriteAccess && !isReadOnly && !pendingMessageEdit && !isComposerSendPending,
+        textStore: composerTextStore,
+        hasNonTextDraft: hasIncludedReviewCommentDrafts || attachmentDrafts.length > 0 || recipientState.recipient !== null,
+        busy: session.thinking === true,
+        probeGeneration: JSON.stringify(agentContinuationMachine),
+        continuationNotice: armedContinuationNotice?.message ?? null,
+        switchingEnabled: agentSwitchingDecision?.state === 'enabled',
+        agentPicker: inSessionAgentPicker,
+        setModel: updateModelMode,
+        setConfigOption: updateSessionConfigOptionOverride,
+        sendMessage: (text) => handleAgentInputSend({ inputTextOverride: text }),
+    } : undefined);
     const composerInputHandleRef = React.useRef<MultiTextInputHandle | null>(null);
     useComposerRequestHandle(sessionId, {
         setText: setDraftValue,

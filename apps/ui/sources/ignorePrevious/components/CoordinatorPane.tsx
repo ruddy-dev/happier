@@ -15,8 +15,10 @@ import { useSession, useSetting } from '@/sync/store/hooks';
 import { t } from '@/text';
 
 import { RunSettingsMenu } from './RunSettingsMenu';
+import { ShogRunSettingsMenu } from './ShogRunSettingsMenu';
 import { ContextGauge } from './ContextGauge';
 import { sessionContextMeter } from './ContextMeter';
+import { resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
 import { ShogView } from './ShogView';
@@ -75,9 +77,10 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
         ...controls,
         placeholder,
         footerLeadingActions: <RunSettingsMenu key={sessionId} />,
+        renderFooterLeadingActions: (hostControls) => <ShogRunSettingsMenu key={sessionId} controls={hostControls} />,
         providerUsageGauge: null,
         hide: { ...controls.hide, contextUsage: true },
-        statusTrailingActions: (showEnterHint || (coordinator && sessionContextMeter(coordinator))) ? <>
+        statusTrailingActions: (showEnterHint || (coordinator && (sessionContextMeter(coordinator) || resolveAgentIdFromFlavor(coordinator.metadata?.flavor) === 'codex'))) ? <>
             {showEnterHint ? (
                 <DeskText testID="ip-composer-enter-hint" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
                     {enterHint}

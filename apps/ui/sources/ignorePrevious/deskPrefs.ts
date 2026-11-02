@@ -8,6 +8,8 @@ const mmkv = new MMKV();
 export type ChatStyle = 'mask' | 'terminal';
 
 const keys = {
+    shogModels: { storageKey: 'ignorePrevious.shogModels', defaultValue: JSON.stringify(['claude:claude-opus-5-5', 'codex:gpt-6.1-sol', 'codex:gpt-6-astra']) },
+    shogLastUsedModel: { storageKey: 'ignorePrevious.shogLastUsedModel', defaultValue: 'claude:claude-opus-5-5' },
     chatStyle: { storageKey: 'ignorePrevious.chatStyle', defaultValue: 'mask' as ChatStyle, allowedValues: ['mask', 'terminal'] as readonly string[] },
     terminalPalette: { storageKey: 'ignorePrevious.terminalPalette', defaultValue: 'tokyo' as TerminalPalette, allowedValues: Object.keys(terminalPalettes) },
     // C17 will consume this preference in the transcript pipeline.

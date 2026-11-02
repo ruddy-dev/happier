@@ -4,7 +4,32 @@ import type {
     AgentInputExtraActionChip,
     AgentInputStatusBadge,
 } from '@/components/sessions/agentInput/agentInputContracts';
+import type { ComposerTextStore } from '@/components/sessions/agentInput/composerTextStore';
+import type { InSessionAgentPickerControls } from '@/components/sessions/agentPicker/useInSessionAgentPickerControls';
+import type { SessionModelOptionsContext } from '@/sync/domains/models/modelOptions';
+import type { AgentId } from '@/agents/catalog/catalog';
 import type { ConnectedServiceQuotaGaugeViewModel } from '@/sync/domains/connectedServices/connectedServiceQuotaGauge';
+
+export type SessionComposerHostControls = Readonly<{
+    agentId: AgentId | null;
+    modelId: string;
+    configOverrides: Readonly<Record<string, string>>;
+    machineId: string | null;
+    serverId: string;
+    cwd: string | null;
+    canSend: boolean;
+    textStore: ComposerTextStore;
+    hasNonTextDraft: boolean;
+    probeGeneration?: string;
+    continuationNotice?: string | null;
+    busy: boolean;
+    switchingEnabled: boolean;
+    agentPicker: InSessionAgentPickerControls;
+    setModel: (modelId: string, context?: SessionModelOptionsContext) => void;
+    setConfigOption: (configId: string, valueId: string) => void;
+    /** The very same handler as AgentInput, with its ordinary send rules. */
+    sendMessage: (text: string) => void;
+}>;
 
 /**
  * Optional composer customisation a host screen can pass to SessionView.
@@ -22,6 +47,7 @@ export type SessionViewComposerOverrides = Readonly<{
     statusTrailingActions?: React.ReactNode;
     /** Always visible at the start of the action footer, including collapsed layouts. */
     footerLeadingActions?: React.ReactNode;
+    renderFooterLeadingActions?: (controls: SessionComposerHostControls) => React.ReactNode;
     /** undefined keeps Happier's gauge, null removes it, a view model replaces it. */
     providerUsageGauge?: ConnectedServiceQuotaGaugeViewModel | null;
     /** undefined keeps Happier's mic, null removes it, an object replaces it. */
@@ -63,6 +89,7 @@ function useAppended<Base extends ReadonlyArray<unknown> | undefined>(
 export function useSessionComposerOverrides(
     base: ComposerBase,
     overrides: SessionViewComposerOverrides | null | undefined,
+    hostControls?: SessionComposerHostControls,
 ): ResolvedComposer {
     const extraActionChips = useAppended(base.extraActionChips, overrides?.extraActionChips);
     const statusBadges = useAppended(base.statusBadges, overrides?.statusBadges);
@@ -77,7 +104,8 @@ export function useSessionComposerOverrides(
         extraActionChips,
         statusBadges,
         statusTrailingActions: overrides?.statusTrailingActions,
-        footerLeadingActions: overrides?.footerLeadingActions,
+        footerLeadingActions: hostControls && overrides?.renderFooterLeadingActions
+            ? overrides.renderFooterLeadingActions(hostControls) : overrides?.footerLeadingActions,
         providerUsageGauge: overrides?.providerUsageGauge !== undefined ? overrides.providerUsageGauge : base.providerUsageGauge,
         onMicPress: mic === undefined ? base.onMicPress : mic?.onPress,
         isMicActive: mic === undefined ? base.isMicActive : mic?.isActive,

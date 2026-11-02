@@ -9,6 +9,7 @@ import { t } from '@/text';
 import { terminalPalettes, type TerminalPalette } from '../palette';
 import { useDeskPref } from '../deskPrefs';
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
+import { ShogModelsSettings } from '../components/ShogModelsSettings';
 import { DeskText } from '../typography/DeskText';
 
 export function DeskSettingsScreen() {
@@ -63,6 +64,7 @@ export function DeskSettingsScreen() {
                             </View>
                         </> : null}
                     </View>
+                    <ShogModelsSettings />
                     <Pressable
                         testID="ip-settings-creature"
                         accessibilityRole="switch"

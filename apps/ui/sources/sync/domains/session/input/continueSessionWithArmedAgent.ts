@@ -490,9 +490,26 @@ export type ArmedAgentContinuationOutcome = Readonly<{
     disposition: ArmedAgentContinuationDisposition;
 }>;
 
+/** One capability parser shared by host pickers and the final send guard. */
+export async function inspectInputPermissionIntentSupport(machineId: string, serverId: string | null): Promise<'supported' | 'unsupported' | 'unknown'> {
+    const capability = await machineCapabilitiesDetect(machineId, {
+        requests: [{ id: 'tool.sessionAgentTransition' }],
+    }, { serverId });
+    const detected = capability.supported ? capability.response.results['tool.sessionAgentTransition'] : undefined;
+    const data = detected?.ok === true ? detected.data : null;
+    const support = data && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, unknown>).supportsInputPermissionIntent : undefined;
+    if (support === true) return 'supported';
+    const unsupported = capability.supported
+        ? detected?.ok === false && detected.error.code === 'unknown-capability'
+            || detected?.ok === true && support === false
+        : capability.reason === 'not-supported';
+    return unsupported ? 'unsupported' : 'unknown';
+}
+
 export async function continueSessionWithArmedAgent(
     submission: ArmedAgentContinuationSubmission,
-    options?: Readonly<{ isCurrent?: () => boolean; onBeforeTransitionDispatch?: () => boolean }>,
+    options?: Readonly<{ isCurrent?: () => boolean; onBeforeTransitionDispatch?: () => boolean; requireInputPermissionIntentSupport?: boolean }>,
 ): Promise<ArmedAgentContinuationOutcome> {
     const refuseLocally = (message: string | null): ArmedAgentContinuationOutcome => ({
         result: null,
@@ -507,23 +524,13 @@ export async function continueSessionWithArmedAgent(
     const committedMode = submission.committedPermissionMode
         ? parsePermissionIntentAlias(submission.committedPermissionMode)
         : 'default';
-    // Equivalent intent retains the released daemon's latest Session-policy
-    // admission path. Only a changed draft-only intent needs input transfer.
-    if (authoredMode && authoredMode !== committedMode) {
-        const capability = await machineCapabilitiesDetect(submission.machineId, {
-            requests: [{ id: 'tool.sessionAgentTransition' }],
-        }, { serverId: submission.serverId });
+    // Ordinary equivalent-intent sends retain the released compatibility path.
+    // A host's explicit permission contract also requires support when equivalent.
+    if (authoredMode && (authoredMode !== committedMode || options?.requireInputPermissionIntentSupport === true)) {
+        const support = await inspectInputPermissionIntentSupport(submission.machineId, submission.serverId);
         if (options?.isCurrent?.() === false) return refuseLocally(null);
-        const detected = capability.supported ? capability.response.results['tool.sessionAgentTransition'] : undefined;
-        const data = detected?.ok === true ? detected.data : null;
-        const support = data && typeof data === 'object' && !Array.isArray(data)
-            ? (data as Record<string, unknown>).supportsInputPermissionIntent : undefined;
-        if (support !== true) {
-            const unsupported = capability.supported
-                ? detected?.ok === false && detected.error.code === 'unknown-capability'
-                    || detected?.ok === true && support === false
-                : capability.reason === 'not-supported';
-            return refuseLocally(unsupported
+        if (support !== 'supported') {
+            return refuseLocally(support === 'unsupported'
                 ? t('session.agentContinuation.transition.rejected.unsupportedOperation')
                 : t('errors.failedToSendMessage'));
         }
