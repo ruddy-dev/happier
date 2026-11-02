@@ -305,7 +305,7 @@ export function isUiWebExportCurrent(env: NodeJS.ProcessEnv): boolean {
   });
 }
 
-async function ensureUiWebExportBuilt(params: { testDir: string; env: NodeJS.ProcessEnv }): Promise<string> {
+export async function ensureUiWebExportBuilt(params: { testDir: string; env: NodeJS.ProcessEnv; rebuild?: boolean }): Promise<string> {
   const cacheKey = buildUiWebExportCacheKey(params.env);
   const clearRaw = (params.env.HAPPIER_E2E_EXPO_CLEAR ?? '').toString().trim().toLowerCase();
   const clearCache = clearRaw === '1' || clearRaw === 'true' || clearRaw === 'yes' || clearRaw === 'y';
