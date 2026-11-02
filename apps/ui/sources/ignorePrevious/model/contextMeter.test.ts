@@ -9,6 +9,7 @@ describe('contextMeter', () => {
             limit: 220_000,
             towardsCompact: true,
             ratio: 0.5,
+            percent: 50,
             windowTokens: 1_000_000,
         });
     });
@@ -22,4 +23,10 @@ describe('contextMeter', () => {
         const meter = contextMeter({ used: 300_000, windowTokens: 200_000, compactAt: 220_000 });
         expect(meter).toMatchObject({ limit: 200_000, towardsCompact: false, ratio: 1 });
     });
+});
+
+// The display retains overshoot while the bar stays bounded.
+it.each([[209_000, 95], [220_000, 100], [242_000, 110]])('L11 keeps %i tokens visible as %i percent near and past 220K', (used, percent) => {
+    expect(contextMeter({ used, windowTokens: 1_000_000, compactAt: 220_000 }))
+        .toMatchObject({ percent, ratio: Math.min(percent / 100, 1) });
 });

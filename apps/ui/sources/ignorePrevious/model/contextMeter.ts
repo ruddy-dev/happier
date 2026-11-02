@@ -3,7 +3,9 @@ export type ContextMeter = Readonly<{
     /** What the bar fills towards: the auto-compact limit when known, else the model window. */
     limit: number;
     towardsCompact: boolean;
-    /** 0 to 1. */
+    /** Rounded display percentage, including usage past the limit. */
+    percent: number;
+    /** 0 to 1, for the bar only. */
     ratio: number;
     windowTokens: number | null;
 }>;
@@ -17,5 +19,6 @@ export function contextMeter(input: { used: number; windowTokens: number | null;
     const towardsCompact = compactAt !== null && (windowTokens === null || compactAt < windowTokens);
     const limit = towardsCompact ? compactAt : windowTokens;
     if (limit === null || limit <= 0) return null;
-    return { used, limit, towardsCompact, ratio: Math.min(1, Math.max(0, used / limit)), windowTokens };
+    const ratio = Math.max(0, used / limit);
+    return { used, limit, towardsCompact, percent: Math.round(ratio * 100), ratio: Math.min(1, ratio), windowTokens };
 }

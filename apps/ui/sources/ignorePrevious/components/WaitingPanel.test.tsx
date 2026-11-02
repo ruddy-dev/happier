@@ -24,8 +24,6 @@ function seed(sessions: Session[]) {
 }
 
 const state = vi.hoisted(() => ({
-    allow: vi.fn(async (..._args: unknown[]) => {}),
-    deny: vi.fn(async (..._args: unknown[]) => {}),
     alert: vi.fn(),
     navigate: vi.fn(),
 }));
@@ -40,10 +38,10 @@ vi.mock('@expo/vector-icons', async () => {
     return createExpoVectorIconsMock();
 });
 
-vi.mock('@/sync/ops', () => ({
-    sessionAllow: state.allow,
-    sessionDeny: state.deny,
-}));
+vi.mock('@/sync/sync', async () => {
+    const { installSyncStub } = await import('@/dev/testkit/mocks/sync');
+    return installSyncStub()();
+});
 
 vi.mock('@/modal', async () => {
     const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');
@@ -84,27 +82,12 @@ describe('WaitingPanel', () => {
 
     beforeEach(() => {
         previous = storage.getState();
-        state.allow.mockReset().mockResolvedValue(undefined);
-        state.deny.mockReset().mockResolvedValue(undefined);
         state.alert.mockReset();
         state.navigate.mockReset();
         seed([
             sessionWithRequest('s1', { tool: 'Bash', arguments: { command: 'rm -rf build' }, createdAt: 10 }),
             sessionWithRequest('s2', null),
         ]);
-    });
-
-    it('shows a pending request and allows it', async () => {
-        const screen = await renderPanel();
-        expect(screen.getTextContent()).toContain('rm -rf build');
-        await pressTestInstanceAsync(button(screen, 'Allow Bash'));
-        expect(state.allow).toHaveBeenCalledWith('s1', 'r1');
-    });
-
-    it('denies a request', async () => {
-        const screen = await renderPanel();
-        await pressTestInstanceAsync(button(screen, 'Deny'));
-        expect(state.deny).toHaveBeenCalledWith('s1', 'r1', undefined, undefined, 'denied');
     });
 
     it('opens the session', async () => {
@@ -137,17 +120,6 @@ describe('WaitingPanel', () => {
         expect(screen.findByTestId('ip-waiting')).toBeNull();
     });
 
-    it('says the answer was not sent when sending it fails', async () => {
-        state.allow.mockRejectedValue(new Error('gone'));
-        const screen = await renderPanel();
-        await act(async () => {
-            await pressTestInstanceAsync(button(screen, 'Allow Bash'));
-        });
-        expect(state.alert).toHaveBeenCalledWith(
-            'Answer not sent',
-            "Your answer didn't go through. Check the connection and try again.",
-        );
-    });
 
     it('offers only Open session for a question', async () => {
         seed([

@@ -18,6 +18,7 @@ import { getSessionName } from '@/utils/sessions/sessionUtils';
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { CoordinatorPane } from '../components/CoordinatorPane';
 import { ApprovalsButton, ApprovalsCard, ApprovalsDrawer } from '../components/Approvals';
+import { createWaitingHistory, type WaitingHistory } from '../components/WaitingPanel';
 import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
 import {
@@ -106,7 +107,7 @@ function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: I
  * kept in deskPrefs: restored with an in-memory pane open on mount, and saved whenever the drawer
  * opens or closes, including when the pane host closes it (the phone overlay's backdrop).
  */
-function useApprovalsDrawer() {
+function useApprovalsDrawer(history: WaitingHistory) {
     const { scopeState, openRight, closeRight } = useAppPaneScope(SCOPE_ID);
     // Where no pane can be drawn (a phone, or multi-pane switched off) the list opens as a card
     // instead, and the stored choice waits for a layout that has room for the drawer.
@@ -125,10 +126,10 @@ function useApprovalsDrawer() {
     }, [open, canDraw]);
 
     const toggle = React.useCallback(() => {
-        if (!canDraw) Modal.show({ component: ApprovalsCard });
+        if (!canDraw) Modal.show({ component: ApprovalsCard, props: { history } });
         else if (open) closeRight();
         else openRight();
-    }, [canDraw, open, openRight, closeRight]);
+    }, [canDraw, open, openRight, closeRight, history]);
     return { open, toggle, close: closeRight };
 }
 
@@ -144,7 +145,8 @@ export function DeskScreen() {
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const { list: sessions, ready: dataReady } = useDeskSessions();
     const [workCollapsed, collapseWork] = useDeskPref('workCollapsed');
-    const approvals = useApprovalsDrawer();
+    const [waitingHistory] = React.useState(createWaitingHistory);
+    const approvals = useApprovalsDrawer(waitingHistory);
 
     const coordinatorId = useCoordinatorId(sessions);
 
@@ -272,7 +274,7 @@ export function DeskScreen() {
         <DeskFontRoot>
             <View style={{ flex: 1 }}>
                 <DeskConnectionBanner />
-                <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} />} />
+                <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} history={waitingHistory} />} />
             </View>
         </DeskFontRoot>
     );
