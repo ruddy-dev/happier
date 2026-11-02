@@ -14,6 +14,8 @@ export type DeskPopupOptions = Partial<OutsideClickPolicy> & Readonly<{
     contentRef: RefObject<View | HTMLElement | null>;
     /** Return focus on explicit close or Escape, while preserving focus taken by an outside click. */
     returnFocusOnClose?: boolean;
+    /** Follow a replacement opener only if the captured opener has been detached. */
+    useLiveOpenerWhenDetached?: boolean;
 }>;
 
 // Pointer ordering only. Keyboard ordering stays with Happier's shared Escape stack.
@@ -62,6 +64,11 @@ export function useDeskPopup(options: DeskPopupOptions): void {
             const target = event instanceof KeyboardEvent ? event.target : null;
             if (presentation === 'docked' && target instanceof HTMLElement && isEditableEscapeTarget(target)
                 && !(contentRef.current instanceof HTMLElement && contentRef.current.contains(target))) return false;
+            const captured = escapeFocusReturnRef.current;
+            const live = current.current.openerRef.current;
+            if (current.current.useLiveOpenerWhenDetached && captured && !captured.isConnected && live instanceof HTMLElement) {
+                escapeFocusReturnRef.current = live;
+            }
             close();
         },
     });
@@ -101,6 +108,10 @@ export function useDeskPopup(options: DeskPopupOptions): void {
             const active = document.activeElement;
             const content = current.current.contentRef.current;
             if ((returnFocusOnClose.current && !closedByOutsideClick) || active == null || active === document.body || (content instanceof HTMLElement && content.contains(active))) {
+                const live = current.current.openerRef.current;
+                if (current.current.useLiveOpenerWhenDetached && focusReturnRef.current && !focusReturnRef.current.isConnected && live instanceof HTMLElement) {
+                    focusReturnRef.current = live;
+                }
                 restoreFocusToBestTarget(focusReturnRef, focusFallbackRef);
             }
         };

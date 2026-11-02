@@ -22,7 +22,7 @@ import { BulbLabel, bulbWord } from './BulbLabel';
 import { IssueCard } from './IssueCard';
 import { useDeskSessions } from '../useDeskSessions';
 
-function toWorkerRows(
+export function toWorkerRows(
     list: readonly SessionListRenderableSession[],
     lookup: ReadonlyMap<string, Session>,
     issueKeys: ReadonlyMap<string, string | null>,

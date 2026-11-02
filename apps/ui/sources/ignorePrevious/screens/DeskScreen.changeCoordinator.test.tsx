@@ -162,3 +162,9 @@ describe('DeskScreen change coordinator', () => {
         expect(scenario.screen.findByTestId('ip-coordinator-change-cancel')).toBeFalsy();
     });
 });
+
+// These scenarios exercise the concurrent desktop panes. Phone navigation has its own tests.
+vi.mock('react-native', async () => {
+    const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
+    return createReactNativeWebMock({ useWindowDimensions: () => ({ width: 1440, height: 900, scale: 1, fontScale: 1 }) });
+});

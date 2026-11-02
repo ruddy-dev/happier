@@ -17,7 +17,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 
 Desk text must use `DeskText` (or `DESK_FONT_STACK` from `ignorePrevious/fonts/deskFont.ts`): Happier `Text` sets Inter/Plex inline, and portaled content (Popover, Modal) does not inherit the root.
 
-Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; the desk header has a minimal Settings button until the top bar lands.
+Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; the desk top bar supplies its Settings button. The desk route hides the shared stack header via its own `Stack.Screen` option and supplies its own chrome.
 
 ## Branches
 
@@ -124,6 +124,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/components/navigation/shell/SidebarNavigator.tsx` | Hides the shared sidebar on the desk route; coverage lives beside it in `SidebarNavigator.collapsed.test.tsx`. |
 | `apps/ui/sources/components/sessions/transcript/TranscriptAppearanceContext.tsx` (new) | Nullable data/slot contract for user, agent and tool containers, optional markdown font/colours and an agent-leading node; imports no overlay code. |
 | `apps/ui/sources/components/sessions/transcript/MessageView.tsx` | Applies opt-in container styles after built-ins and the agent-leading slot; styles the streaming plain-text fallback. Resets the appearance beneath tool chrome to preserve tool-row typography. |
 | `apps/ui/sources/components/sessions/pending/PendingMessagesTranscriptBlock.tsx` | Resets transcript appearance for queued-message markdown on the stock Happier bubble. |

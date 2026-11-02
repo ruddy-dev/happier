@@ -253,3 +253,9 @@ describe('Desk worker controls catalogue replay', () => {
         expect(s.screen.findByTestId('ip-waiting-allow-transcript-request')).not.toBeNull();
     });
 });
+
+// These scenarios exercise the concurrent desktop panes. Phone navigation has its own tests.
+vi.mock('react-native', async () => {
+    const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
+    return createReactNativeWebMock({ useWindowDimensions: () => ({ width: 1440, height: 900, scale: 1, fontScale: 1 }) });
+});

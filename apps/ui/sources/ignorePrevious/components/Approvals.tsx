@@ -14,7 +14,7 @@ import { DeskText as Text } from '../typography/DeskText';
 import { WaitingPanel, type WaitingHistory } from './WaitingPanel';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
-export function ApprovalsButton({ open, onPress, openerRef }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null> }) {
+export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null>; phone?: boolean }) {
     const { theme } = useUnistyles();
     const { count, ready } = useDeskWaitsSummary();
     const waiting = ready && count > 0;
@@ -25,10 +25,12 @@ export function ApprovalsButton({ open, onPress, openerRef }: { open: boolean; o
     return (
         <Pressable
             ref={openerRef}
-            testID="ip-approvals-open"
-            accessibilityRole="button"
-            accessibilityState={{ expanded: open }}
+            testID={phone ? "ip-tab-waiting" : "ip-approvals-open"}
+            accessibilityRole={phone ? "tab" : "button"}
+            aria-selected={phone ? open : undefined}
+            accessibilityState={phone ? { selected: open, expanded: open } : { expanded: open }}
             accessibilityLabel={label}
+            accessibilityHint={phone ? t('ignorePrevious.topBar.waitingHint') : undefined}
             onPress={onPress}
             hitSlop={6}
             style={{
@@ -43,10 +45,11 @@ export function ApprovalsButton({ open, onPress, openerRef }: { open: boolean; o
                 backgroundColor: waiting ? theme.colors.state.warning.background : 'transparent',
             }}
         >
-            <Text style={{ color: theme.colors.text.primary, fontSize: 13 }}>{t('ignorePrevious.title')}</Text>
-            <Text testID="ip-approvals-count" style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.default('semiBold') }}>
+            <Text style={{ color: theme.colors.text.primary, fontSize: phone ? 12.5 : 13, letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.title')}</Text>
+            <Text testID="ip-approvals-count" style={{ color: waiting ? theme.colors.text.primary : theme.colors.text.secondary, fontSize: 13, ...Typography.default('semiBold') }}>
                 {ready ? count : '–'}
             </Text>
+            <Icon name={phone ? 'caret-up' : 'sidebar-right-open'} size={16} color={theme.colors.text.secondary} />
         </Pressable>
     );
 }
@@ -72,7 +75,7 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
     const reducedMotion = useReducedMotionPreference();
     const [entrance] = React.useState(() => new Animated.Value(1));
     useDeskPopup({ open, onClose, openerRef, contentRef, hasHalfAnsweredCard,
-        presentation: placement === 'docked' ? 'docked' : 'overlay' });
+        presentation: placement === 'docked' ? 'docked' : 'overlay', useLiveOpenerWhenDetached: true });
     const wasOpen = React.useRef(false);
     React.useEffect(() => {
         const opening = open && !wasOpen.current;

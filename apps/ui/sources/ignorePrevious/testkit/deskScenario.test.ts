@@ -12,6 +12,11 @@ import w6Script from './scripts/W6-unloaded-record.json';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+vi.mock('react-native-safe-area-context', async () => {
+    const { createSafeAreaContextMock } = await import('@/dev/testkit/mocks/nativeEnvironment');
+    return createSafeAreaContextMock({ keyboard: { isVisible: false, height: 0 }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } });
+});
+
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
     return createExpoVectorIconsMock();
