@@ -7,6 +7,7 @@ import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { useSocketStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 
+import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskWaits } from '../model/useDeskWaits';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { useDeskSessions } from '../useDeskSessions';
@@ -15,7 +16,7 @@ import { WaitingCard, cardStyles, OpenSessionButton } from './WaitingCard';
 
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
- * answer in their session. The body of the desk's approvals drawer, which carries the title.
+ * answer here when supported or open in their session. The body of the desk's approvals drawer, which carries the title.
  * Approving here is the same call the session's own footer makes. `onOpenSession` runs after it
  * opens a session, so a card holding the panel can get out of the way.
  */
@@ -53,6 +54,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
     const { items, unloaded, ready } = useDeskWaits();
     const desk = useDeskSessions();
     const issueKeys = useIssueKeys(desk);
+    const coordinatorId = useCoordinatorId(desk.list);
     const { status } = useSocketStatus();
     const ownHistory = React.useRef<WaitingHistory | null>(null);
     if (!ownHistory.current) ownHistory.current = createWaitingHistory();
@@ -110,7 +112,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
     return (
         <View testID="ip-waiting" style={{ gap: 12 }}>
             {items.map((item) => (
-                <WaitingRow key={item.key} item={item} onDirtyChange={reportCardDirty} issueKey={issueKeys.get(item.sessionId) ?? null} onOpen={open} onAnswered={(outcome) => {
+                <WaitingRow key={item.key} item={item} isCoordinator={coordinatorId === item.sessionId} onDirtyChange={reportCardDirty} issueKey={issueKeys.get(item.sessionId) ?? null} onOpen={open} onAnswered={(outcome) => {
                     const entry = currentHistory.answered.find((answer) => answer.item.key === item.key);
                     if (entry) { entry.outcome = outcome; entry.remoteOutcome = undefined; refreshHistory(); }
                     else currentHistory.local.set(item.key, outcome);

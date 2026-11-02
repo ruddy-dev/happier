@@ -10975,6 +10975,11 @@ settingsSession: {
             blankCharacters: ({ count }: { count: number }) => `${count} blank characters`,
             answeringElsewhere: 'This press was blocked by the session screen. Open the session to answer there.',
         },
+        questionCard: {
+            send: 'Send',
+            other: 'Other',
+            otherPlaceholder: 'Type your answer',
+        },
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
         work: 'Work',
