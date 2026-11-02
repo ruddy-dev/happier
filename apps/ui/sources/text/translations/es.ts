@@ -11515,6 +11515,13 @@ settingsSession: {
     },
   },
     ignorePrevious: {
+        freshStart: {
+            title: 'Fresh start', more: '...', moreLabel: 'Shog: Brief me, Compact, New conversation',
+            brief: 'Brief me', compact: 'Compact', keepsSummary: 'Keeps a summary',
+            newConversation: 'New conversation', question: 'Start a new conversation?', cancel: 'Cancel',
+            fixtureTitle: 'Fresh start preview', fixtureReplying: 'Simulate a reply',
+            fixtureLog: ({ action }: { action: string }) => `Preview action: ${action}`,
+        },
         contextGauge: {
             percent: ({ percent }: { percent: number }) => `${percent}%`,
             label: ({ percent, sentence }: { percent: string; sentence: string }) => `Context ${percent}, ${sentence}`,

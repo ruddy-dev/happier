@@ -11,6 +11,7 @@ import { Text } from '@/components/ui/text/Text';
 
 import scenario from './desk-fixture.json';
 import { CreatureFixture } from './CreatureFixture';
+import { FreshStartFixture } from './FreshStartFixture';
 
 export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingActions }: { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
@@ -18,6 +19,7 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
     return (
         <ScrollView testID="ip-fixture-coordinator-body" style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }}>
             <CreatureFixture />
+            <FreshStartFixture />
             <View style={{ gap: 10, padding: 16 }}>
                 {transcript.map((line, index) => {
                     const mine = line.from === 'you';
