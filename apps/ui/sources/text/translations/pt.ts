@@ -11618,6 +11618,13 @@ settingsSession: {
     friendAcceptedGeneric: "Pedido de amizade aceito",
   },
     ignorePrevious: {
+        contextGauge: {
+            percent: ({ percent }: { percent: number }) => `${percent}%`,
+            label: ({ percent, sentence }: { percent: string; sentence: string }) => `Context ${percent}, ${sentence}`,
+            limitSource: ({ setting }: { setting: string }) => `Auto-compact limit set at build time by ${setting}.`,
+            windowSource: 'Using the model window. No lower EXPO_PUBLIC_IP_AUTOCOMPACT_* build-time limit is set.',
+            windowUnknown: 'Model window not reported',
+        },
         runSettings: {
             title: 'Run settings', model: 'Model', effort: 'Effort',
             effortLocked: 'Effort: extra high, set by Ultracode',
@@ -11704,8 +11711,8 @@ settingsSession: {
         pickCoordinator: 'Pick the coordinator session',
         changeCoordinator: 'Change coordinator',
         pickHint: 'Start one with: claude --agent coordinator -n coordinator',
-        contextToCompact: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} before auto-compact`,
-        contextOfWindow: ({ used, limit }: { used: string; limit: string }) => `%, ${used} of ${limit} context`,
+        contextToCompact: ({ used, limit }: { used: string; limit: string }) => `${used} of ${limit} before auto-compact`,
+        contextOfWindow: ({ used, limit }: { used: string; limit: string }) => `${used} of ${limit} of the window`,
         contextWindow: ({ size }: { size: string }) => `Model window ${size}`,
         collapseWork: 'Collapse Work',
         expandWork: 'Show Work',

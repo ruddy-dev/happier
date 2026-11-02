@@ -40,7 +40,7 @@ function toWorkerRows(
             bulb: bulbFromSessionState(state),
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
-            contextPercent: meter ? Math.round(meter.ratio * 100) : null,
+            contextPercent: meter ? meter.percent : null,
             canStop: shouldShowAbortButtonForSessionState(state) && unheardMinutes === null,
             unheardMinutes,
             inactive: row.active !== true,

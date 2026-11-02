@@ -11,7 +11,7 @@ import { Text } from '@/components/ui/text/Text';
 
 import scenario from './desk-fixture.json';
 
-export function CoordinatorBodyStub({ footerLeadingActions }: { footerLeadingActions?: React.ReactNode }) {
+export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingActions }: { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
     const { transcript, composerPlaceholder } = scenario.coordinatorBody;
     return (
@@ -47,7 +47,7 @@ export function CoordinatorBodyStub({ footerLeadingActions }: { footerLeadingAct
                 }}
             >
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 14 }}>{composerPlaceholder}</Text>
-                <View style={{ flexDirection: 'row', paddingTop: 8 }}>{footerLeadingActions}</View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingTop: 8 }}>{footerLeadingActions}{statusTrailingActions}</View>
             </View>
         </View>
     );
