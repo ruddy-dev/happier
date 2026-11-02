@@ -135,7 +135,6 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.ts` | Adds `holdAfterSuccess`, default true to preserve the session footer; the desk opts out of shared settlement after success while keeping in-flight arbitration. |
 | `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.test.ts` | Covers the option with a retained footer request and release on cleanup. |
 | `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing actions, gauge and mic replacement, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
-
 | `apps/ui/sources/sync/ops/__tests__/sessionAbortResult.test.ts` | Covers result-bearing abort failures, success recovery, error propagation and legacy compatibility at the RPC boundary. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.
