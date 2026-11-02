@@ -1,9 +1,15 @@
 import { act } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useUnistyles } from 'react-native-unistyles';
 import { storage } from '@/sync/domains/state/storage';
 import { t } from '@/text';
 import { ipPalette } from '../palette';
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
+
+vi.mock('react-native-unistyles', async () => {
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    return createUnistylesMock();
+});
 
 const viewport = vi.hoisted(() => ({ width: 390, height: 900 }));
 vi.mock('react-native', async () => {
@@ -67,9 +73,10 @@ describe('Work presentation (N1, S1, W-series)', () => {
     afterEach(async () => {
         await scenario?.dispose();
         scenario = null;
+        useUnistyles().theme.dark = false;
     });
 
-    it.each([390, 1100, 1440])('N1: Work and its collapsed rail permit only vertical scrolling at %i', async (width) => {
+    it.each([390, 1100, 1440])('N1: Work and collapsed rail ScrollView direction is vertical at %i (overflow needs live QA)', async (width) => {
         viewport.width = width;
         scenario = await startDeskScenario({ script });
         const scrolls = () => scenario!.screen.tree.root.findAll(node => typeof node.type === 'string' && String(node.type) === 'ScrollView');
@@ -86,7 +93,7 @@ describe('Work presentation (N1, S1, W-series)', () => {
         expect(toggle.props.accessibilityLabel).toContain(key);
         expect(toggle.props.accessibilityLabel).toContain(summary);
         expect(scenario.textOf(`ip-work-worker-count-${key}`)).toBe(t('ignorePrevious.workList.workerCount', { count: 2 }));
-        const labels = card.findAll(node => typeof node.type === 'string' && String(node.type) === 'Text' && [key, summary].includes(node.props.accessibilityLabel));
+        const labels = card.findAll(node => typeof node.type === 'string' && String(node.type) === 'Text' && [key, summary].includes(node.props.children));
         expect(labels).toHaveLength(2);
         for (const label of labels) expect(label.props.numberOfLines).toBe(1);
         await scenario.screen.pressByTestIdAsync('ip-work-collapse');
@@ -109,12 +116,13 @@ describe('Work presentation (N1, S1, W-series)', () => {
         expect(ids('ip-rail-issue-')).toHaveLength(55);
     });
 
-    it.each([
+    it.each(([
         ['turn', 'turnSignal', 'countTurn'],
         ['working', 'work', 'countWorking'],
         ['stuck', 'red', 'countStuck'],
         ['idle', 'idleSignal', 'countIdle'],
-    ] as const)('W1/W6: %s uses its signal token and a word in cards and the rail', async (bulb, token, word) => {
+    ] as const).flatMap(([bulb, token, word]) => (['light', 'dark'] as const).map(scheme => ({ bulb, token, word, scheme }))))('W1/W6: $bulb uses its signal token and a word in $scheme cards and rail', async ({ bulb, token, word, scheme }) => {
+        useUnistyles().theme.dark = scheme === 'dark';
         scenario = await startDeskScenario({ script });
         act(() => {
             const current = storage.getState().sessions.builder;
@@ -132,9 +140,15 @@ describe('Work presentation (N1, S1, W-series)', () => {
             const container = scenario!.screen.findByTestId(id)!;
             const dot = container.findAll(node => typeof node.type === 'string' && String(node.type) === 'View' && node.props.testID === `ip-bulb-dot-${bulb}`)[0];
             expect(dot).toBeTruthy();
-            expect(dot.props.style.backgroundColor).toBe(ipPalette.light[token]);
+            expect(dot.props.style.backgroundColor).toBe(ipPalette[scheme][token]);
             expect(scenario!.textOf(id)).toContain(t(`ignorePrevious.${word}`));
         };
+        const card = scenario.screen.findByTestId(`ip-issue-${key}`)!;
+        if (bulb === 'stuck') expect(card.props.style.borderColor).toBe(ipPalette[scheme].red);
+        if (bulb === 'turn') {
+            const bar = card.findAll(node => typeof node.type === 'string' && node.props.pointerEvents === 'none')[0];
+            expect(bar.props.style.backgroundColor).toBe(ipPalette[scheme].turnSignal);
+        }
         check(`ip-issue-${key}`);
         await scenario.screen.pressByTestIdAsync('ip-work-collapse');
         check(`ip-rail-issue-${key}`);
