@@ -100,6 +100,30 @@ describe('CoordinatorPrompts', () => {
         expect(focused).toBe(true);
     });
 
+    it('M1: a chip keeps a typed draft and adds its prompt after a blank line', async () => {
+        seed([session('coord', null)]);
+        const screen = await renderPrompts();
+        await screen.pressByTestIdAsync('ip-walk-prs');
+        // The first chip leaves text in the box, standing in for a typed draft.
+        await screen.pressByTestIdAsync('ip-start-new');
+        expect(readComposerText('coord')).toBe(`${t('ignorePrevious.walkPrsPrompt')}\n\nPlan a new issue together before anyone starts.`);
+        expect(focused).toBe(true);
+    });
+
+    it('M1: a whitespace-only draft is replaced, not appended to', async () => {
+        seed([session('coord', null)]);
+        const screen = await renderPrompts();
+        unregister();
+        let text = '  \n ';
+        unregister = registerComposerRequestHandle('coord', {
+            setText: (value) => { text = value; },
+            getText: () => text,
+            focus: () => { focused = true; },
+        });
+        await screen.pressByTestIdAsync('ip-start-new');
+        expect(readComposerText('coord')).toBe('Plan a new issue together before anyone starts.');
+    });
+
     it('J1: fills the composer to ask the coordinator to go through every waiting request, with what each one runs', async () => {
         seed([
             session('coord', null),
