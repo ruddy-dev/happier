@@ -20,7 +20,7 @@ import { workerLastActivityAt, workerUnheardMinutes } from '../model/workerFresh
 import { isDeskWorkerBusy } from '../model/workerBusy';
 import { workerUsageLimit } from '../model/workerUsageLimit';
 import { useDeskNow } from '../model/useDeskNow';
-import { useIssueKeys } from '../model/useIssueKeys';
+import { useWorkCardData } from '../model/useWorkCardData';
 import { bulbColour, useDeskPaint } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
@@ -115,11 +115,12 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
         [desk.list, coordinatorId],
     );
     const workers = React.useMemo(() => ({ ...desk, list: live }), [desk, live]);
-    const issueKeys = useIssueKeys(workers);
     const [details, setDetails] = React.useState(false);
     const [openKeys, setOpenKeys] = React.useState<ReadonlySet<string>>(() => new Set());
 
     const nowMs = useDeskNow();
+    const workData = useWorkCardData(coordinatorId, workers, nowMs);
+    const { issueKeys } = workData;
     // Rows rebuild when the list, a full record, an issue key or the desk clock changes; nothing else.
     const rows = React.useMemo(() => toWorkerRows(live, lookup, issueKeys, nowMs), [live, lookup, issueKeys, nowMs]);
     const groups = React.useMemo(() => groupWorkersByIssue(rows), [rows]);
@@ -198,6 +199,8 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
                         <IssueCard
                             key={key || 'no-issue'}
                             group={group}
+                            item={key ? workData.items.get(key) : null}
+                            projectName={key ? workData.projectNames?.get(key.split('-')[0]) : undefined}
                             open={details || openKeys.has(key)}
                             onToggle={() => toggle(key)}
                             faceStyle={faceStyle}
