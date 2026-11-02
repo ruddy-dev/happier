@@ -96,7 +96,7 @@ export const SidebarNavigator = React.memo(() => {
     const isTablet = useIsTablet();
     const pathname = usePathname();
     const isDesktopPetOverlayWindow = isDesktopPetOverlayWindowContext();
-    const bypassSidebar = Platform.OS === 'web' && isTerminalConnectWebPathname(pathname);
+    const bypassSidebar = pathname === '/desk' || (Platform.OS === 'web' && isTerminalConnectWebPathname(pathname));
     const showSidebar = auth.isAuthenticated && isTablet && !isDesktopPetOverlayWindow && !bypassSidebar;
     const inboxSummary = useInboxSummary();
     const inboxEnabled = useInboxAvailable();

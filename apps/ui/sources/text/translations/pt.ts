@@ -11618,6 +11618,7 @@ settingsSession: {
     friendAcceptedGeneric: "Pedido de amizade aceito",
   },
     ignorePrevious: {
+        topBar: { sessions: 'Sessions', usage: 'Max: not available', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         settings: {
             title: 'Settings',
             backToDesk: 'Back to desk',

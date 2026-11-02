@@ -24,7 +24,9 @@ import {
 } from '../deskPrefs';
 import { DeskText } from '../typography/DeskText';
 import { useCoordinatorId } from '../model/useCoordinatorId';
-import { drawerPlacement } from '../model/drawerPlacement';
+import { drawerPlacement, isDeskPhoneWidth } from '../model/drawerPlacement';
+import { DeskTopBar } from '../components/DeskTopBar';
+import { SessionsSheet } from '../components/SessionsSheet';
 import { useDeskSessions } from '../useDeskSessions';
 
 const WIDE = 1100;
@@ -127,6 +129,10 @@ export function DeskScreen() {
     const [waitingHistory] = React.useState(createWaitingHistory);
     const [hasHalfAnsweredCard, setHasHalfAnsweredCard] = React.useState(false);
     const approvals = useApprovalsDrawer(width);
+    const phone = isDeskPhoneWidth(width);
+    const [phonePane, setPhonePane] = React.useState<'work' | 'shog'>('shog');
+    const [sessionsOpen, setSessionsOpen] = React.useState(false);
+    const sessionsRef = React.useRef<View>(null);
 
     const approvalsOpenerRef = React.useRef<View>(null);
 
@@ -140,15 +146,16 @@ export function DeskScreen() {
         setChanging(false);
     }, []);
 
-    const approvalsButton = <ApprovalsButton openerRef={approvalsOpenerRef} open={approvals.open} onPress={approvals.toggle} />;
+    const approvalsButton = <ApprovalsButton phone={phone} openerRef={approvalsOpenerRef} open={approvals.open} onPress={approvals.toggle} />;
     const settingsButton = (
         <Pressable
             testID="ip-settings-open"
             accessibilityRole="button"
+            accessibilityLabel={t('ignorePrevious.settings.title')}
             onPress={() => router.navigate('/desk/settings')}
             style={{ paddingHorizontal: 12, minHeight: 48, justifyContent: 'center' }}
         >
-            <DeskText style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.settings.title')}</DeskText>
+            <Icon name="gear" size={20} color={theme.colors.text.secondary} />
         </Pressable>
     );
     const coordinator = coordinatorId && !changing ? (
@@ -162,17 +169,11 @@ export function DeskScreen() {
                         label={t('ignorePrevious.changeCoordinator')}
                         onPress={() => setChanging(true)}
                     />
-                    {approvalsButton}
-                    {settingsButton}
                 </>
             }
         />
     ) : (
         <ScrollView contentContainerStyle={{ gap: 8 }}>
-            <View style={{ alignSelf: 'flex-end', flexDirection: 'row', alignItems: 'center', padding: 12 }}>
-                {approvalsButton}
-                {settingsButton}
-            </View>
             {dataReady ? (
                 <CoordinatorPicker
                     sessions={sessions}
@@ -236,7 +237,7 @@ export function DeskScreen() {
                 testID="ip-work"
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ minWidth: 0, overflow: 'hidden', maxHeight: Math.round(height * 0.45), flexGrow: 0, ...divider }}
+                style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...divider }}
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
                 <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
@@ -247,8 +248,8 @@ export function DeskScreen() {
 
     const main = (
         <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
-            {work}
-            <View style={{ flex: 1, minWidth: 0 }}>{coordinator}</View>
+            {(!phone || phonePane === 'work') && work}
+            {(!phone || phonePane === 'shog') && <View style={{ flex: 1, minWidth: 0 }}>{coordinator}</View>}
         </View>
     );
 
@@ -256,8 +257,15 @@ export function DeskScreen() {
         <DeskFontRoot>
             <View style={{ flex: 1, flexDirection: 'row', minWidth: 0, overflow: 'hidden' }}>
                 <View style={{ flex: 1, minWidth: 0 }}>
+                    <DeskTopBar phone={phone} sessionsRef={sessionsRef} onSessions={() => setSessionsOpen(true)} waiting={approvalsButton} settings={settingsButton} />
                     <DeskConnectionBanner />
                     {main}
+                    {phone && <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', minWidth: 0, borderTopWidth: 1, borderTopColor: theme.colors.border.default }}>
+                        <Pressable testID="ip-tab-work" accessibilityRole="tab" accessibilityState={{ selected: phonePane === 'work' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('work'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.work')}</DeskText></Pressable>
+                        <Pressable testID="ip-tab-shog" accessibilityRole="tab" accessibilityState={{ selected: phonePane === 'shog' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('shog'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.topBar.shog')}</DeskText></Pressable>
+                        {approvalsButton}
+                    </View>}
+                    {sessionsOpen && !phone && <SessionsSheet openerRef={sessionsRef} onClose={() => setSessionsOpen(false)} />}
                 </View>
                 <ApprovalsDrawer open={approvals.open} width={width} openerRef={approvalsOpenerRef} focusOnOpen={approvals.focusOnOpen}
                     hasHalfAnsweredCard={hasHalfAnsweredCard} onDirtyChange={setHasHalfAnsweredCard}
