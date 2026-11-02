@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen } from '@/dev/testkit';
+import { readReactNativeMmkvStubEntries, resetReactNativeMmkvStub } from '@/dev/testkit/mocks/mmkv';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
@@ -121,6 +122,13 @@ describe('DeskScreen', () => {
         state.showModal.mockClear();
     });
 
+    it('mounts without writing device preferences when nothing is stored', async () => {
+        seed([]);
+        resetReactNativeMmkvStub();
+        await renderDesk();
+        expect(readReactNativeMmkvStubEntries()).toEqual([]);
+    });
+
     it('asks for a coordinator when there are no sessions', async () => {
         seed([]);
         const screen = await renderDesk();
@@ -172,6 +180,14 @@ describe('DeskScreen', () => {
 
         await screen.pressByTestIdAsync('ip-work-expand');
         expect(screen.findByTestId('ip-count-all')).toBeTruthy();
+    });
+
+    it('updates the Work layout when another prefs consumer changes the stored flag', async () => {
+        seed([]);
+        const screen = await renderDesk();
+        await act(async () => setWorkCollapsed(true));
+        expect(screen.findByTestId('ip-work-rail')).not.toBeNull();
+        expect(screen.findByTestId('ip-work')).toBeNull();
     });
 
     it('opens what waits on you in a drawer from the coordinator header, and remembers it', async () => {

@@ -1,75 +1,81 @@
 /** Per-device desk choices. Written only on a user action, never on mount. */
+import * as React from 'react';
 import { MMKV } from 'react-native-mmkv';
 
 const mmkv = new MMKV();
-const KEY = 'ignorePrevious.coordinatorSessionId';
 
-// Held in memory only and never written to MMKV. The dev-only desk fixture sets it so its made-up coordinator
-// shows without touching the choice stored on this device. While it is set, picks stay in memory too.
+const keys = {
+    coordinatorSessionId: { storageKey: 'ignorePrevious.coordinatorSessionId', defaultValue: null as string | null },
+    workCollapsed: { storageKey: 'ignorePrevious.deskMinimised', defaultValue: false as boolean },
+    approvalsOpen: { storageKey: 'ignorePrevious.approvalsOpen', defaultValue: false as boolean },
+    creatureEnabled: { storageKey: 'ignorePrevious.creatureEnabled', defaultValue: true as boolean },
+};
+
+export type DeskPrefKey = keyof typeof keys;
+export type DeskPrefValue<K extends DeskPrefKey> = (typeof keys)[K]['defaultValue'];
+
+// The dev fixture and picks made while it is active never change the device's stored coordinator.
 let coordinatorOverride: { id: string | null } | null = null;
+const listeners = new Map<DeskPrefKey, Set<() => void>>();
 
-/** The session the user picked as coordinator on this device (or the in-memory override while one is set). */
-export function getStoredCoordinatorId(): string | null {
-    if (coordinatorOverride) return coordinatorOverride.id;
-    return mmkv.getString(KEY) ?? null;
+function notify(key: DeskPrefKey): void {
+    for (const listener of [...(listeners.get(key) ?? [])]) listener();
 }
 
-// In-memory listeners over the MMKV key, so every desk consumer sees a pick at once. Another
-// tab's pick is not seen until a reload: MMKV's own change listener isn't used.
-const coordinatorListeners = new Set<() => void>();
-
-function notifyCoordinatorListeners(): void {
-    for (const listener of [...coordinatorListeners]) listener();
+function get<K extends DeskPrefKey>(key: K): DeskPrefValue<K> {
+    if (key === 'coordinatorSessionId' && coordinatorOverride) return coordinatorOverride.id as DeskPrefValue<K>;
+    const definition = keys[key];
+    const stored = mmkv.getString(definition.storageKey);
+    // Retain the original string flags, including the old deskMinimised key.
+    const value = typeof definition.defaultValue === 'boolean'
+        ? stored === undefined ? definition.defaultValue : stored === '1'
+        : stored ?? definition.defaultValue;
+    return value as DeskPrefValue<K>;
 }
 
-export function setStoredCoordinatorId(id: string | null): void {
-    if (coordinatorOverride) coordinatorOverride = { id };
-    else if (id) mmkv.set(KEY, id);
-    else mmkv.delete(KEY);
-    notifyCoordinatorListeners();
+function set<K extends DeskPrefKey>(key: K, value: DeskPrefValue<K>): void {
+    if (key === 'coordinatorSessionId' && coordinatorOverride) {
+        coordinatorOverride = { id: typeof value === 'string' ? value : null };
+    } else {
+        const { storageKey } = keys[key];
+        if (typeof value === 'boolean') mmkv.set(storageKey, value ? '1' : '0');
+        else if (value) mmkv.set(storageKey, value);
+        else mmkv.delete(storageKey);
+    }
+    notify(key);
 }
 
-/** Shows `id` as the coordinator without persisting it; `null` drops the override and the stored pick is back. */
+function subscribe(key: DeskPrefKey, listener: () => void): () => void {
+    let subscribers = listeners.get(key);
+    if (!subscribers) {
+        subscribers = new Set();
+        listeners.set(key, subscribers);
+    }
+    subscribers.add(listener);
+    return () => { subscribers.delete(listener); };
+}
+
+// Subscriptions cover this JS runtime. Another browser tab's writes are not pushed to subscribers.
+export const deskPrefs = { get, set, subscribe };
+
+export function useDeskPref<K extends DeskPrefKey>(key: K) {
+    const subscribeKey = React.useCallback((listener: () => void) => subscribe(key, listener), [key]);
+    const snapshot = React.useCallback(() => get(key), [key]);
+    const setValue = React.useCallback((value: DeskPrefValue<K>) => set(key, value), [key]);
+    const value = React.useSyncExternalStore(subscribeKey, snapshot, snapshot);
+    return [value, setValue] as const;
+}
+
+/** Null releases the fixture override and restores the stored pick. */
 export function setCoordinatorOverride(id: string | null): void {
     coordinatorOverride = id === null ? null : { id };
-    notifyCoordinatorListeners();
+    notify('coordinatorSessionId');
 }
 
-/** Calls `listener` after every `setStoredCoordinatorId` or `setCoordinatorOverride`; returns the unsubscribe. */
-export function subscribeStoredCoordinatorId(listener: () => void): () => void {
-    coordinatorListeners.add(listener);
-    return () => {
-        coordinatorListeners.delete(listener);
-    };
-}
-
-// Key kept from the earlier "minimise panels" toggle, which also collapsed the Work panel.
-const WORK_COLLAPSED_KEY = 'ignorePrevious.deskMinimised';
-const APPROVALS_OPEN_KEY = 'ignorePrevious.approvalsOpen';
-
-// Flags are stored as strings: Happier's shared MMKV test stub has no getBoolean.
-function getFlag(key: string): boolean {
-    return mmkv.getString(key) === '1';
-}
-
-function setFlag(key: string, on: boolean): void {
-    mmkv.set(key, on ? '1' : '0');
-}
-
-/** Whether the Work panel is collapsed to a thin rail of issue labels. */
-export function getWorkCollapsed(): boolean {
-    return getFlag(WORK_COLLAPSED_KEY);
-}
-
-export function setWorkCollapsed(collapsed: boolean): void {
-    setFlag(WORK_COLLAPSED_KEY, collapsed);
-}
-
-/** Whether the approvals drawer (what waits on you) is open beside the coordinator. */
-export function getApprovalsOpen(): boolean {
-    return getFlag(APPROVALS_OPEN_KEY);
-}
-
-export function setApprovalsOpen(open: boolean): void {
-    setFlag(APPROVALS_OPEN_KEY, open);
-}
+export function getStoredCoordinatorId(): string | null { return get('coordinatorSessionId'); }
+export function setStoredCoordinatorId(id: string | null): void { set('coordinatorSessionId', id); }
+export function subscribeStoredCoordinatorId(listener: () => void): () => void { return subscribe('coordinatorSessionId', listener); }
+export function getWorkCollapsed(): boolean { return get('workCollapsed'); }
+export function setWorkCollapsed(collapsed: boolean): void { set('workCollapsed', collapsed); }
+export function getApprovalsOpen(): boolean { return get('approvalsOpen'); }
+export function setApprovalsOpen(open: boolean): void { set('approvalsOpen', open); }

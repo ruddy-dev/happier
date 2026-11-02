@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import { useRouter } from 'expo-router';
 
 import { AppPaneScopeHost } from '@/components/appShell/panes/AppPaneScopeHost';
 import { useAppPaneScope } from '@/components/appShell/panes/hooks/useAppPaneScope';
@@ -22,11 +23,11 @@ import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
 import {
     getApprovalsOpen,
-    getWorkCollapsed,
     setApprovalsOpen,
     setStoredCoordinatorId,
-    setWorkCollapsed,
+    useDeskPref,
 } from '../deskPrefs';
+import { DeskText } from '../typography/DeskText';
 import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskSessions } from '../useDeskSessions';
 
@@ -139,14 +140,11 @@ function useApprovalsDrawer(history: WaitingHistory) {
  */
 export function DeskScreen() {
     const { theme } = useUnistyles();
+    const router = useRouter();
     const { width, height } = useWindowDimensions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const { list: sessions, ready: dataReady } = useDeskSessions();
-    const [workCollapsed, setCollapsed] = React.useState(getWorkCollapsed);
-    const collapseWork = React.useCallback((next: boolean) => {
-        setWorkCollapsed(next);
-        setCollapsed(next);
-    }, []);
+    const [workCollapsed, collapseWork] = useDeskPref('workCollapsed');
     const [waitingHistory] = React.useState(createWaitingHistory);
     const approvals = useApprovalsDrawer(waitingHistory);
 
@@ -161,6 +159,16 @@ export function DeskScreen() {
     }, []);
 
     const approvalsButton = <ApprovalsButton open={approvals.open} onPress={approvals.toggle} />;
+    const settingsButton = (
+        <Pressable
+            testID="ip-settings-open"
+            accessibilityRole="button"
+            onPress={() => router.navigate('/desk/settings')}
+            style={{ paddingHorizontal: 12, minHeight: 48, justifyContent: 'center' }}
+        >
+            <DeskText style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.settings.title')}</DeskText>
+        </Pressable>
+    );
     const coordinator = coordinatorId && !changing ? (
         <CoordinatorPane
             sessionId={coordinatorId}
@@ -173,12 +181,16 @@ export function DeskScreen() {
                         onPress={() => setChanging(true)}
                     />
                     {approvalsButton}
+                    {settingsButton}
                 </>
             }
         />
     ) : (
         <ScrollView contentContainerStyle={{ gap: 8 }}>
-            <View style={{ alignSelf: 'flex-end', padding: 12 }}>{approvalsButton}</View>
+            <View style={{ alignSelf: 'flex-end', flexDirection: 'row', alignItems: 'center', padding: 12 }}>
+                {approvalsButton}
+                {settingsButton}
+            </View>
             {dataReady ? (
                 <CoordinatorPicker
                     sessions={sessions}
