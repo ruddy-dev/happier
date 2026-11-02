@@ -11,6 +11,7 @@ import type { SessionComposerHostControls } from '@/components/sessions/model/se
 import { createComposerTextStore } from '@/components/sessions/agentInput/composerTextStore';
 import { continueSessionWithArmedAgent } from '@/sync/domains/session/input/continueSessionWithArmedAgent';
 import { submitSessionUserMessage } from '@/sync/domains/session/input/submitSessionUserMessage';
+import { useShogModelPreferences } from '../model/shogModels';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { readReactNativeMmkvStubEntries } from '@/dev/testkit/mocks/mmkv';
 import { ShogRunSettingsMenu } from './ShogRunSettingsMenu';
@@ -44,6 +45,7 @@ beforeEach(() => {
                 ? [{ id: 'gpt-6.1-sol', name: 'Sol', modelOptions: [{ id: 'reasoning_effort', name: 'Thinking', type: 'select', currentValue: 'medium', options: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] }, { id: 'gpt-6-astra', name: 'Astra' }, { id: 'unticked', name: 'Unticked' }]
                 : [{ id: 'claude-opus-5-5', name: 'Opus 5.5' }], supportsFreeform: false, source: 'dynamic', observedAt: Date.now(),
         } };
+        if (request.method === 'session.continuation.inspect') return AVAILABLE;
         if (request.method === 'session.agentTransition') return transitionRejected ? { type: 'rejected', code: 'target_unavailable', sourceEffect: 'none' } : { type: 'accepted', localId: 'rebrief-1' };
         return { v: 1, inspections: (request.payload.selections ?? []).map(() => AVAILABLE) };
     });
@@ -83,15 +85,17 @@ async function setup(provider: 'claude' | 'codex' = 'claude', busy = false) {
     }, { session, sessionId: session.id, text, configuredMode: 'server_pending', resumeCapabilityOptions: { accountSettings: storage.getState().settings } })); };
     const configChanges: [string, string][] = [];
     const textStore = createComposerTextStore('');
+    const setModel = vi.fn();
+    let observedModel = provider === 'claude' ? 'claude-opus-5-5' : 'gpt-6.1-sol';
     const controls = (): SessionComposerHostControls => ({
-        agentId: provider, modelId: provider === 'claude' ? 'claude-opus-5-5' : 'gpt-6.1-sol', configOverrides: {},
+        agentId: provider, modelId: observedModel, configOverrides: {},
         machineId: 'shog-machine', serverId: 'server-1', cwd: '/scratch', canSend: true, busy,
-        textStore, hasNonTextDraft: false, continuationNotice, switchingEnabled: featureEnabled, agentPicker: hook.getCurrent(), setModel: () => {}, setConfigOption: (key, value) => { configChanges.push([key, value]); }, sendMessage: send,
+        textStore, hasNonTextDraft: false, continuationNotice, switchingEnabled: featureEnabled, agentPicker: hook.getCurrent(), setModel, setConfigOption: (key, value) => { configChanges.push([key, value]); }, sendMessage: send,
     });
     const screen = await renderScreen(<ShogRunSettingsMenu controls={controls()} />);
     await screen.pressByTestIdAsync('ip-run-settings');
     await screen.update(<ShogRunSettingsMenu controls={controls()} />);
-    return { screen, hook, sent, controls, configChanges, textStore, settleSends: () => Promise.all(pendingSends) };
+    return { screen, hook, sent, controls, configChanges, textStore, setModel, publishModel: (model: string) => { observedModel = model; }, settleSends: () => Promise.all(pendingSends) };
 }
 
 it.each([['claude', 'codex', 'gpt-6.1-sol', 'read-only'], ['codex', 'claude', 'claude-opus-5-5', 'plan']] as const)(
@@ -189,4 +193,55 @@ it('does not let Re-brief consume or send an existing composer draft', async () 
     expect(screen.getTextContent()).toContain(t('ignorePrevious.shogModels.rebriefDraft'));
     await act(async () => { textStore.setPrompt(''); });
     expect(screen.findByTestId('ip-run-rebrief')?.props.disabled).toBe(false);
+});
+
+
+it('disables Re-brief while an older submitted input owns the arm, even after clearing the draft', async () => {
+    const { screen, hook, controls, textStore, sent } = await setup();
+    await screen.pressByTestIdAsync('ip-run-model-codex-gpt-6.1-sol');
+    await act(async () => {
+        const localId = hook.getCurrent().armedContinuationLocalId!;
+        expect(hook.getCurrent().recordArmedContinuationSubmission({ localId,
+            input: { localId, text: 'The original submitted input', meta: { permissionMode: 'read-only' } },
+        })).toBe(true);
+        textStore.setPrompt('');
+    });
+    await screen.update(<ShogRunSettingsMenu controls={controls()} />);
+    expect(screen.findByTestId('ip-run-rebrief')?.props.disabled).toBe(true);
+    expect(screen.getTextContent()).toContain(t('ignorePrevious.shogModels.rebriefSubmission'));
+    await screen.pressByTestIdAsync('ip-run-rebrief');
+    expect(sent).toEqual([]);
+    expect(rpc.mock.calls.some(([request]) => request.method === 'session.agentTransition')).toBe(false);
+});
+
+it.each(['refuses', 'publishes later'] as const)('records a same-provider model only after matching observation when setModel %s', async behavior => {
+    const { screen, controls, setModel, publishModel } = await setup('codex');
+    const preferences = await renderHook(() => useShogModelPreferences());
+    const before = preferences.getCurrent().lastUsed;
+    // A setter is a host boundary here. Refusal publishes nothing; success echoes later.
+    setModel.mockImplementation(() => {});
+    await screen.pressByTestIdAsync('ip-run-model-codex-gpt-6-astra');
+    expect(setModel).toHaveBeenCalled();
+    expect(preferences.getCurrent().lastUsed).toEqual(before);
+    if (behavior === 'publishes later') {
+        publishModel('gpt-6-astra');
+        await screen.update(<ShogRunSettingsMenu controls={controls()} />);
+        expect(preferences.getCurrent().lastUsed).toEqual({ provider: 'codex', modelId: 'gpt-6-astra' });
+    } else {
+        await screen.update(<ShogRunSettingsMenu controls={controls()} />);
+        expect(preferences.getCurrent().lastUsed).toEqual(before);
+    }
+});
+
+it('shows the actual armed permission instead of inferring it from the target provider', async () => {
+    const { screen, hook, controls } = await setup();
+    await screen.pressByTestIdAsync('ip-run-model-codex-gpt-6.1-sol');
+    await act(async () => { hook.getCurrent().clearArmedContinuation(); });
+    const selection = { modelId: 'gpt-6-astra', modelLabel: 'Astra', sessionModeId: null, configOverrides: {}, inputPermissionMode: 'plan' as const };
+    await act(async () => { await hook.getCurrent().selectAgentForNextMessage(buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'codex' }), selection); });
+    await act(async () => { await hook.getCurrent().selectAgentForNextMessage(buildBackendTargetKey({ kind: 'builtInAgent', agentId: 'codex' }), selection); });
+    await screen.update(<ShogRunSettingsMenu controls={controls()} />);
+    expect(hook.getCurrent().armedContinuationPermissionMode).toBe('plan');
+    expect(screen.findByTestId('ip-run-settings')?.props.accessibilityLabel).toContain(t('ignorePrevious.runSettings.plansOnly'));
+    expect(screen.findByTestId('ip-run-settings')?.props.accessibilityLabel).not.toContain(t('ignorePrevious.shogModels.readOnly'));
 });
