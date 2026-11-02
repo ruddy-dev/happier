@@ -139,7 +139,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/ui/popover/Popover.tsx` | Marks portaled web content with `data-happy-popover-content` so desk popups leave menu interactions to Popover. |
 | `apps/ui/public/ignore-previous/fonts/jetbrains-mono-latin.woff2`, `apps/ui/public/ignore-previous/fonts/OFL.txt` | Local JetBrains Mono web asset and its standalone SIL OFL licence. Expo serves public assets; the desk-owned installer applies weights 500–700 only while a listed route is mounted. |
 | `README.md` | Overlay notice, licence and AI disclosure at the top. |
-| `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | The `ignorePrevious` string block (see Strings). ATR-60 adds the coordinator-card chat shortcut, waiting count and context labels. |
+| `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | The `ignorePrevious` string block (see Strings), including ATR-59's open/close Shog mask labels. ATR-60 adds the coordinator-card chat shortcut, waiting count and context labels. |
 | `apps/ui/sources/text/i18n.integrity.test.ts` | Allows the English-only `ignorePrevious.` prefix. |
 | `apps/ui/sources/theme/profiles/themeProfileTypes.ts` | Adds `ignorePrevious` and `ignorePreviousLight` to the preset id union. |
 | `apps/ui/sources/theme/profiles/builtInThemeProfiles.ts` | Registers the two presets (one per mode, as upstream's pickers only offer a preset in its own mode's slot): the dark one after the dark community presets, the light one at the end. |
