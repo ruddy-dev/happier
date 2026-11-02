@@ -25,6 +25,24 @@ describe('device-local desk prefs', () => {
         expect(readReactNativeMmkvStubEntries()).toEqual([]);
     });
 
+    it('validates and persists every robot and face preference', () => {
+        const rows = [
+            ['robotDroid', 'purple', 'steel'], ['robotIpb', 'blue', 'magenta'],
+            ['robotPrompt', 'green', 'steel'], ['robotLoupe', 'violet', 'blue'],
+            ['robotLab', 'orange', 'green'], ['noWorkerRobot', 'droid', 'ipb'],
+            ['workerFaces', 'A', 'B'],
+        ] as const;
+        const persisted = new MMKV();
+        for (const [key, fallback, choice] of rows) {
+            expect(deskPrefs.get(key)).toBe(fallback);
+            deskPrefs.set(key, choice);
+            expect(persisted.getString(`ignorePrevious.${key}`)).toBe(choice);
+            expect(deskPrefs.get(key)).toBe(choice);
+            persisted.set(`ignorePrevious.${key}`, 'invalid');
+            expect(deskPrefs.get(key)).toBe(fallback);
+        }
+    });
+
     it('persists chat choices without changing the deferred thinking/tool preference', () => {
         deskPrefs.set('chatStyle', 'terminal');
         deskPrefs.set('terminalPalette', 'terminalPaper');

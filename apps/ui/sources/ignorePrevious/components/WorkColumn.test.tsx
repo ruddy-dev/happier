@@ -98,6 +98,22 @@ function session(id: string, path: string, extra: Partial<Session> = {}): Sessio
     });
 }
 
+describe('Work model sprites', () => {
+    it('uses the full record model, with applied model ahead of a pending selection', async () => {
+        const { toWorkerRows } = await import('./WorkColumn');
+        const selected = session('model-worker', '/work/atr-9', {
+            modelMode: 'gpt-6.1-sol', modelModeUpdatedAt: 20,
+            metadata: { ...createSessionFixture().metadata!, flavor: 'codex',
+                sessionAppliedModelV1: { v: 1, provider: 'codex', modelId: 'gpt-6-astra', updatedAt: 10 } },
+        });
+        const rows = [buildSessionListRenderableFromSession(selected)];
+        expect(toWorkerRows(rows, new Map(), new Map(), Date.now())[0].model).toBeNull();
+        expect(toWorkerRows(rows, new Map([[selected.id, selected]]), new Map(), Date.now())[0].model).toBe('gpt-6-astra');
+        const withoutApplied = { ...selected, metadata: { ...selected.metadata!, sessionAppliedModelV1: undefined } };
+        expect(toWorkerRows(rows, new Map([[selected.id, withoutApplied]]), new Map(), Date.now())[0].model).toBe('gpt-6.1-sol');
+    });
+});
+
 async function renderColumn() {
     const { WorkColumn } = await import('./WorkColumn');
     return renderScreen(<WorkColumn />);
@@ -120,6 +136,40 @@ describe('WorkColumn', () => {
         vi.unstubAllGlobals();
         vi.unstubAllEnvs();
         resetServerFeaturesClientForTests();
+    });
+
+    it.each(['column', 'row'] as const)('updates an unloaded %s rail face to its full-record model at 28 px', async (compact) => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const worker = session('sprite-worker', '/work/atr-9-sprites', { modelMode: 'gpt-6.1-sol', modelModeUpdatedAt: 20 });
+        seedListOnly([worker]);
+        const screen = await renderScreen(<WorkColumn compact={compact} />);
+        const face = (issue: string) => screen.findByTestId(`ip-rail-face-${issue}`)!.findByType(WorkerSprite.type);
+        expect(face('none').props).toMatchObject({ kind: 'no-worker', size: 28 });
+        seed([worker]);
+        expect(face('ATR-9').props).toMatchObject({ kind: 'cxloupe', size: 28 });
+    });
+
+    it.each([undefined, 'column', 'row'] as const)('keeps the %s grouped face with its state owner and breaks ties by recency', async (compact) => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const now = Date.now();
+        const request = { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: now };
+        const newer = session('newer', '/work/atr-9-sprites', {
+            modelMode: 'claude-sonnet-5.5', updatedAt: now, meaningfulActivityAt: now,
+            active: true, activeAt: now,
+        });
+        const older = session('older', '/work/atr-9-sprites', {
+            modelMode: 'gpt-6.1-sol', updatedAt: now - 1000, meaningfulActivityAt: now - 1000,
+            active: true, activeAt: now,
+            agentState: { requests: { request } },
+        });
+        seed([newer, older]);
+        const screen = await renderScreen(<WorkColumn compact={compact} />);
+        const face = () => screen.findByTestId(compact ? 'ip-rail-face-ATR-9' : 'ip-work-card-face-ATR-9')!.findByType(WorkerSprite.type);
+        expect(face().props).toMatchObject({ kind: 'cxloupe', bulb: 'turn', size: compact ? 28 : 40 });
+        seed([{ ...newer, seq: newer.seq + 1, agentState: { requests: { request } } }]);
+        expect(face().props).toMatchObject({ kind: 'ginger', bulb: 'turn' });
     });
 
     it('finding 6: disabling recovery removes the armed claim but keeps the limit line', async () => {

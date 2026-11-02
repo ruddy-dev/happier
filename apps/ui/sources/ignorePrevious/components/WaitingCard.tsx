@@ -136,7 +136,7 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered }: {
     );
 
     return (
-        <View style={styles.card}>
+        <View testID={`ip-waiting-card-${item.requestId}`} style={styles.card}>
             <Text style={styles.title}>{item.sessionTitle}</Text>
             <Text testID={`ip-waiting-issue-${item.requestId}`} style={styles.secondary}>{issueKey ?? t('ignorePrevious.noIssue')}</Text>
             {item.kind === 'user_action' ? (

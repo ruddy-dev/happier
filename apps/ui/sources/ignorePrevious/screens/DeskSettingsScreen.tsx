@@ -6,10 +6,41 @@ import { useUnistyles } from 'react-native-unistyles';
 import { useLayoutMaxWidth } from '@/components/ui/layout/layout';
 import { t } from '@/text';
 
-import { terminalPalettes, type TerminalPalette } from '../palette';
+import { robotPresets, terminalPalettes, type RobotPreset, type TerminalPalette } from '../palette';
 import { useDeskPref } from '../deskPrefs';
+import { WorkerSprite } from '../components/WorkerSprite';
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { DeskText } from '../typography/DeskText';
+
+const robots = [
+    { id: 'droid', kind: 'ipdroid', pref: 'robotDroid' },
+    { id: 'ipb', kind: 'ipb', pref: 'robotIpb' },
+    { id: 'prompt', kind: 'cxprompt', pref: 'robotPrompt' },
+    { id: 'loupe', kind: 'cxloupe', pref: 'robotLoupe' },
+    { id: 'lab', kind: 'cxlab', pref: 'robotLab' },
+] as const;
+
+function RobotRow({ robot }: { robot: typeof robots[number] }) {
+    const { theme } = useUnistyles();
+    const [selected, setSelected] = useDeskPref(robot.pref);
+    const weak = selected === 'violet' || selected === 'orange' || selected === 'blue' || selected === 'magenta';
+    return <View style={{ gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <WorkerSprite kind={robot.kind} bulb="idle" size={40} calm testID={`ip-robot-preview-${robot.id}`} />
+            <DeskText style={{ color: theme.colors.text.primary }}>{t(`ignorePrevious.robots.${robot.id}`)}</DeskText>
+        </View>
+        <View accessibilityRole="radiogroup" accessibilityLabel={t(`ignorePrevious.robots.${robot.id}`)} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {(Object.keys(robotPresets) as RobotPreset[]).map(preset => <Pressable
+                key={preset} testID={`ip-robot-${robot.id}-${preset}`} accessibilityRole="radio"
+                accessibilityLabel={t(`ignorePrevious.robots.${preset}`)} accessibilityState={{ checked: selected === preset }}
+                onPress={() => setSelected(preset)}
+                style={{ width: 48, height: 48, padding: 8, borderWidth: selected === preset ? 3 : 1, borderColor: selected === preset ? theme.colors.text.primary : theme.colors.border.default }}>
+                <View style={{ flex: 1, backgroundColor: robotPresets[preset].body }} />
+            </Pressable>)}
+        </View>
+        {weak ? <DeskText style={{ color: theme.colors.text.secondary }}>{t(`ignorePrevious.robots.note${selected[0].toUpperCase()}${selected.slice(1)}` as 'ignorePrevious.robots.noteViolet')}</DeskText> : null}
+    </View>;
+}
 
 export function DeskSettingsScreen() {
     const router = useRouter();
@@ -18,6 +49,8 @@ export function DeskSettingsScreen() {
     const [chatStyle, setChatStyle] = useDeskPref('chatStyle');
     const [terminalPalette, setTerminalPalette] = useDeskPref('terminalPalette');
     const [creatureEnabled, setCreatureEnabled] = useDeskPref('creatureEnabled');
+    const [faces, setFaces] = useDeskPref('workerFaces');
+    const [noWorker, setNoWorker] = useDeskPref('noWorkerRobot');
 
     return (
         <DeskFontRoot>
@@ -62,6 +95,28 @@ export function DeskSettingsScreen() {
                                 ))}
                             </View>
                         </> : null}
+                    </View>
+                    <View style={{ gap: 12 }}>
+                        <DeskText accessibilityRole="header" style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.robots.faces')}</DeskText>
+                        <View accessibilityRole="radiogroup" accessibilityLabel={t('ignorePrevious.robots.faces')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {(['A', 'B'] as const).map(choice => <Pressable key={choice} testID={`ip-faces-${choice}`} accessibilityRole="radio"
+                                accessibilityState={{ checked: faces === choice }} onPress={() => setFaces(choice)}
+                                style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: faces === choice ? theme.colors.text.primary : theme.colors.border.default }}>
+                                <DeskText style={{ color: theme.colors.text.primary }}>{t(choice === 'A' ? 'ignorePrevious.robots.pixel' : 'ignorePrevious.robots.ascii')}</DeskText>
+                            </Pressable>)}
+                        </View>
+                    </View>
+                    <View style={{ gap: 16 }}>
+                        <DeskText accessibilityRole="header" style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.robots.title')}</DeskText>
+                        {robots.map(robot => <RobotRow key={robot.id} robot={robot} />)}
+                        <DeskText style={{ color: theme.colors.text.primary }}>{t('ignorePrevious.robots.noWorker')}</DeskText>
+                        <View accessibilityRole="radiogroup" accessibilityLabel={t('ignorePrevious.robots.noWorker')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {(['droid', 'ipb'] as const).map(choice => <Pressable key={choice} testID={`ip-no-worker-${choice}`} accessibilityRole="radio"
+                                accessibilityState={{ checked: noWorker === choice }} onPress={() => setNoWorker(choice)}
+                                style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: noWorker === choice ? theme.colors.text.primary : theme.colors.border.default }}>
+                                <DeskText style={{ color: theme.colors.text.primary }}>{t(`ignorePrevious.robots.${choice}`)}</DeskText>
+                            </Pressable>)}
+                        </View>
                     </View>
                     <Pressable
                         testID="ip-settings-creature"
