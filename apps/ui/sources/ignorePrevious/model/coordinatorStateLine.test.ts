@@ -5,6 +5,15 @@ describe('coordinator state line', () => {
     it('shows Thinking while replying, before the desk wait count', () => {
         expect(coordinatorStateLine({ state: 'thinking', isConnected: true }, 3)).toEqual({ kind: 'thinking' });
     });
+    it('hides count-dependent state while the wait count is unknown', () => {
+        expect(coordinatorStateLine({ state: 'waiting', isConnected: true }, null)).toBeNull();
+    });
+    it('shows Thinking even while the wait count is unknown', () => {
+        expect(coordinatorStateLine({ state: 'thinking', isConnected: true }, null)).toEqual({ kind: 'thinking' });
+    });
+    it('shows offline when disconnected even while the wait count is unknown', () => {
+        expect(coordinatorStateLine({ state: 'disconnected', isConnected: false }, null)).toEqual({ kind: 'offline' });
+    });
     it.each([1, 8, 12])('uses the full shared waiting count, N=%s', count => {
         expect(coordinatorStateLine({ state: 'waiting', isConnected: true }, count)).toEqual({ kind: 'waiting', count });
     });
