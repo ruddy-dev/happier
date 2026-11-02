@@ -22,6 +22,20 @@ describe('issueKeyFromBranch', () => {
         expect(issueKeyFromPath(`/work/${input}`)).toBe(expected);
     });
 
+    it.each(['atr13', 'Atr13', 'node18', 'python3', 'es2020', 'utf8', 'sha256', 'oauth2', 'john2', 'feature/oauth2-login', 'user/john2', 'PROJECT14', 'project_14', 'A1', 'a_1'])(
+        'ordinary or unsupported compact name %s is neither a branch nor folder issue', (input) => {
+            expect(issueKeyFromBranch(`feature/${input}`)).toBeNull();
+            expect(issueKeyFromPath(`/work/${input}`)).toBeNull();
+        },
+    );
+
+    it.each([['AtR_5', 'ATR-5'], ['ABCDE_14', 'ABCDE-14'], ['AB12', 'AB-12'], ['ABCDE14', 'ABCDE-14'], ['Project-14', 'PROJECT-14']])(
+        'supported branch and folder %s resolve to %s', (input, expected) => {
+            expect(issueKeyFromBranch(`feature/${input}`)).toBe(expected);
+            expect(issueKeyFromPath(`/work/${input}`)).toBe(expected);
+        },
+    );
+
     it('ignores branches without a leading issue id', () => {
         expect(issueKeyFromBranch('main')).toBeNull();
         expect(issueKeyFromBranch('ui-web-v0')).toBeNull();

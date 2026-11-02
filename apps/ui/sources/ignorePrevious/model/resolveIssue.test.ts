@@ -48,6 +48,9 @@ describe('resolveIssue', () => {
     it('A1 a title id stands alone when neither branch nor folder names an issue', () =>
         expect(resolveIssue({ tag: null, title: 'ATR-7 x', branch: null, path: null })).toBe('ATR-7'));
 
+    it('an ordinary compact folder name does not override a valid title', () =>
+        expect(resolveIssue({ tag: null, title: 'ATR-6 build', branch: null, path: '/work/python3' })).toBe('ATR-6'));
+
     it('everything null gives null', () =>
         expect(resolveIssue({ tag: null, title: null, branch: null, path: null })).toBeNull());
 });

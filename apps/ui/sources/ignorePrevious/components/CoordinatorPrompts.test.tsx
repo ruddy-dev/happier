@@ -135,6 +135,25 @@ describe('CoordinatorPrompts', () => {
         expect(n1).toContain("aren't loaded");
     });
 
+    it('L2: an unreadable coordinator is excluded from the chip and unreadable lines', async () => {
+        seed([]);
+        const unreadable = buildSessionListRenderableFromSession(
+            createSessionFixture({ id: 'coord', active: true, pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now() }),
+        );
+        act(() => {
+            storage.getState().mergeSessionListRenderables([{ ...unreadable, metadata: null, metadataUnavailable: true }]);
+        });
+        const screen = await renderPrompts();
+        expect(screen.findByTestId('ip-walk-waiting')).toBeNull();
+
+        // A worker makes the walk-through available without changing the unreadable coordinator row.
+        seed([session('s1', { tool: 'Bash', arguments: { command: 'worker-command' }, createdAt: 20 })]);
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+        const text = String(state.submit.mock.calls[0]?.[1]);
+        expect(text).toContain('worker-command');
+        expect(text).not.toContain('session coord');
+    });
+
     it('offers only the PR walk-through when nothing waits', async () => {
         seed([session('coord', null)]);
         const screen = await renderPrompts();
