@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +26,19 @@ function cleanExport(extra = {}) {
 }
 
 function runGuard(...args) {
-    const result = spawnSync(process.execPath, [GUARD, ...args], { encoding: 'utf8' });
-    return { code: result.status, out: result.stdout + result.stderr };
+    // File-backed stdio also works where the sandbox rejects Node's child pipe setup (EPERM).
+    const dir = mkdtempSync(join(tmpdir(), 'ip-guard-output-'));
+    const output = join(dir, 'output');
+    const fd = openSync(output, 'w');
+    try {
+        const result = spawnSync(process.execPath, [GUARD, ...args], { stdio: ['ignore', fd, fd] });
+        assert.ifError(result.error);
+        assert.equal(result.signal, null);
+        return { code: result.status, out: readFileSync(output, 'utf8') };
+    } finally {
+        closeSync(fd);
+        rmSync(dir, { recursive: true, force: true });
+    }
 }
 
 test('readFixtureMarker reads the marker from the fixture scenario, not from a copy here', () => {
@@ -83,3 +94,28 @@ test('the guard exits 2 with no argument, for a missing folder, and for a folder
     // An empty entry bundle is still a bundle the guard cannot be fooled by, so only a missing one is refused.
     assert.equal(runGuard(exportDir({ 'index.html': PAGE, [ENTRY]: '' })).code, 0);
 });
+
+const SECOND = '_expo/static/js/web/another-bundle.js';
+for (const [name, files, expected] of [
+    ['empty directory', {}, 2],
+    ['renamed entry absent from HTML', { 'index.html': PAGE, [SECOND]: 'clean' }, 2],
+    ['missing second entry', { 'index.html': PAGE + `<script src="/${SECOND}"></script>`, [ENTRY]: 'clean' }, 2],
+    ['two existing entries', { 'index.html': PAGE + `<script src="/${SECOND}"></script>`, [ENTRY]: 'clean', [SECOND]: 'clean' }, 2],
+    ['comment-only reference', { 'index.html': `<!-- ${PAGE} -->`, [ENTRY]: 'clean' }, 2],
+    ['inert template reference', { 'index.html': `<template>${PAGE}</template>`, [ENTRY]: 'clean' }, 2],
+    ['base changes script location', { 'index.html': '<base href="/nested/">' + PAGE.replace(`/${ENTRY}`, ENTRY), [ENTRY]: 'clean' }, 2],
+    ['plain text reference', { 'index.html': ENTRY, [ENTRY]: 'clean' }, 2],
+    ['attribute-only reference', { 'index.html': `<div data-html='${PAGE}'></div>`, [ENTRY]: 'clean' }, 2],
+    ['inline script text reference', { 'index.html': `<script>const name="${ENTRY}"</script>`, [ENTRY]: 'clean' }, 2],
+    ['missing local supporting script', { 'index.html': PAGE + '<script src="/support.js"></script>', [ENTRY]: 'clean' }, 2],
+    ['existing local supporting script', { 'index.html': PAGE + '<script src="/support.js"></script>', [ENTRY]: 'clean', 'support.js': 'clean' }, 0],
+    ['arbitrary entry filename', { 'index.html': `<script defer src='/${SECOND}'></script>`, [SECOND]: 'clean' }, 0],
+    ['comment ignored beside real entry', { 'index.html': PAGE + `<!-- <script src="/${SECOND}"></script> -->`, [ENTRY]: 'clean' }, 0],
+    ['unreferenced marked split chunk', { 'index.html': PAGE, [ENTRY]: 'clean', 'chunks/split.js': readFixtureMarker() }, 1],
+]) {
+    test(`the guard validates export shape: ${name}`, () => {
+        const { code, out } = runGuard(exportDir(files));
+        assert.equal(code, expected, out);
+        assert.match(out, expected === 2 ? /cannot judge/ : expected === 1 ? /FAIL/ : /PASS/);
+    });
+}
