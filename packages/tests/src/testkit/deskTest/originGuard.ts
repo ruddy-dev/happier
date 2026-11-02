@@ -31,28 +31,30 @@ export const FORBIDDEN_ORIGIN_PATTERNS: readonly ForbiddenOriginPattern[] = [
 ];
 
 /** The forbidden class a URL falls in, or null. */
-export function forbiddenOriginLabel(url: string): string | null {
+export function forbiddenOriginLabel(url: string, extraForbidden: readonly string[] = []): string | null {
     let parsed: URL;
     try {
         parsed = new URL(url);
     } catch {
         return null;
     }
-    return FORBIDDEN_ORIGIN_PATTERNS.find((pattern) => pattern.test(parsed))?.label ?? null;
+    const label = FORBIDDEN_ORIGIN_PATTERNS.find((pattern) => pattern.test(parsed))?.label;
+    if (label) return label;
+    return extraForbidden.some((entry) => new URL(entry).host === parsed.host) ? 'a test-only forbidden origin' : null;
 }
 
 /**
  * Whether a request may leave the browser or test process. Allowed entries are matched by host and
  * port, so the test server's http and websocket URLs are one entry.
  */
-export function isAllowedOrigin(url: string, allowed: readonly string[]): boolean {
+export function isAllowedOrigin(url: string, allowed: readonly string[], extraForbidden: readonly string[] = []): boolean {
     let parsed: URL;
     try {
         parsed = new URL(url);
     } catch {
         return false;
     }
-    if (FORBIDDEN_ORIGIN_PATTERNS.some((pattern) => pattern.test(parsed))) return false;
+    if (forbiddenOriginLabel(url, extraForbidden)) return false;
     return allowed.some((entry) => {
         try {
             return new URL(entry).host === parsed.host;
