@@ -11400,7 +11400,7 @@ settingsSession: {
   },
     ignorePrevious: {
         connection: {
-            lastSeen: ({ time }: { time: string }) => `Not connected. Showing what we last saw at ${time}.`,
+            lastSeen: ({ time }: { time: string }) => `Not connected. Last connected at ${time}.`,
             noData: 'Not connected. Waiting for the first update.',
             actionsUnavailable: 'Reconnect to Allow, Deny or Stop.',
             unheard: ({ minutes }: { minutes: number }) => `Not heard from in ${minutes} min`,

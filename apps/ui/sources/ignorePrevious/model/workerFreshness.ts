@@ -4,6 +4,7 @@ import { isFreshTimestamp, SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS } from '@/util
 
 /** An age annotation, not a replacement for getSessionStatus or pending-request settlement. */
 export function workerUnheardMinutes(session: SessionListRenderableSession, nowMs: number): number | null {
+    if (session.active !== true) return null;
     // Presence is the repeating witness; a newer runtime/turn/request report is also evidence.
     // updatedAt is deliberately excluded: edits to a title or permission mode aren't worker signals.
     const signals = [
