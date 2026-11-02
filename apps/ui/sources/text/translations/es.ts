@@ -11714,6 +11714,7 @@ settingsSession: {
         closeApprovalsConnecting: 'Hide what waits on you, connecting',
         nothingWaits: 'Nothing waits on you.',
         connecting: 'Connecting…',
+        shogPanel: { close: 'Close Shog up close' },
         shogTitle: 'Shog',
         openShog: 'Show Shog up close',
         shogCalm: 'All eyes pale: nothing waits on you.',
