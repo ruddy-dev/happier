@@ -68,8 +68,13 @@ function readTranscript(sessionId: string): readonly Message[] | undefined {
  * A transcript write (a request arriving, or a result answering one) need not replace the Session
  * or its list row, so each listed session's transcript version is a dependency of its own.
  */
-export function useDeskWaits(): DeskWaits {
-    const { list, lookup, ready } = useDeskSessions();
+export function useDeskWaits(excludeSessionId?: string): DeskWaits {
+    const { list: sessions, lookup, ready } = useDeskSessions();
+    // The coordinator's walk-through rates workers only; the global panel still includes everyone.
+    const list = React.useMemo(
+        () => excludeSessionId ? sessions.filter((row) => row.id !== excludeSessionId) : sessions,
+        [sessions, excludeSessionId],
+    );
     // Stable while the list is, so the selector isn't rebuilt every render.
     const ids = React.useMemo(() => list.map((row) => row.id), [list]);
     const signatures = storage(
