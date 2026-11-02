@@ -3,7 +3,7 @@ import { View, Platform, Linking } from 'react-native';
 import * as React from 'react';
 import { encodeBase64 } from "@/encryption/base64";
 import { authGetToken } from "@/auth/flows/getToken";
-import { router, useRouter, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useRouter, useLocalSearchParams } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "@/platform/cryptoRandom";
 import { trackAccountCreated, trackAccountRestored } from '@/track';
@@ -139,6 +139,10 @@ function Authenticated() {
                 <DesktopLocalSetupPanel />
             </View>
         );
+    }
+    // Keep explicit session links and terminal continuations with their existing owners.
+    if (!String(sessionId ?? '').trim() && isAuthenticatedRootDeepLinkRedirectAllowed() && !getPendingTerminalConnect()) {
+        return <Redirect href="/desk" />;
     }
     return <MainView variant="phone" />;
 }

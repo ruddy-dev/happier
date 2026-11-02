@@ -124,6 +124,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/app/(app)/index.tsx` | ATR-55 redirects the ordinary authenticated root to `/desk` before mounting the old home. Signed-out welcome, explicit session query links, pending terminal connections, non-root URLs and the existing Tauri setup/home branch retain their owners. Component coverage lives in `ignorePrevious/screens/startPage.test.tsx`. |
 | `apps/ui/sources/components/navigation/shell/SidebarNavigator.tsx` | Hides the shared sidebar on the desk route; coverage lives beside it in `SidebarNavigator.collapsed.test.tsx`. |
 | `apps/ui/sources/components/sessions/transcript/TranscriptAppearanceContext.tsx` (new) | Nullable data/slot contract for user, agent and tool containers, optional markdown font/colours and an agent-leading node; imports no overlay code. |
 | `apps/ui/sources/components/sessions/transcript/MessageView.tsx` | Applies opt-in container styles after built-ins and the agent-leading slot; styles the streaming plain-text fallback. Resets the appearance beneath tool chrome to preserve tool-row typography. |
