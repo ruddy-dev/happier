@@ -37,57 +37,30 @@ function separatedHue(a: string, b: string, minimum: number): boolean {
 
 // Fixed exception list, never inferred from the measured result. ATR-32 rulings.
 const knownFailures = new Set([
-    'signal/night/idle/bg', // 1.8393:1
-    'signal/night/idle/panel', // 1.6922:1
-    'signal/night/idle/panel2', // 1.5417:1
-    'ring/violet/night/turn', // 2.2493:1
-    'ring/violet/night/working', // 1.8739:1
-    'ring/orange/night/turn', // 2.6228:1
-    'ring/orange/night/stuck', // 1.3754:1
-    'signal/paper/turn/bg', // 1.2546:1
-    'signal/paper/turn/panel', // 1.2546:1
-    'signal/paper/turn/panel2', // 1.4792:1
-    'signal/paper/idle/bg', // 1.4307:1
-    'signal/paper/idle/panel', // 1.4307:1
-    'signal/paper/idle/panel2', // 1.6868:1
-    'body/violet/paper/bg', // 2.8219:1
-    'body/violet/paper/panel', // 2.8219:1
-    'ring/violet/paper/turn', // 2.2493:1
-    'ring/orange/paper/turn', // 2.6228:1
-    'signal/tokyo/idle/bg', // 1.9976:1
-    'signal/tokyo/idle/panel', // 1.8344:1
-    'signal/tokyo/idle/panel2', // 1.6661:1
-    'ring/violet/tokyo/turn', // 2.2493:1
-    'ring/violet/tokyo/working', // 1.9395:1
-    'ring/orange/tokyo/turn', // 2.6228:1
-    'ring/blue/tokyo/working', // 2.2615:1
-    'signal/kanagawa/idle/bg', // 2.1410:1
-    'signal/kanagawa/idle/panel', // 1.9753:1
-    'signal/kanagawa/idle/panel2', // 1.7571:1
-    'ring/violet/kanagawa/turn', // 2.2493:1
-    'ring/orange/kanagawa/turn', // 2.6228:1
-    'ring/orange/kanagawa/stuck', // 1.2083:1
-    'ring/magenta/kanagawa/stuck', // 1.1984:1
-    'signal/gruvbox/idle/bg', // 1.8582:1
-    'signal/gruvbox/idle/panel', // 1.6709:1
-    'signal/gruvbox/idle/panel2', // 1.4880:1
-    'ring/violet/gruvbox/turn', // 2.2493:1
-    'ring/orange/gruvbox/turn', // 2.6228:1
-    'signal/dracula/idle/bg', // 2.3389:1
-    'signal/dracula/idle/panel', // 2.1092:1
-    'signal/dracula/idle/panel2', // 1.7465:1
-    'ring/violet/dracula/turn', // 2.2493:1
-    'ring/orange/dracula/turn', // 2.6228:1
-    'signal/terminalPaper/turn/bg', // 1.2546:1
-    'signal/terminalPaper/turn/panel', // 1.2546:1
-    'signal/terminalPaper/turn/panel2', // 1.4792:1
-    'signal/terminalPaper/idle/bg', // 1.4307:1
-    'signal/terminalPaper/idle/panel', // 1.4307:1
-    'signal/terminalPaper/idle/panel2', // 1.6868:1
-    'body/violet/terminalPaper/bg', // 2.8219:1
-    'body/violet/terminalPaper/panel', // 2.8219:1
-    'ring/violet/terminalPaper/turn', // 2.2493:1
-    'ring/orange/terminalPaper/turn', // 2.6228:1
+    'ring/violet/night/turn', // Accepted exception (ATR-32, option B)
+    'ring/violet/night/working', // Accepted exception (ATR-32, option B)
+    'ring/orange/night/turn', // Accepted exception (ATR-32, option B)
+    'ring/orange/night/stuck', // Accepted exception (ATR-32, option B)
+    'body/violet/paper/bg', // Accepted exception (ATR-32, option B)
+    'body/violet/paper/panel', // Accepted exception (ATR-32, option B)
+    'ring/violet/paper/turn', // Accepted exception (ATR-32, option B)
+    'ring/orange/paper/turn', // Accepted exception (ATR-32, option B)
+    'ring/violet/tokyo/turn', // Accepted exception (ATR-32, option B)
+    'ring/violet/tokyo/working', // Accepted exception (ATR-32, option B)
+    'ring/orange/tokyo/turn', // Accepted exception (ATR-32, option B)
+    'ring/blue/tokyo/working', // Accepted exception (ATR-32, option B)
+    'ring/violet/kanagawa/turn', // Accepted exception (ATR-32, option B)
+    'ring/orange/kanagawa/turn', // Accepted exception (ATR-32, option B)
+    'ring/orange/kanagawa/stuck', // Accepted exception (ATR-32, option B)
+    'ring/magenta/kanagawa/stuck', // Accepted exception (ATR-32, option B)
+    'ring/violet/gruvbox/turn', // Accepted exception (ATR-32, option B)
+    'ring/orange/gruvbox/turn', // Accepted exception (ATR-32, option B)
+    'ring/violet/dracula/turn', // Accepted exception (ATR-32, option B)
+    'ring/orange/dracula/turn', // Accepted exception (ATR-32, option B)
+    'body/violet/terminalPaper/bg', // Accepted exception (ATR-32, option B)
+    'body/violet/terminalPaper/panel', // Accepted exception (ATR-32, option B)
+    'ring/violet/terminalPaper/turn', // Accepted exception (ATR-32, option B)
+    'ring/orange/terminalPaper/turn', // Accepted exception (ATR-32, option B)
 ]);
 function checkPair(id: string, check: () => void) {
     // A corrected colour becomes an unexpected pass, prompting removal of its ruling.
@@ -100,7 +73,33 @@ describe('ATR-9 criterion 3: state signal without a sprite, 3:1 graphical bar', 
         for (const [state, token] of Object.entries(palette.spriteStateTokens)) {
             for (const surface of surfaces) {
                 checkPair(`signal/${name}/${state}/${surface}`, () => {
-                    expect(contrast(theme[token], theme[surface])).toBeGreaterThanOrEqual(3);
+                    const signal = state === 'turn' ? theme.turnSignal : state === 'idle' ? theme.idleSignal : theme[token];
+                    expect(contrast(signal, theme[surface])).toBeGreaterThanOrEqual(3);
+                });
+            }
+        }
+    }
+});
+
+describe('ATR-32 option B: dark themes keep the brand turn yellow', () => {
+    for (const name of ['night', 'tokyo', 'kanagawa', 'gruvbox', 'dracula'] as const) {
+        it(`${name} turnSignal is its yel`, () => {
+            expect(palette.deskThemes[name].turnSignal).toBe(palette.deskThemes[name].yel);
+        });
+    }
+});
+
+// Existing mask, label, count and issue-dot consumers use this palette adapter.
+describe('bulb signals on the corresponding desk surfaces', () => {
+    it('uses the supplied turn signal independently of brand paint', () => {
+        const colours = { ...palette.ipPalette.light, turnSignal: palette.deskThemes.paper.idleSignal };
+        expect(palette.bulbColour(colours, 'turn')).toBe(colours.turnSignal);
+    });
+    for (const [mode, name] of [['dark', 'night'], ['light', 'paper']] as const) {
+        for (const state of ['idle', 'turn'] as const) {
+            for (const surface of surfaces) {
+                it(`${mode}/${state}/${surface} meets 3:1`, () => {
+                    expect(contrast(palette.bulbColour(palette.ipPalette[mode], state), palette.deskThemes[name][surface])).toBeGreaterThanOrEqual(3);
                 });
             }
         }
@@ -123,6 +122,7 @@ describe('round-8 robot contrast in all seven themes', () => {
                 checkPair(`ring/${key}/${name}/${state}`, () => {
                     const ring = theme[palette.spriteStateTokens[state]];
                     const ratio = contrast(body, ring);
+                    // Accepted exception (ATR-32, option B): Paper working rings retain the neutral escape.
                     const strict = name === 'night' || name === 'tokyo';
                     const passes = state === 'turn' ? ratio >= 2.5 && separatedHue(body, ring, 90)
                         : state === 'stuck' ? ratio >= 1.4 || separatedHue(body, ring, 60)
