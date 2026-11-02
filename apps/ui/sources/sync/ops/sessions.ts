@@ -540,7 +540,11 @@ export async function rollbackSessionConversation(options: Readonly<{
     }
 }
 
-export async function sessionAbort(sessionId: string): Promise<void> {
+export type SessionAbortResult =
+    | { ok: true }
+    | { ok: false; reason: 'not_listening' | 'encryption_unavailable' };
+
+export async function sessionAbortResult(sessionId: string): Promise<SessionAbortResult> {
     try {
         await sessionRpcWithPreferredSessionScope<void, { reason: string }>({
             sessionId,
@@ -558,8 +562,7 @@ export async function sessionAbort(sessionId: string): Promise<void> {
             )
         ) {
             // Session RPCs are unavailable when no agent process is attached (inactive/resumable).
-            // Treat abort as a no-op in that case.
-            return;
+            return { ok: false, reason: 'not_listening' };
         }
         if (
             e instanceof Error
@@ -568,13 +571,25 @@ export async function sessionAbort(sessionId: string): Promise<void> {
                 || errorCode === 'session_encryption_not_found'
             )
         ) {
-            // Scoped session RPC encryption can be unavailable when the provider is already detached.
-            // Abort is best-effort; do not block follow-up user actions (e.g. sending pending messages).
+            return { ok: false, reason: 'encryption_unavailable' };
         } else {
             throw e;
         }
     }
 
+    recoverSessionThinkingAfterAbort(sessionId);
+    return { ok: true };
+}
+
+export async function sessionAbort(sessionId: string): Promise<void> {
+    const result = await sessionAbortResult(sessionId);
+    if (!result.ok && result.reason === 'encryption_unavailable') {
+        // Preserve legacy best-effort recovery for callers that do not inspect delivery results.
+        recoverSessionThinkingAfterAbort(sessionId);
+    }
+}
+
+function recoverSessionThinkingAfterAbort(sessionId: string): void {
     // Best-effort local UX recovery: aborts should immediately return the session to non-thinking state
     // even if lifecycle events arrive out of order or providers publish intermittent thinking=false.
     const session = storage.getState().sessions[sessionId];
