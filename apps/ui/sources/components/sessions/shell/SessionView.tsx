@@ -6495,6 +6495,7 @@ function SessionViewLoaded({
                 onProfileClick={liveComposerState.profileId !== null ? handleProfileClick : undefined}
                 statusBadges={resolvedComposer.statusBadges}
                 statusTrailingActions={resolvedComposer.statusTrailingActions}
+                footerLeadingActions={resolvedComposer.footerLeadingActions}
                 providerUsageGauge={resolvedComposer.providerUsageGauge}
                 onProviderUsageRecoveryCreditPress={providerUsageRecoveryCreditAction}
                 providerUsageRecoveryCreditPending={providerUsageRecoveryCreditActionPending}
