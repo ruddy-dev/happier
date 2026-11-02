@@ -221,24 +221,32 @@ function startStatic(dist) {
     return new Promise((ok, fail) => host.server.once('error', fail).listen(0, '127.0.0.1', () => ok(host)));
 }
 
+function appReadyElements(page, shot) {
+    if (shot.page !== 'desk') return [
+        { locator: page.getByTestId(shot.readyTestId), state: 'visible', label: shot.readyTestId },
+    ];
+    // The 390 shot opens on Coordinator. Work stays mounted behind its phone tab.
+    const workState = shot.width === 390 ? 'attached' : 'visible';
+    return [
+        { locator: page.getByTestId('ip-work'), state: workState, label: 'ip-work' },
+        { locator: page.getByText('ABC-12', { exact: false }).first(), state: workState, label: 'ABC-12' },
+        { locator: page.getByTestId('ip-fixture-coordinator-body'), state: 'visible', label: 'ip-fixture-coordinator-body' },
+    ];
+}
+
 export async function waitForAppReady(page, shot) {
     const relayError = page.getByText('Relay not supported', { exact: false }).first();
     const unsupported = () => new Error(`Relay not supported on ${shot.appPath ?? shot.page}; the requested page did not load`);
     const ready = async () => {
-        if (shot.page !== 'desk') {
-            if (shot.page === 'sign-in' && shot.width === 390) {
-                const getStarted = page.getByTestId('brand-hero-get-started');
-                await getStarted.waitFor({ state: 'visible', timeout: 60_000 });
-                await getStarted.click();
-            }
-            await page.getByTestId(shot.readyTestId).waitFor({ state: 'visible', timeout: 60_000 });
-            return;
+        if (shot.page === 'sign-in' && shot.width === 390) {
+            const getStarted = page.getByTestId('brand-hero-get-started');
+            await getStarted.waitFor({ state: 'visible', timeout: 60_000 });
+            await getStarted.click();
         }
-        // The 390 shot opens on Coordinator. Work stays mounted behind its phone tab.
-        const state = shot.width === 390 ? 'attached' : 'visible';
-        await page.getByTestId('ip-work').waitFor({ state, timeout: 60_000 });
-        await page.getByText('ABC-12', { exact: false }).first().waitFor({ state, timeout: 30_000 });
-        await page.getByTestId('ip-fixture-coordinator-body').waitFor({ state: 'visible', timeout: 30_000 });
+        const elements = appReadyElements(page, shot);
+        for (const [index, { locator, state }] of elements.entries()) {
+            await locator.waitFor({ state, timeout: index === 0 ? 60_000 : 30_000 });
+        }
     };
     try {
         await Promise.race([
@@ -263,11 +271,9 @@ async function captureApp(page, shot, origin) {
         path: location.pathname,
         sideways: document.documentElement.scrollWidth > innerWidth + 1,
         restorePrompt: document.body.innerText.includes('Restore with Secret Key'),
-        relayUnsupported: document.body.innerText.includes('Relay not supported'),
         testIds: [...new Set([...document.querySelectorAll('[data-testid^="ip-"]')].map(e => e.getAttribute('data-testid')))],
     }));
     if (facts.path !== shot.appPath) throw new Error(`Redirected from ${shot.appPath} to ${facts.path}`);
-    if (facts.relayUnsupported) throw new Error(`Relay not supported on ${shot.appPath}`);
     if (shot.page === 'desk' && facts.restorePrompt) throw new Error('Account prompt shown instead of fixture coordinator');
     return facts;
 }
@@ -290,9 +296,26 @@ async function captureMockup(page, shot, origin) {
     return { hash: shot.mockupHash, section: shot.mockupSection ?? 'desk' };
 }
 
+const ERROR_BOUNDARY_TEST_IDS = ['router_error_message', 'app-crash-restart'];
+
 export async function captureShot(page, shot, side, origin, out) {
     try {
         const facts = side === 'app' ? await captureApp(page, shot, origin) : await captureMockup(page, shot, origin);
+        if (side === 'app') {
+            // Expo Router's re-exported boundary and Happier's root crash screen (AppCrashRecoveryBoundary).
+            for (const testId of ERROR_BOUNDARY_TEST_IDS) {
+                if (await page.getByTestId(testId).first().isVisible()) {
+                    throw new Error(`React error boundary shown on ${shot.appPath}`);
+                }
+            }
+            if (await page.getByText('Relay not supported', { exact: false }).first().isVisible()) {
+                throw new Error(`Relay not supported on ${shot.appPath}`);
+            }
+            for (const { locator, state, label } of appReadyElements(page, shot)) {
+                const ready = state === 'attached' ? await locator.count() > 0 : await locator.isVisible();
+                if (!ready) throw new Error(`Ready element ${label} is no longer ${state} on ${shot.appPath}`);
+            }
+        }
         await page.screenshot({ path: join(out, shot[`${side}Image`]), animations: 'disabled', caret: 'hide' });
         return facts;
     } catch (error) {
