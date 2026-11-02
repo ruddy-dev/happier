@@ -68,7 +68,8 @@ export function CoordinatorHeader({ session, onOpenShog, accessory }: {
             </View> : null}
             <Pressable testID="ip-shog-open" accessibilityRole="button" accessibilityLabel={t('ignorePrevious.openShog')}
                 onPress={onOpenShog} hitSlop={6} style={{ marginLeft: maskLeft, marginRight: narrow ? 18 : 34, flexShrink: 0 }}>
-                <MaskFace size={maskSize} bulb={(waits.count ?? 0) > 0 ? 'turn' : 'rest'} sleepy={false} testID="ip-coord-mask" />
+                <MaskFace testID="ip-coord-mask" size={maskSize}
+                    bulb={waits.count === null ? 'idle' : waits.count > 0 ? 'turn' : 'rest'} sleepy={false} />
             </Pressable>
             <View style={[scrim, { minWidth: 0, flexShrink: 1, gap: 4, paddingHorizontal: 6, paddingVertical: 2 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
