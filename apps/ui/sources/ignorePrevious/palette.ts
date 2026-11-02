@@ -7,7 +7,7 @@ import type { Bulb } from './model/bulb';
  * The Ignore Previous overlay's own colours: the mask's yellow and ink, and the four antenna-bulb
  * states, plus mockup 12's desk themes and sprite paints. This is the one place raw
  * colour values live (see apps/ui/AGENTS.md, "named, theme-aware palette in one domain module").
- * The existing mask API stays unchanged. Desk consumers use the seven theme records below;
+ * The mask reads the same colour adapter as the desk. Desk consumers use the seven theme records below;
  * their known contrast exceptions are tracked in palette.test.ts.
  */
 export type IpColours = Readonly<{
@@ -15,6 +15,8 @@ export type IpColours = Readonly<{
     red: string;
     work: string;
     off: string;
+    idleSignal: string;
+    turnSignal: string;
     ink: string;
     bone: string;
     visor: string;
@@ -24,11 +26,6 @@ export type IpColours = Readonly<{
     paleEye: string;
 }>;
 
-export const ipPalette: Readonly<{ light: IpColours; dark: IpColours }> = {
-    dark: { yellow: '#ffcf1f', red: '#e0301e', work: '#c9c2b0', off: '#3a3e49', ink: '#14161c', bone: '#f3ecd8', visor: '#ffffff', flesh: '#3b4a3f', fleshEdge: '#5c7262', paleEye: '#e8e2cf' },
-    light: { yellow: '#ffcf1f', red: '#c9230f', work: '#6f6a5e', off: '#cfc7b0', ink: '#14161c', bone: '#14161c', visor: '#ffffff', flesh: '#55695a', fleshEdge: '#2f3b33', paleEye: '#f3ecd8' },
-};
-
 export function useIpColours(): IpColours {
     const { theme } = useUnistyles();
     return theme.dark ? ipPalette.dark : ipPalette.light;
@@ -37,13 +34,13 @@ export function useIpColours(): IpColours {
 export function bulbColour(colours: IpColours, bulb: Bulb): string {
     switch (bulb) {
         case 'turn':
-            return colours.yellow;
+            return colours.turnSignal;
         case 'stuck':
             return colours.red;
         case 'working':
             return colours.work;
         case 'idle':
-            return colours.off;
+            return colours.idleSignal;
     }
 }
 
@@ -152,7 +149,9 @@ export const robotPaintMap = {
 } as const satisfies Readonly<Record<string, Readonly<Record<string, RobotPaintRole>>>>;
 
 /** CSS token names retained for the later desk skin port. Paper modes share colours.
- * `yel` is the brand/state ring; `warn` is the readable warning text. `work` is a
+ * `idleSignal` is the contrast-safe idle cue; `off` retains the original decorative paint.
+ * `turnSignal` is the standalone turn cue; `yel` retains brand-yellow sprite rings.
+ * `warn` is the readable warning text. `work` is a
  * graphical signal, not a text token. Known contrast exceptions are in palette.test.ts. */
 export const deskThemes = {
     "night": {
@@ -173,6 +172,8 @@ export const deskThemes = {
         "sel": "rgba(255, 207, 31, .3)",
         "work": "#c9c2b0",
         "off": "#3a3e49",
+        "idleSignal": "#747986",
+        "turnSignal": "#ffcf1f",
         "yel": "#ffcf1f",
         "yelink": "#14161c",
         "brandred": "#e0301e",
@@ -211,6 +212,8 @@ export const deskThemes = {
         "sel": "rgba(255, 207, 31, .6)",
         "work": "#6f6a5e",
         "off": "#cfc7b0",
+        "idleSignal": "#827b69",
+        "turnSignal": "#9c7b00",
         "yel": "#ffcf1f",
         "yelink": "#14161c",
         "brandred": "#e0301e",
@@ -249,6 +252,8 @@ export const deskThemes = {
         "sel": "#33467c",
         "work": "#7dcfff",
         "off": "#3b4261",
+        "idleSignal": "#747d9c",
+        "turnSignal": "#ffcf1f",
         "yel": "#ffcf1f",
         "yelink": "#14161c",
         "brandred": "#e0301e",
@@ -287,6 +292,8 @@ export const deskThemes = {
         "sel": "#2d4f67",
         "work": "#9cc4d4",
         "off": "#4a4844",
+        "idleSignal": "#7c7972",
+        "turnSignal": "#ffcf1f",
         "yel": "#ffcf1f",
         "yelink": "#14161c",
         "brandred": "#e0301e",
@@ -325,6 +332,8 @@ export const deskThemes = {
         "sel": "#504945",
         "work": "#8ec07c",
         "off": "#504945",
+        "idleSignal": "#8c8179",
+        "turnSignal": "#ffcf1f",
         "yel": "#ffcf1f",
         "yelink": "#14161c",
         "brandred": "#e0301e",
@@ -363,6 +372,8 @@ export const deskThemes = {
         "sel": "#44475a",
         "work": "#8be9fd",
         "off": "#565a74",
+        "idleSignal": "#858ba8",
+        "turnSignal": "#ffcf1f",
         "yel": "#ffcf1f",
         "yelink": "#14161c",
         "brandred": "#e0301e",
@@ -401,6 +412,8 @@ export const deskThemes = {
         "sel": "rgba(255, 207, 31, .6)",
         "work": "#6f6a5e",
         "off": "#cfc7b0",
+        "idleSignal": "#827b69",
+        "turnSignal": "#9c7b00",
         "yel": "#ffcf1f",
         "yelink": "#14161c",
         "brandred": "#e0301e",
@@ -423,6 +436,12 @@ export const deskThemes = {
     }
 } as const;
 export type DeskTheme = keyof typeof deskThemes;
+
+export const ipPalette: Readonly<{ light: IpColours; dark: IpColours }> = {
+    dark: { turnSignal: deskThemes.night.turnSignal, idleSignal: deskThemes.night.idleSignal, yellow: '#ffcf1f', red: '#e0301e', work: '#c9c2b0', off: '#3a3e49', ink: '#14161c', bone: '#f3ecd8', visor: '#ffffff', flesh: '#3b4a3f', fleshEdge: '#5c7262', paleEye: '#e8e2cf' },
+    light: { turnSignal: deskThemes.paper.turnSignal, idleSignal: deskThemes.paper.idleSignal, yellow: '#ffcf1f', red: '#c9230f', work: '#6f6a5e', off: '#cfc7b0', ink: '#14161c', bone: '#14161c', visor: '#ffffff', flesh: '#55695a', fleshEdge: '#2f3b33', paleEye: '#f3ecd8' },
+};
+
 export const spriteColours = {
     "ragdoll": {
         "*": "#ffffff",

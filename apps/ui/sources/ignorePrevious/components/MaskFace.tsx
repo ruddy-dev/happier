@@ -19,7 +19,8 @@ export type MaskFaceProps = Readonly<{
  */
 export const MaskFace = React.memo(function MaskFace({ size, bulb, sleepy, testID }: MaskFaceProps) {
     const colours = useIpColours();
-    const fill = bulb === 'rest' ? colours.red : bulbColour(colours, bulb);
+    // The mask bulb sits on ink, never on the page, so turn keeps brand yellow (ATR-32).
+    const fill = bulb === 'rest' ? colours.red : bulb === 'turn' ? colours.yellow : bulbColour(colours, bulb);
     const ink = colours.ink;
 
     return (
