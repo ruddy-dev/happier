@@ -10829,6 +10829,16 @@ settingsSession: {
         },
     },
     ignorePrevious: {
+        settings: {
+            title: 'Settings',
+            backToDesk: 'Back to desk',
+            creature: 'Creature',
+            on: 'On',
+            off: 'Off',
+            about: 'About',
+            credit: 'by Ignore Previous',
+            forkNotice: 'A fork of Happier',
+        },
         contextGauge: {
             percent: ({ percent }: { percent: number }) => `${percent}%`,
             label: ({ percent, sentence }: { percent: string; sentence: string }) => `Context ${percent}, ${sentence}`,

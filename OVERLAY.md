@@ -7,7 +7,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | What | Where |
 |---|---|
 | Screen, components, model and palette | `apps/ui/sources/ignorePrevious/` (new folder) |
-| Route | `apps/ui/sources/app/(app)/desk/index.tsx` (new, thin) |
+| Routes | `apps/ui/sources/app/(app)/desk/index.tsx` and `apps/ui/sources/app/(app)/desk/settings.tsx` (new, thin) |
 | Theme profile | `apps/ui/sources/theme/profiles/ignorePreviousThemeProfile.ts` (new), registered in two upstream files |
 | Strings | an `ignorePrevious: { … }` block at the end of every locale in `apps/ui/sources/text/translations/` |
 | Upkeep tooling | `scripts/overlay/` (new) |
@@ -16,6 +16,8 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | Desk test harness | `apps/ui/sources/ignorePrevious/testkit/` (scenario driver and JSON scripts); in the UI testkit, `mocks/reducedMotion.ts` and `mocks/sync.ts`; `apps/ui/sources/dev/vitestOriginGuard.ts`; in `packages/tests`, `src/testkit/deskTest/`, `scripts/desk-env.mjs` and `suites/core-e2e/permissions.lifecycle.plain.test.ts` (all new) |
 
 Desk text must use `DeskText` (or `DESK_FONT_STACK` from `ignorePrevious/fonts/deskFont.ts`): Happier `Text` sets Inter/Plex inline, and portaled content (Popover, Modal) does not inherit the root.
+
+Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; the desk header has a minimal Settings button until the top bar lands.
 
 ## Branches
 
