@@ -310,6 +310,25 @@ it('opens Sessions from the phone bar', async () => {
     await render(390); await click('ip-top-sessions');
     expect(element('ip-sessions-sheet')).toBeTruthy();
 });
+it('closes the phone Sessions sheet and returns focus to its opener', async () => {
+    await render(390); await click('ip-top-sessions');
+    const close = element('ip-sessions-close');
+    expect(close.getAttribute('aria-label')).toBeTruthy();
+    expect(element('ip-sessions-sheet').contains(close)).toBe(true);
+    await click('ip-sessions-close');
+    expect(container.querySelector('[data-testid="ip-sessions-sheet"]')).toBeNull();
+    expect(document.activeElement).toBe(element('ip-top-sessions'));
+});
+it.each([390, 820])('navigates to desk Settings at %i', async width => {
+    await render(width); await click('ip-settings-open');
+    expect(routerHandle.navigate).toHaveBeenCalledWith('/desk/settings');
+});
+it.each([820, 821])('returns focus to the live Waiting opener after explicit close from %i', async width => {
+    await render(width); await click(width === 820 ? 'ip-tab-waiting' : 'ip-approvals-open');
+    await render(width === 820 ? 821 : 820); await click('ip-approvals-close');
+    expect(drawer()).toBeNull();
+    expect(document.activeElement).toBe(element(width === 820 ? 'ip-approvals-open' : 'ip-tab-waiting'));
+});
 it('returns focus to the desk opener when the drawer crosses from phone', async () => {
     await render(820); await click('ip-tab-waiting'); await render(821); await escape();
     expect(document.activeElement).toBe(element('ip-approvals-open'));
