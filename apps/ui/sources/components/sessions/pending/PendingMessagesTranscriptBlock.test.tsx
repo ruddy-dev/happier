@@ -193,9 +193,11 @@ vi.mock('@/sync/domains/features/featureDecisionRuntime', async (importOriginal)
     };
 });
 
-vi.mock('@/components/markdown/MarkdownView', () => ({
-    MarkdownView: 'MarkdownView',
-}));
+vi.mock('@/components/markdown/MarkdownView', async () => {
+    const React = await import('react');
+    const { TranscriptAppearanceContext } = await import('@/components/sessions/transcript/TranscriptAppearanceContext');
+    return { MarkdownView: (props: object) => React.createElement('MarkdownView', { ...props, appearance: React.useContext(TranscriptAppearanceContext) }) };
+});
 
 vi.mock('@/components/ui/forms/dropdown/DropdownMenu', () => ({
     DropdownMenu: (props: any) => {
@@ -1313,13 +1315,15 @@ describe('PendingMessagesTranscriptBlock', () => {
 
     it('uses the transcript markdown typography for pending message markdown rows', async () => {
         const PendingMessagesTranscriptBlock = await loadPendingMessagesTranscriptBlock();
-        const screen = await renderScreen(React.createElement(PendingMessagesTranscriptBlock, {
+        const { TranscriptAppearanceContext } = await import('@/components/sessions/transcript/TranscriptAppearanceContext');
+        const screen = await renderScreen(React.createElement(TranscriptAppearanceContext.Provider, { value: { fontFamily: 'Terminal' } }, React.createElement(PendingMessagesTranscriptBlock, {
                 sessionId: 's1',
                 pendingMessages: [{ id: 'p1', text: 'hello', displayText: undefined, createdAt: 0, updatedAt: 0, localId: 'p1', rawRecord: {} }],
                 discardedMessages: [],
-            }));
+            })));
 
         const markdownView = screen.findByType('MarkdownView' as any);
+        expect(markdownView.props.appearance).toBeNull();
         expect(markdownView.props.textStyle).toMatchObject({
             fontSize: 16,
             lineHeight: 24,

@@ -1,3 +1,4 @@
+import { TranscriptAppearanceContext } from './TranscriptAppearanceContext';
 import * as React from "react";
 import { View, Pressable, Platform } from 'react-native';
 import { isRecoveredHistoryTranscriptObservationProvenance } from '@happier-dev/protocol';
@@ -506,6 +507,7 @@ function UserTextBlock(props: {
   forkCommon: TranscriptForkCommon;
   messageDisplayCommon: TranscriptMessageDisplayCommon;
 }) {
+  const appearance = React.useContext(TranscriptAppearanceContext);
   const { isHovered: isMessageHovered, hoverProps } = useRowActionHoverHost();
   const [isCopyButtonHovered, setIsCopyButtonHovered] = React.useState(false);
   const [isActionRowFocused, setIsActionRowFocused] = React.useState(false);
@@ -822,7 +824,7 @@ function UserTextBlock(props: {
               routeMessageId={buildMessageRouteId(props.message)}
               seq={seq}
               radius={TRANSCRIPT_MESSAGE_HIGHLIGHT_RADIUS}
-              style={[styles.userMessageBubble, isDiscarded ? styles.userMessageBubbleDiscarded : null]}
+              style={[styles.userMessageBubble, isDiscarded ? styles.userMessageBubbleDiscarded : null, appearance?.userBubbleStyle]}
             >
               <StructuredMessageBlock
                 message={props.message}
@@ -958,6 +960,7 @@ function AgentTextBlock(props: {
   forkCommon: TranscriptForkCommon;
   messageDisplayCommon: TranscriptMessageDisplayCommon;
 }) {
+  const appearance = React.useContext(TranscriptAppearanceContext);
   const { isHovered: isMessageHovered, hoverProps } = useRowActionHoverHost();
   const [isCopyButtonHovered, setIsCopyButtonHovered] = React.useState(false);
   const [isActionRowFocused, setIsActionRowFocused] = React.useState(false);
@@ -1250,6 +1253,7 @@ function AgentTextBlock(props: {
           styles.agentMessageContainer,
           props.message.isThinking === true ? styles.agentMessageContainerThinking : null,
           props.historical ? styles.historicalMessageContainer : null,
+          appearance?.agentContainerStyle,
         ]}
       >
         {selectableMessage ? (
@@ -1262,6 +1266,7 @@ function AgentTextBlock(props: {
             />
           </View>
         ) : null}
+        {appearance?.agentLeading}
         {structuredNode}
         {isStructuredOnly ? null : (
           renderThinkingAsToolCard ? (
@@ -1334,7 +1339,7 @@ function AgentTextBlock(props: {
                 <Text
                   testID={`transcript-streaming-plain:${props.message.id}`}
                   selectable={fallbackTextSelectable}
-                  style={[styles.transcriptMarkdownText, styles.streamingPlainText]}
+                  style={[styles.transcriptMarkdownText, styles.streamingPlainText, appearance?.fontFamily ? { fontFamily: appearance.fontFamily } : null, appearance?.markdownColors ? { color: appearance.markdownColors.text.primary } : null]}
                 >
                   {streaming.displayText}
                 </Text>
@@ -1627,6 +1632,7 @@ function ToolCallBlock(props: {
   toolChromeCommon: TranscriptToolChromeCommon;
   toolRouteCommon: TranscriptToolRouteCommon;
 }) {
+  const appearance = React.useContext(TranscriptAppearanceContext);
   const structuredPinHost = useRowActionHoverHost();
   const handleJumpToAnchor = useStructuredMessageJumpHandler(
     props.sessionId,
@@ -1679,6 +1685,7 @@ function ToolCallBlock(props: {
     toolViewTimelineChromeMode === 'activity_feed'
       ? (props.layoutContext === 'tool_calls_group' ? styles.toolContainerFeedEmbedded : styles.toolContainerFeed)
       : styles.toolContainerCards,
+    appearance?.toolContainerStyle,
   ];
   const containerContent = (
     <>
@@ -1742,13 +1749,13 @@ function ToolCallBlock(props: {
         viewProps={structuredPinHost.hoverProps}
         style={containerStyle}
       >
-        {containerContent}
+        <TranscriptAppearanceContext.Provider value={null}>{containerContent}</TranscriptAppearanceContext.Provider>
       </TranscriptJumpAttention>
     );
   }
   return (
     <View {...structuredPinHost.hoverProps} style={containerStyle}>
-      {containerContent}
+      <TranscriptAppearanceContext.Provider value={null}>{containerContent}</TranscriptAppearanceContext.Provider>
     </View>
   );
 }
