@@ -1,3 +1,4 @@
+import { DeskPageAppearance } from '@/ignorePrevious/appearance/DeskPageAppearance';
 import * as React from 'react';
 import { View } from 'react-native';
 
@@ -20,6 +21,10 @@ import { LocalConversationSection } from '@/voice/settings/panels/LocalConversat
 import { Icon } from '@/components/ui/icons/Icon';
 
 export default function VoiceSettingsScreen() {
+    return <DeskPageAppearance><VoiceSettingsContent /></DeskPageAppearance>;
+}
+
+function VoiceSettingsContent() {
   const { theme } = useUnistyles();
   const [voice, setVoice] = useVoiceSettingsMutable();
   const happierVoiceSupported = useHappierVoiceSupport();

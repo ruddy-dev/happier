@@ -1,3 +1,4 @@
+import { DeskPageAppearance } from '@/ignorePrevious/appearance/DeskPageAppearance';
 import { useAuth } from "@/auth/context/AuthContext";
 import { View, Platform, Linking } from 'react-native';
 import * as React from 'react';
@@ -64,7 +65,7 @@ function readWelcomeServerCheckRetryDelayMs(): number {
 export default function Home() {
     const auth = useAuth();
     if (!auth.isAuthenticated) {
-        return <NotAuthenticated />;
+        return <DeskPageAppearance><NotAuthenticated /></DeskPageAppearance>;
     }
     return (
         <Authenticated />

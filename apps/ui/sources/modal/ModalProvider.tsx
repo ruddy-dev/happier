@@ -13,6 +13,7 @@ const ModalContext = createContext<ModalContextValue | undefined>(undefined);
 type ModalProviderProps = Readonly<{
     active?: boolean;
     children: React.ReactNode;
+    modalContentWrapper?: React.ComponentType<React.PropsWithChildren>;
 }>;
 
 type ModalHostEntry = ModalConfig & Readonly<{
@@ -36,7 +37,7 @@ export function useOptionalModal() {
     return useContext(ModalContext);
 }
 
-export function ModalProvider({ active = true, children }: ModalProviderProps) {
+export function ModalProvider({ active = true, children, modalContentWrapper: ModalContentWrapper = React.Fragment }: ModalProviderProps) {
     const [state, setState] = useState<ModalHostState>({
         modals: []
     });
@@ -228,7 +229,7 @@ export function ModalProvider({ active = true, children }: ModalProviderProps) {
             <ModalContext.Provider value={contextValue}>
                 {children}
                 <OverlayPortalHost zIndex={screenOverlayPortalZIndex} />
-                {state.modals.map((modal, index) => {
+                {state.modals.length > 0 && <ModalContentWrapper>{state.modals.map((modal, index) => {
                     const showBackdrop = index === topVisibleIndex;
                     const modalZIndexBase = zIndexBase + index * zIndexStep;
 
@@ -299,7 +300,7 @@ export function ModalProvider({ active = true, children }: ModalProviderProps) {
                     }
 
                     return null;
-                })}
+                })}</ModalContentWrapper>}
             </ModalContext.Provider>
         </OverlayPortalProvider>
     );

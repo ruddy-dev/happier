@@ -1,3 +1,5 @@
+import { deskPageThemes } from './ignorePrevious/appearance/deskPageThemes';
+
 import { Appearance } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 import { StyleSheet, UnistylesRuntime } from 'react-native-unistyles';
@@ -16,7 +18,7 @@ const startupThemes = resolveThemeRuntimeStartupThemes({
     themePreference,
     systemTheme: Appearance.getColorScheme(),
 });
-const appThemes = startupThemes.themes;
+const appThemes = { ...startupThemes.themes, ...deskPageThemes };
 
 const breakpoints = {
     xs: 0, // <-- make sure to register one breakpoint with value 0
