@@ -38,7 +38,7 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  */
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
-    const waits = useDeskWaits();
+    const waits = useDeskWaits(coordinatorId);
     const { count } = waits;
     const [sending, setSending] = React.useState(false);
 
