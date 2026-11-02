@@ -1,3 +1,5 @@
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
+import { useCoordinatorTranscriptAppearance } from '../useCoordinatorTranscriptAppearance';
 import * as React from 'react';
 import { Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
@@ -59,6 +61,7 @@ function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBod
 
 export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: React.ReactNode }) {
     const { theme } = useUnistyles();
+    const appearance = useCoordinatorTranscriptAppearance();
     const { width: windowWidth } = useWindowDimensions();
     const [chatWidth, setChatWidth] = React.useState(0);
     const enterToSend = useSetting(Platform.OS === 'web' ? 'agentInputEnterToSend' : 'agentInputEnterToSendNative');
@@ -109,22 +112,24 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
-                {FixtureBody ? (
-                    <React.Suspense fallback={null}>
-                        <FixtureBody footerLeadingActions={composer.footerLeadingActions} statusTrailingActions={composer.statusTrailingActions} />
-                    </React.Suspense>
-                ) : (
-                    <SessionView
-                        id={sessionId}
-                        composer={composer}
-                        routeHydrationState={hydration}
-                        routeAnchorOverride={true}
-                        surfaceFocusedOverride={true}
-                        safeAreaTopMode="internal"
-                        headerSafeAreaTopMode="internal"
-                        chatBottomSpacing="none"
-                    />
-                )}
+                <TranscriptAppearanceContext.Provider value={appearance}>
+                    {FixtureBody ? (
+                        <React.Suspense fallback={null}>
+                            <FixtureBody footerLeadingActions={composer.footerLeadingActions} statusTrailingActions={composer.statusTrailingActions} />
+                        </React.Suspense>
+                    ) : (
+                        <SessionView
+                            id={sessionId}
+                            composer={composer}
+                            routeHydrationState={hydration}
+                            routeAnchorOverride={true}
+                            surfaceFocusedOverride={true}
+                            safeAreaTopMode="internal"
+                            headerSafeAreaTopMode="internal"
+                            chatBottomSpacing="none"
+                        />
+                    )}
+                </TranscriptAppearanceContext.Provider>
             </View>
         </View>
     );

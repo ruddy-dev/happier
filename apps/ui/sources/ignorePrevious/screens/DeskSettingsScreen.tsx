@@ -6,6 +6,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { useLayoutMaxWidth } from '@/components/ui/layout/layout';
 import { t } from '@/text';
 
+import { terminalPalettes, type TerminalPalette } from '../palette';
 import { useDeskPref } from '../deskPrefs';
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { DeskText } from '../typography/DeskText';
@@ -14,6 +15,8 @@ export function DeskSettingsScreen() {
     const router = useRouter();
     const { theme } = useUnistyles();
     const maxWidth = useLayoutMaxWidth();
+    const [chatStyle, setChatStyle] = useDeskPref('chatStyle');
+    const [terminalPalette, setTerminalPalette] = useDeskPref('terminalPalette');
     const [creatureEnabled, setCreatureEnabled] = useDeskPref('creatureEnabled');
 
     return (
@@ -33,7 +36,33 @@ export function DeskSettingsScreen() {
                             {t('ignorePrevious.settings.title')}
                         </DeskText>
                     </View>
-                    <View testID="ip-settings-sections" />
+                    <View testID="ip-settings-sections" style={{ gap: 12 }}>
+                        <DeskText accessibilityRole="header" style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.chatStyle.appearance')}</DeskText>
+                        <DeskText style={{ color: theme.colors.text.primary }}>{t('ignorePrevious.chatStyle.title')}</DeskText>
+                        <View accessibilityRole="radiogroup" accessibilityLabel={t('ignorePrevious.chatStyle.title')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {(['mask', 'terminal'] as const).map(style => (
+                                <Pressable key={style} testID={`ip-chat-style-${style}`} accessibilityRole="radio"
+                                    accessibilityState={{ checked: chatStyle === style }}
+                                    onPress={() => setChatStyle(style)}
+                                    style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: chatStyle === style ? theme.colors.text.primary : theme.colors.border.default }}>
+                                    <DeskText style={{ color: theme.colors.text.primary }}>{t(`ignorePrevious.chatStyle.${style}`)}</DeskText>
+                                </Pressable>
+                            ))}
+                        </View>
+                        {chatStyle === 'terminal' ? <>
+                            <DeskText style={{ color: theme.colors.text.primary }}>{t('ignorePrevious.chatStyle.palette')}</DeskText>
+                            <View accessibilityRole="radiogroup" accessibilityLabel={t('ignorePrevious.chatStyle.palette')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                {(Object.keys(terminalPalettes) as TerminalPalette[]).map(palette => (
+                                    <Pressable key={palette} testID={`ip-chat-palette-${palette}`} accessibilityRole="radio"
+                                        accessibilityState={{ checked: terminalPalette === palette }}
+                                        onPress={() => setTerminalPalette(palette)}
+                                        style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: terminalPalette === palette ? theme.colors.text.primary : theme.colors.border.default }}>
+                                        <DeskText style={{ color: theme.colors.text.primary }}>{t(`ignorePrevious.chatStyle.${palette}`)}</DeskText>
+                                    </Pressable>
+                                ))}
+                            </View>
+                        </> : null}
+                    </View>
                     <Pressable
                         testID="ip-settings-creature"
                         accessibilityRole="switch"

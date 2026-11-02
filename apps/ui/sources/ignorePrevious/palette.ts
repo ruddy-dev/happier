@@ -451,6 +451,16 @@ export const deskThemes = {
 } as const;
 export type DeskTheme = keyof typeof deskThemes;
 
+// C16 reuses the desk's palette owner rather than copying the Konsole colours.
+export const terminalPalettes = {
+    tokyo: deskThemes.tokyo,
+    kanagawa: deskThemes.kanagawa,
+    gruvbox: deskThemes.gruvbox,
+    dracula: deskThemes.dracula,
+    terminalPaper: deskThemes.terminalPaper,
+} as const;
+export type TerminalPalette = keyof typeof terminalPalettes;
+
 export const ipPalette: Readonly<{ light: IpColours; dark: IpColours }> = {
     dark: { turnSignal: deskThemes.night.turnSignal, idleSignal: deskThemes.night.idleSignal, yellow: '#ffcf1f', red: '#e0301e', work: '#c9c2b0', off: '#3a3e49', ink: '#14161c', bone: '#f3ecd8', visor: '#ffffff', flesh: '#3b4a3f', fleshEdge: '#5c7262', paleEye: '#e8e2cf' },
     light: { turnSignal: deskThemes.paper.turnSignal, idleSignal: deskThemes.paper.idleSignal, yellow: '#ffcf1f', red: '#c9230f', work: '#6f6a5e', off: '#cfc7b0', ink: '#14161c', bone: '#14161c', visor: '#ffffff', flesh: '#55695a', fleshEdge: '#2f3b33', paleEye: '#f3ecd8' },

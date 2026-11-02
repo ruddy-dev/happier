@@ -1,8 +1,9 @@
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import type { MarkdownBlock, MarkdownSpan, MarkdownTableAlignment } from './parseMarkdown';
 import * as React from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 import { Pressable, View, Platform } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '../ui/text/Text';
 import { HorizontalOverflowScrollView } from '../ui/scroll/HorizontalOverflowScrollView';
 import { Typography } from '@/constants/Typography';
@@ -58,6 +59,9 @@ function areMarkdownBlockViewPropsEqual(prev: MarkdownBlockViewProps, next: Mark
 }
 
 export const MarkdownBlockView = React.memo((props: MarkdownBlockViewProps) => {
+    const style = useMarkdownStyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    if (appearance?.markdownColors) props = { ...props, textStyle: [props.textStyle, { color: appearance.markdownColors.text.primary }] };
     const block = props.block;
     if (block.type === 'text') {
         return <RenderTextBlock spans={block.content} first={props.first} last={props.last} selectable={props.selectable} onLinkPress={props.onLinkPress} textStyle={props.textStyle} variant={props.variant} streamingReveal={props.streamingReveal} streamingRevealPreset={props.streamingRevealPreset} />;
@@ -100,6 +104,7 @@ export const MarkdownBlockView = React.memo((props: MarkdownBlockViewProps) => {
 }, areMarkdownBlockViewPropsEqual);
 
 function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress?: (url: string) => boolean | void, textStyle?: StyleProp<TextStyle>, variant: 'default' | 'thinking', streamingReveal: boolean, streamingRevealPreset?: StreamingTextRevealPreset }) {
+    const style = useMarkdownStyles();
     const baseStyle = [style.text, props.textStyle];
     return (
         <Text selectable={props.selectable} style={[...baseStyle, props.first && style.first, props.last && style.last]}>
@@ -121,6 +126,7 @@ function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: b
 }
 
 function RenderHeaderBlock(props: { level: 1 | 2 | 3 | 4 | 5 | 6, spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress?: (url: string) => boolean | void, textStyle?: StyleProp<TextStyle>, variant: 'default' | 'thinking', streamingReveal: boolean, streamingRevealPreset?: StreamingTextRevealPreset }) {
+    const style = useMarkdownStyles();
     const s = (style as any)[`header${props.level}`];
     const headerStyle = [style.header, s, props.textStyle, props.first && style.first, props.last && style.last];
     return (
@@ -143,6 +149,7 @@ function RenderHeaderBlock(props: { level: 1 | 2 | 3 | 4 | 5 | 6, spans: Markdow
 }
 
 function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress?: (url: string) => boolean | void, textStyle?: StyleProp<TextStyle>, variant: 'default' | 'thinking', streamingReveal: boolean, streamingRevealPreset?: StreamingTextRevealPreset }) {
+    const style = useMarkdownStyles();
     const listStyle = [style.text, style.listText, props.textStyle];
     return (
         <View style={[style.listContainer, props.first && style.first, props.last && style.last]}>
@@ -173,6 +180,7 @@ function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] 
 }
 
 function RenderNumberedListBlock(props: { items: { depth: number, number: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress?: (url: string) => boolean | void, textStyle?: StyleProp<TextStyle>, variant: 'default' | 'thinking', streamingReveal: boolean, streamingRevealPreset?: StreamingTextRevealPreset }) {
+    const style = useMarkdownStyles();
     const listStyle = [style.text, style.listText, props.textStyle];
     return (
         <View style={[style.listContainer, props.first && style.first, props.last && style.last]}>
@@ -203,6 +211,7 @@ function RenderNumberedListBlock(props: { items: { depth: number, number: number
 }
 
 function RenderCodeBlock(props: { content: string, language: string | null, first: boolean, last: boolean, selectable: boolean }) {
+    const style = useMarkdownStyles();
     return (
         <View style={[style.codeBlock, props.first && style.first, props.last && style.last]}>
             <MarkdownCodeBlock
@@ -215,6 +224,7 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
 }
 
 function RenderThinkingCodeBlock(props: { content: string, language: string | null, first: boolean, last: boolean, selectable: boolean, textStyle?: StyleProp<TextStyle> }) {
+    const style = useMarkdownStyles();
     return (
         <View style={[style.thinkingCodeBlockContainer, props.first && style.first, props.last && style.last]}>
             <Text selectable={props.selectable} style={[style.text, props.textStyle, style.thinkingCodeBlockText]}>
@@ -233,6 +243,7 @@ function RenderOptionsBlock(props: {
     onOptionLongPress?: OptionLongPressHandler,
     textStyle?: StyleProp<TextStyle>,
 }) {
+    const style = useMarkdownStyles();
     const optionTextStyle = [style.optionText, props.textStyle];
     return (
         <View style={[style.optionsContainer, props.first && style.first, props.last && style.last]}>
@@ -269,6 +280,7 @@ function MarkdownOptionButton(props: {
     onOptionPress: (option: Option) => void,
     onOptionLongPress?: OptionLongPressHandler,
 }) {
+    const style = useMarkdownStyles();
     const feedback = useTemporaryCopyFeedback();
     const feedbackKey = String(props.index);
     const longPressConsumedRef = React.useRef(false);
@@ -334,6 +346,7 @@ function RenderTableBlock(props: {
     streamingRevealPreset?: StreamingTextRevealPreset,
     agentTexMath: boolean,
 }) {
+    const style = useMarkdownStyles();
   const columnCount = props.headers.length;
   const rowCount = props.rows.length;
   const isLastRow = (rowIndex: number) => rowIndex === rowCount - 1;
@@ -466,6 +479,49 @@ function getTableTextAlignmentStyle(alignment: MarkdownTableAlignment) {
     return style.tableTextAlignLeft;
 }
 
+
+function useMarkdownStyles() {
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const { theme } = useUnistyles();
+    return React.useMemo(() => {
+        if (!appearance) return style;
+        const colors = appearance.markdownColors;
+        const font = appearance.fontFamily ? { fontFamily: appearance.fontFamily } : {};
+        const normal = { ...font, ...(appearance.fontFamily ? { fontWeight: '400' as const, fontStyle: 'normal' as const } : {}) };
+        const bold = { ...font, ...(appearance.fontFamily ? { fontWeight: '600' as const, fontStyle: 'normal' as const } : {}) };
+        const italic = { ...font, ...(appearance.fontFamily ? { fontWeight: '400' as const, fontStyle: 'italic' as const } : {}) };
+        return {
+            ...style,
+            text: { ...style.text, ...normal, ...(colors && { color: colors.text.primary }) },
+            italic: { ...style.italic, ...italic }, bold: { ...style.bold, ...bold }, semibold: { ...style.semibold, ...bold },
+            code: { ...style.code, ...font, ...(colors && { backgroundColor: colors.surface.selected }) },
+            thinkingInlineCode: { ...style.thinkingInlineCode, ...font },
+            link: { ...style.link, ...normal, ...(colors && { color: colors.text.link }) },
+            header: { ...style.header, ...bold, ...(colors && { color: colors.text.primary }) },
+            listText: { ...style.listText, ...normal, ...(colors && { color: colors.text.primary }) },
+            listMarker: { ...style.listMarker, ...normal, ...(colors && { color: colors.text.primary }) },
+            numberedListMarker: { ...style.numberedListMarker, ...normal, ...(colors && { color: colors.text.primary }) },
+            codeBlock: { ...style.codeBlock, ...(colors && { backgroundColor: colors.surface.elevated }) },
+            codeLanguage: { ...style.codeLanguage, ...font, ...(colors && { color: colors.text.secondary }) },
+            codeText: { ...style.codeText, ...font, ...(colors && { color: colors.text.primary }) },
+            thinkingCodeBlockText: { ...style.thinkingCodeBlockText, ...font },
+            horizontalRule: { ...style.horizontalRule, ...(colors && { backgroundColor: colors.border.default }) },
+            copyButton: { ...style.copyButton, ...(colors && { backgroundColor: colors.surface.elevated, borderColor: colors.border.default }) },
+            copyButtonText: { ...style.copyButtonText, ...normal, ...(colors && { color: colors.text.primary }) },
+            optionItem: { ...style.optionItem, ...(colors && { backgroundColor: colors.surface.elevated, borderColor: colors.border.default }) },
+            optionItemPressed: { ...style.optionItemPressed, ...(colors && { backgroundColor: colors.surface.inset }) },
+            optionText: { ...style.optionText, ...normal, ...(colors && { color: colors.text.primary }) },
+            optionCopyFeedback: { ...style.optionCopyFeedback, ...(colors && { backgroundColor: colors.surface.elevated }) },
+            tableContainer: { ...style.tableContainer, ...(colors && { borderColor: colors.border.default }) },
+            tableFooter: { ...style.tableFooter, ...(colors && { borderTopColor: colors.border.default }) },
+            tableColumn: { ...style.tableColumn, ...(colors && { borderRightColor: colors.border.default }) },
+            tableCell: { ...style.tableCell, ...(colors && { borderBottomColor: colors.border.default }) },
+            tableHeaderCell: { ...style.tableHeaderCell, ...(colors && { backgroundColor: colors.surface.inset }) },
+            tableHeaderText: { ...style.tableHeaderText, ...bold, ...(colors && { color: colors.text.primary }) },
+            tableCellText: { ...style.tableCellText, ...normal, ...(colors && { color: colors.text.primary }) },
+        };
+    }, [appearance, theme]);
+}
 
 const style = StyleSheet.create((theme) => ({
 
