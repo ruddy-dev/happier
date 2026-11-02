@@ -118,6 +118,7 @@ for (const [name, files, expected] of [
     ['real export shape: runtime and common beside the entry', { 'index.html': REAL_PAGE, [RUNTIME]: 'clean', [COMMON]: 'clean', [ENTRY]: 'clean' }, 0],
     ['real export shape with a marked common chunk', { 'index.html': REAL_PAGE, [RUNTIME]: 'clean', [COMMON]: readFixtureMarker(), [ENTRY]: 'clean' }, 1],
     ['only Expo support bundles, no entry', { 'index.html': `<script src="/${RUNTIME}"></script><script src="/${COMMON}"></script>`, [RUNTIME]: 'clean', [COMMON]: 'clean' }, 2],
+    ['an unknown __ script beside the real shape', { 'index.html': REAL_PAGE + '<script src="/_expo/static/js/web/__other-1a2b.js"></script>', [RUNTIME]: 'clean', [COMMON]: 'clean', [ENTRY]: 'clean', '_expo/static/js/web/__other-1a2b.js': 'clean' }, 2],
     ['real export shape with a missing common chunk', { 'index.html': REAL_PAGE, [RUNTIME]: 'clean', [ENTRY]: 'clean' }, 2],
     ['unreferenced marked split chunk', { 'index.html': PAGE, [ENTRY]: 'clean', 'chunks/split.js': readFixtureMarker() }, 1],
 ]) {
