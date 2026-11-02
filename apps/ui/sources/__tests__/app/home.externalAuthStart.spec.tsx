@@ -5,14 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createExpoRouterMock, createModalModuleMock, flushHookEffects, renderScreen, type RenderScreenResult } from '@/dev/testkit';
 import type { PendingSetupIntent } from '@/sync/domains/pending/pendingSetupIntent.shared';
 
-vi.mock('react-native-unistyles', async () => {
-    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
-    return {
-        ...(await createUnistylesMock()),
-        ScopedTheme: ({ children }: import('react').PropsWithChildren) => children,
-    };
-});
-
 vi.mock('@/assets/images/logotype-light.png', () => ({ default: 'logotype-light' }));
 vi.mock('@/assets/images/logotype-dark.png', () => ({ default: 'logotype-dark' }));
 

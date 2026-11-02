@@ -46,6 +46,8 @@ export async function createUnistylesMock(overrides?: TestUnistylesOverrides) {
             absoluteFillObject: {},
         },
         UnistylesRuntime: runtimeModule,
+        // Scoped themes are a web CSS concern; in tests the scope renders its children unchanged.
+        ScopedTheme: ({ children }: { children?: unknown }) => children,
     };
 }
 

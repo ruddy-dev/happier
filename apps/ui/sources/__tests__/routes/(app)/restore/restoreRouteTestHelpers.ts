@@ -97,9 +97,6 @@ export function installRestoreRouteCommonModuleMocks(
             return await restoreRouteTestState.options.unistyles();
         }
         const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
-        return {
-            ...(await createUnistylesMock()),
-            ScopedTheme: ({ children }: import('react').PropsWithChildren) => children,
-        };
+        return createUnistylesMock();
     });
 }
