@@ -5,6 +5,8 @@ export interface CreatureOptions {
     sea?: boolean;
     fps?: number;
     paused?: boolean;
+    anchor?: Readonly<{ x: number; y: number }>;
+    scale?: number;
 }
 export interface CreatureInstance {
     set(options: CreatureOptions): void;

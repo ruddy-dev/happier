@@ -11661,6 +11661,13 @@ settingsSession: {
         screenTitle: 'Sleeper Agents',
         coordinator: 'Coordinator',
         coordinatorNickname: 'Shog',
+        coordinatorHeader: {
+            role: 'coordinator',
+            thinking: 'Thinking',
+            waiting: ({ count }: { count: number }) => `Waiting on you: ${count}`,
+            idle: 'Idle',
+            offline: 'offline',
+        },
         pickCoordinator: 'Pick the coordinator session',
         changeCoordinator: 'Change coordinator',
         pickHint: 'Start one with: claude --agent coordinator -n coordinator',

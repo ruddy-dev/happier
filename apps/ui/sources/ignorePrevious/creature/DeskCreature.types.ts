@@ -6,4 +6,7 @@ export type DeskCreatureProps = Readonly<{
     mode: CreatureMode;
     width?: number | '100%';
     height?: number;
+    /** Header layout keeps the creature's head behind its foreground mask through resize. */
+    anchor?: Readonly<{ x: number; y: number }>;
+    scale?: number;
 }>;
