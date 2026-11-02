@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 import { t } from '@/text';
@@ -18,9 +18,10 @@ const PANEL_SCALE = 1.6;
 type Playback = 'playing' | 'paused' | 'still';
 
 /** Shog up close uses the same creature engine as the retained, paused header instance. */
-export function ShogView({ onClose, contentRef, height = 360 }: {
+export function ShogView({ onClose, contentRef, panelId, height = 360 }: {
     onClose: () => void;
     contentRef?: React.RefObject<View | null>;
+    panelId?: string;
     height?: number;
 }) {
     const { paint } = useDeskPaint();
@@ -49,6 +50,7 @@ export function ShogView({ onClose, contentRef, height = 360 }: {
         : redEyes === 0 ? t('ignorePrevious.shogCalm') : t('ignorePrevious.shogWaiting', { count: waiting });
     return (
         <View ref={contentRef} testID="ip-shog" role="region" accessibilityLabel={t('ignorePrevious.shogTitle')}
+            id={Platform.OS === 'web' ? panelId : undefined}
             style={{ backgroundColor: paint.panel }}>
             <View onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{ height: stageHeight, position: 'relative' }}>
                 <DeskCreature style="slips" redEyes={redEyes} mode="working" height={stageHeight}

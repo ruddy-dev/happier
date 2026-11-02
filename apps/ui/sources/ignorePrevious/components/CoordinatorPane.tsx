@@ -60,9 +60,12 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const [shogOpen, setShogOpen] = React.useState(false);
     const shogOpenerRef = React.useRef<View>(null);
+    const shogCreatureOpenerRef = React.useRef<View>(null);
     const shogContentRef = React.useRef<View>(null);
+    const shogPanelId = React.useId();
     const closeShog = () => setShogOpen(false);
-    useDeskPopup({ open: shogOpen, onClose: closeShog, openerRef: shogOpenerRef, contentRef: shogContentRef, returnFocusOnClose: true });
+    useDeskPopup({ open: shogOpen, onClose: closeShog, openerRef: shogOpenerRef,
+        pointerOpenerRef: shogCreatureOpenerRef, contentRef: shogContentRef, returnFocusOnClose: true });
     // Mockup 12 keeps this overlay below the header and above the transcript, clear of the composer.
     const shogHeight = Math.max(200, Math.min(470, windowHeight - 340));
     const [chatWidth, setChatWidth] = React.useState(0);
@@ -97,10 +100,11 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
         <View testID="ip-coordinator-pane" onLayout={(event) => setChatWidth(event.nativeEvent.layout.width)} style={{ flex: 1, minHeight: 480 }}>
             <View style={{ position: 'relative', zIndex: 2 }}>
                 <CoordinatorHeader session={coordinator} onOpenShog={() => setShogOpen(open => !open)}
-                    shogOpen={shogOpen} shogOpenerRef={shogOpenerRef} accessory={headerAccessory} />
+                    shogOpen={shogOpen} shogOpenerRef={shogOpenerRef} shogCreatureOpenerRef={shogCreatureOpenerRef}
+                    shogPanelId={shogPanelId} accessory={headerAccessory} />
                 {shogOpen ? <View style={{ position: 'absolute', top: '100%', left: 0, right: 0 }}>
                     <FloatingOverlay maxHeight={shogHeight}>
-                        <ShogView onClose={closeShog} contentRef={shogContentRef} height={shogHeight} />
+                        <ShogView onClose={closeShog} contentRef={shogContentRef} panelId={shogPanelId} height={shogHeight} />
                     </FloatingOverlay>
                 </View> : null}
             </View>

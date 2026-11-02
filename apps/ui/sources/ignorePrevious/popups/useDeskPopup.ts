@@ -10,6 +10,8 @@ export type DeskPopupOptions = Partial<OutsideClickPolicy> & Readonly<{
     onClose: () => void;
     /** Attach to the host Pressable/View or DOM element, not an animated wrapper. */
     openerRef: RefObject<View | HTMLElement | null>;
+    /** Additional pointer opener, excluded from outside clicks; focus still returns to openerRef. */
+    pointerOpenerRef?: RefObject<View | HTMLElement | null>;
     /** Attach to the host containing the whole popup, including when portaled. */
     contentRef: RefObject<View | HTMLElement | null>;
     /** Return focus on explicit close or Escape, while preserving focus taken by an outside click. */
@@ -86,15 +88,17 @@ export function useDeskPopup(options: DeskPopupOptions): void {
             if (topOutsideClickLayer() !== layer) return;
             // A modal or command palette above the desk owns its pointer interactions.
             if (getMaxEscapeKeyBlockerPriority() > ESCAPE_LAYER_PRIORITIES.popover) return;
-            const { contentRef, openerRef, presentation = 'overlay', hasHalfAnsweredCard = false } = current.current;
+            const { contentRef, openerRef, pointerOpenerRef, presentation = 'overlay', hasHalfAnsweredCard = false } = current.current;
             const target = event.target;
             if (!(target instanceof Node)) return;
             const targetElement = target instanceof Element ? target : target.parentElement;
             if (targetElement?.closest('[data-happy-popover-content]')) return;
             const content = contentRef.current;
             const trigger = openerRef.current;
+            const pointerTrigger = pointerOpenerRef?.current;
             if (!(content instanceof HTMLElement) || content.contains(target)) return;
             if (trigger instanceof HTMLElement && trigger.contains(target)) return;
+            if (pointerTrigger instanceof HTMLElement && pointerTrigger.contains(target)) return;
             if (!shouldCloseOnOutsideClick({ presentation, hasHalfAnsweredCard })) return;
             // Lower layers have already declined this event; let the target handle its click.
             closedByOutsideClick = true;
