@@ -32,11 +32,6 @@ function stringField(args: unknown, field: string): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-/** One line saying what the request does, from the raw arguments rather than the agent's description. */
-export function summariseRequest(tool: string, args: unknown): string {
-    const raw = (tool === 'Bash' ? stringField(args, 'command') : FILE_TOOLS.has(tool) ? stringField(args, 'file_path') : null) ?? tool;
-    return raw.length > MAX_SUMMARY ? `${raw.slice(0, MAX_SUMMARY - 1)}…` : raw;
-}
 
 const SHELL_WRAPPERS = new Set(['bash', '/bin/bash', 'zsh', '/bin/zsh']);
 /**
@@ -110,6 +105,18 @@ function readShellRequest(value: unknown): { command: string; rest: Record<strin
     // Shown on the card as the agent's note.
     if (typeof rest.description === 'string') delete rest.description;
     return { command, rest };
+}
+
+/**
+ * One line saying what the request does, from the raw arguments rather than the agent's
+ * description: the command of any shell-shaped request, or the file of an edit. Line breaks show
+ * as \u21B5 so the lines can't read as one command.
+ */
+export function summariseRequest(tool: string, args: unknown): string {
+    const parsed = parseArguments(args);
+    const raw = readShellRequest(parsed)?.command ?? (FILE_TOOLS.has(tool) ? stringField(parsed, 'file_path') : null) ?? tool;
+    const line = displayText(raw).replace(/\n/g, ' \u21B5 ');
+    return line.length > MAX_SUMMARY ? `${line.slice(0, MAX_SUMMARY - 1)}\u2026` : line;
 }
 
 function describeArguments(tool: string, args: unknown): string {

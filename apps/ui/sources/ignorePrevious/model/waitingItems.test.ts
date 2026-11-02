@@ -16,6 +16,17 @@ describe('summariseRequest', () => {
         expect(summariseRequest('WebFetch', { url: 'https://x' })).toBe('WebFetch');
     });
 
+    it('shows the command for any shell-shaped request, on one line, with invisible characters shown', () => {
+        expect(summariseRequest('CodexBash', { command: ['bash', '-lc', 'rm -rf ~'] })).toBe('rm -rf ~');
+        expect(summariseRequest('mcp__shell__run', { cmd: 'git status' })).toBe('git status');
+        const lines = summariseRequest('Bash', { command: 'rm -rf ~\necho "listing files"' });
+        expect(lines).not.toContain('\n');
+        expect(lines).toContain('rm -rf ~');
+        expect(lines).toContain('echo "listing files"');
+        expect(lines).not.toBe('rm -rf ~ echo "listing files"');
+        expect(summariseRequest('Bash', { command: 'echo \u202Eok' })).toContain('U+202E');
+    });
+
     it('cuts long summaries to 140 characters', () => {
         const out = summariseRequest('Bash', { command: 'x'.repeat(300) });
         expect(out).toHaveLength(140);
