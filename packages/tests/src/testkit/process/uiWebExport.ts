@@ -289,6 +289,17 @@ function canReusePersistedUiWebExport(
   return readPersistedUiWebExportCacheKey(params.cacheKeyPath) === params.cacheKey;
 }
 
+/** True when a persisted export matches this env and the current source, so serving it builds nothing. */
+export function isUiWebExportCurrent(env: NodeJS.ProcessEnv): boolean {
+  const parent = resolveUiWebExportRootDir(env);
+  return canReusePersistedUiWebExport({
+    distDir: resolvePath(parent, 'dist'),
+    cacheKeyPath: resolvePath(parent, 'cache-key.json'),
+    cacheKey: buildUiWebExportCacheKey(env),
+    manifestPath: resolvePath(parent, 'export-manifest.json'),
+  });
+}
+
 async function ensureUiWebExportBuilt(params: { testDir: string; env: NodeJS.ProcessEnv }): Promise<string> {
   const cacheKey = buildUiWebExportCacheKey(params.env);
   const clearRaw = (params.env.HAPPIER_E2E_EXPO_CLEAR ?? '').toString().trim().toLowerCase();
