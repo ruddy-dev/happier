@@ -98,26 +98,32 @@ describe('CoordinatorPane body', () => {
         storage.setState({ isDataReady: false });
         const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
         const stateText = () => screen.findByTestId('ip-coord-state')?.props.children;
+        const maskBulb = () => screen.findByTestId('ip-coord-header')!.findByProps({ testID: 'ip-coord-mask' }).props.bulb;
         expect(screen.findByTestId('ip-coord-state')).toBeNull();
+        expect(maskBulb()).toBe('idle');
         await act(async () => storage.getState().applySessions([{ ...session, thinking: true, thinkingAt: now }]));
         expect(stateText()).toBe('Thinking');
         await act(async () => storage.getState().applySessions([{ ...session, active: false, activeAt: now + 1 }]));
         expect(stateText()).toBe('offline');
         await act(async () => storage.getState().applySessions([{ ...session, activeAt: now + 2, thinkingAt: now + 2 }]));
         expect(screen.findByTestId('ip-coord-state')).toBeNull();
+        expect(maskBulb()).toBe('idle');
         await act(async () => storage.getState().applyReady());
         expect(stateText()).toBe('Idle');
+        expect(maskBulb()).toBe('rest');
         const worker = createSessionFixture({ id: 'waiting-worker', active: true, activeAt: now, agentState: { requests: {
             a: { tool: 'Bash', arguments: { command: 'echo ready' }, createdAt: now },
         } } });
         await act(async () => storage.getState().applySessions([worker]));
         expect(stateText()).toBe('Waiting on you: 1');
+        expect(maskBulb()).toBe('turn');
         await act(async () => storage.getState().applySessions([{ ...session, activeAt: now + 3, thinking: true, thinkingAt: now + 3 }]));
         expect(stateText()).toBe('Thinking');
         await act(async () => storage.getState().applySessions([{ ...session, active: false, activeAt: now + 4, thinking: true, thinkingAt: now + 3 }]));
         expect(stateText()).toBe('offline');
         await act(async () => storage.getState().applySessions([{ ...session, activeAt: now + 5, thinkingAt: now + 5 }, { ...worker, agentState: null }]));
         expect(stateText()).toBe('Idle');
+        expect(maskBulb()).toBe('rest');
     });
 
     it('C15/C16: settings update the coordinator appearance while a plain SessionView stays null', async () => {
