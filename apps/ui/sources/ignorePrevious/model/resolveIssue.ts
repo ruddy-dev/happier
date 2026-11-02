@@ -1,4 +1,4 @@
-import { issueKeyFromBranch, issueKeyFromPath, issueKeyFromTitle } from './issueKey';
+import { issueKeyFromBranch, issueKeyFromPath, issueKeyFromTag, issueKeyFromTitle } from './issueKey';
 
 export type IssueSources = Readonly<{
     /** The coordinator's `<ID>-<role>` tag from the session's metadata, e.g. `ATR-6-build`. */
@@ -24,9 +24,7 @@ function projectOf(key: string): string {
  * false positive on a worker with no issue branch or folder is accepted.
  */
 export function resolveIssue(src: IssueSources): string | null {
-    // The tag contract is `<ID>-<role>`, the same shape as a work branch, so the branch pattern reads it:
-    // `ATR-6-build` parses, `ATR-6:builder` doesn't.
-    const fromTag = issueKeyFromBranch(src.tag?.trim() || null);
+    const fromTag = issueKeyFromTag(src.tag);
     if (fromTag) return fromTag;
     const fromBranch = issueKeyFromBranch(src.branch);
     const fromPath = src.path ? issueKeyFromPath(src.path) : null;

@@ -21,6 +21,12 @@ describe('pickCoordinatorSessionId', () => {
         expect(pickCoordinatorSessionId(candidates, { storedId: 'deleted', coordinatorPath: '/dev' })).toBe('new');
     });
 
+    it.each(['/work', '/work/coordinator', 'C:\\work\\coordinator'])('L5: auto-detect tolerates trailing separators at %s', (path) => {
+        const rows = [{ id: 'c1', path: path + '/', active: true, archived: false, updatedAt: 1 }];
+        expect(pickCoordinatorSessionId(rows, { storedId: null, coordinatorPath: path + '\\' })).toBe('c1');
+        expect(pickCoordinatorSessionId(rows, { storedId: null, coordinatorPath: path + '-other' })).toBeNull();
+    });
+
     it('returns null when nothing qualifies', () => {
         expect(pickCoordinatorSessionId(candidates, { storedId: 'deleted', coordinatorPath: null })).toBeNull();
         expect(pickCoordinatorSessionId(candidates, { storedId: null, coordinatorPath: '/elsewhere' })).toBeNull();
