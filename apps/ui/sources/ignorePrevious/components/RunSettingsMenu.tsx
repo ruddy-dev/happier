@@ -9,7 +9,6 @@ import { useDeskPopup } from '../popups/useDeskPopup';
 import { DeskText } from '../typography/DeskText';
 
 const models = ['default', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'] as const;
-const efforts = ['low', 'medium', 'high', 'xhigh'] as const;
 const modelKeys = { default: 'default', 'claude-opus-5-5': 'opus', 'claude-sonnet-5-5': 'sonnet', 'claude-haiku-5-5': 'haiku', 'claude-fable-5-1': 'fable' } as const;
 const modelLabel = (model: DeskModel) => t(`ignorePrevious.runSettings.models.${modelKeys[model]}`);
 const effortLabel = (effort: DeskEffort) => t(`ignorePrevious.runSettings.efforts.${effort}`);
@@ -51,8 +50,8 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
             </Pressable>
             {midTurn && changedDuringTurn ? <DeskText testID="ip-run-next-turn" accessibilityLiveRegion="polite" style={noteStyle}>{t('ignorePrevious.runSettings.nextTurn')}</DeskText> : null}
         </View>
-        <Popover open={open} anchorRef={openerRef} placement="top" portal={{ web: true }} backdrop={false}
-            onRequestClose={Platform.OS === 'web' ? undefined : close} maxWidthCap={560} edgePadding={8}>
+        <Popover open={open} anchorRef={openerRef} placement="top" portal={{ web: true }}
+            {...(Platform.OS === 'web' ? { backdrop: false as const } : { backdrop: true as const, onRequestClose: close })} maxWidthCap={560} edgePadding={8}>
             {({ maxHeight }) => <FloatingOverlay maxHeight={maxHeight} containerStyle={{ width: 560, maxWidth: '100%' }}>
                 <View ref={contentRef} testID="ip-run-menu" accessibilityRole="menu" accessibilityLabel={t('ignorePrevious.runSettings.title')}
                     onLayout={() => {
@@ -72,12 +71,14 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
                             </Pressable>)}
                         </View>
                         <View style={{ flex: 1, minWidth: 0 }}>
-                            <View role="group" accessibilityLabel={t('ignorePrevious.runSettings.effort')}>
+                            <View testID="ip-run-effort-group" role="group" accessibilityLabel={t('ignorePrevious.runSettings.effort')} aria-disabled={effort.disabled} accessibilityState={{ disabled: effort.disabled }}>
                                 <DeskText style={headingStyle}>{t(settings.ultracode ? 'ignorePrevious.runSettings.effortLocked' : 'ignorePrevious.runSettings.effort')}</DeskText>
-                                {efforts.map(value => <Pressable key={value} testID={`ip-run-effort-${value}`} {...menuItemRole('radio')}
+                                {effort.levels.length === 0 ? <DeskText testID="ip-run-effort-unavailable" style={noteStyle}>{t('ignorePrevious.runSettings.effortUnavailable')}</DeskText> : null}
+                                {effort.levels.map(value => <Pressable key={value} testID={`ip-run-effort-${value}`} {...menuItemRole('radio')}
                                     disabled={effort.disabled} aria-checked={effort.effectiveValue === value} accessibilityState={{ checked: effort.effectiveValue === value, disabled: effort.disabled === true }}
                                     onPress={() => change({ type: 'effort', effort: value })} style={choiceStyle}>
                                     <DeskText style={{ color: effort.disabled ? theme.colors.text.secondary : theme.colors.text.primary }}>{effortLabel(value)}</DeskText>
+                                    <DeskText style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{t(`ignorePrevious.runSettings.effortDescriptions.${value}`)}</DeskText>
                                 </Pressable>)}
                             </View>
                             <DeskText style={headingStyle}>{t('ignorePrevious.runSettings.ultracode')}</DeskText>

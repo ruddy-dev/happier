@@ -10787,6 +10787,7 @@ settingsSession: {
         runSettings: {
             title: 'Run settings', model: 'Model', effort: 'Effort',
             effortLocked: 'Effort: extra high, set by Ultracode',
+            effortUnavailable: 'This model has no effort setting.',
             ultracode: 'Ultracode', ultracodeOn: 'Ultracode on', ultracodeOff: 'Ultracode off',
             ultracodeDescription: 'Maximum reasoning with dynamic workflows (forces extra high effort).',
             ultracodeUnavailable: 'Only on Opus 5.5, Sonnet 5.5 and Fable 5.1.',
@@ -10800,7 +10801,14 @@ settingsSession: {
                 sonnet: 'Quicker for everyday back and forth.', haiku: 'Fast lookups and summaries.',
                 fable: 'For the hardest calls. Uses your allowance fastest.',
             },
-            efforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high' },
+            efforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max' },
+            effortDescriptions: {
+                low: 'Quick replies with less deliberation.',
+                medium: 'A little more thought before replying.',
+                high: 'Thorough reasoning, the desk default for planning.',
+                xhigh: 'More time and allowance for difficult design decisions.',
+                max: 'The most reasoning effort; expect slower replies and higher usage.',
+            },
         },
         composer: {
             placeholder: 'Talk to Shog',
