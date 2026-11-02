@@ -8,8 +8,15 @@ import { storage } from '@/sync/domains/state/storage';
 
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { CoordinatorPane } from './CoordinatorPane';
+import { SessionView } from '@/components/sessions/shell/SessionView';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+const viewport = vi.hoisted(() => ({ width: 1200 }));
+vi.mock('react-native', async () => {
+    const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
+    return createReactNativeWebMock({ useWindowDimensions: () => ({ width: viewport.width, height: 900, scale: 1, fontScale: 1 }) });
+});
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -22,8 +29,23 @@ vi.mock('@/modal', async () => {
 });
 
 vi.mock('@/components/sessions/shell/SessionView', async () => {
-    const { deskScreenMocks } = await import('../testkit/deskScreenMocks');
-    return deskScreenMocks.sessionView();
+    const { useSessionComposerOverrides } = await import('@/components/sessions/model/sessionComposerOverrides');
+    const { TextInput, View } = await import('react-native');
+    return {
+        // Replace the transcript/socket surface, retaining the real composer override resolver.
+        SessionView: ({ id, composer }: React.ComponentProps<typeof SessionView>) => {
+            const resolved = useSessionComposerOverrides({
+                isReadOnly: false, placeholder: 'Stock placeholder', extraActionChips: undefined,
+                statusBadges: [], providerUsageGauge: undefined, onMicPress: undefined,
+                isMicActive: undefined, onAbort: undefined, alwaysShowContextSize: false,
+            }, composer);
+            return <View testID={`session-view-${id}`}>
+                <TextInput testID={`composer-${id}`} placeholder={resolved.placeholder} />
+                {resolved.statusTrailingActions}
+                {resolved.footerLeadingActions}
+            </View>;
+        },
+    };
 });
 
 vi.mock('@/hooks/session/useHydrateSessionForRoute', async () => {
@@ -35,8 +57,58 @@ describe('CoordinatorPane body', () => {
     const before = storage.getState();
 
     afterEach(() => {
+        viewport.width = 1200;
         vi.unstubAllEnvs();
         storage.setState(before, true);
+    });
+
+    it('J1: only the coordinator gets Talk to Shog through the composer seam', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        const screen = await renderScreen(<>
+            <CoordinatorPane sessionId="c1" />
+            <SessionView id="worker" />
+        </>);
+        expect(screen.findByTestId('composer-c1')?.props.placeholder).toBe('Talk to Shog');
+        expect(screen.findByTestId('composer-worker')?.props.placeholder).toBe('Stock placeholder');
+    });
+
+    it('M9 mounts local run settings only on the coordinator, including the fixture route', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        const screen = await renderScreen(<><CoordinatorPane sessionId="c1" /><SessionView id="worker" /></>);
+        expect(screen.findByTestId('session-view-c1')!.findAllByProps({ testID: 'ip-run-settings' }).length).toBeGreaterThan(0);
+        expect(screen.findByTestId('session-view-worker')!.findAllByProps({ testID: 'ip-run-settings' })).toHaveLength(0);
+        await screen.unmount();
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>);
+        await act(async () => { await import('../fixtures/CoordinatorBodyStub'); });
+        expect(fixture.findByTestId('ip-run-settings')).not.toBeNull();
+    });
+
+    it('J1: the Enter hint appears once in a wide chat and disappears when the chat narrows', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        const pane = screen.findByTestId('ip-coordinator-pane');
+        expect(pane).not.toBeNull();
+        await act(async () => pane!.props.onLayout({ nativeEvent: { layout: { width: 900 } } }));
+        expect(screen.tree.findAll((node) => node.props.testID === 'ip-composer-enter-hint' && typeof node.type === 'string')).toHaveLength(1);
+        await act(async () => pane!.props.onLayout({ nativeEvent: { layout: { width: 390 } } }));
+        expect(screen.findByTestId('ip-composer-enter-hint')).toBeNull();
+    });
+
+    it('J1: a phone never shows the Enter hint, even before a stale wide-pane measurement updates', async () => {
+        viewport.width = 390;
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        await act(async () => screen.findByTestId('ip-coordinator-pane')!.props.onLayout({ nativeEvent: { layout: { width: 900 } } }));
+        expect(screen.findByTestId('ip-composer-enter-hint')).toBeNull();
+    });
+
+    it('hides the send hint when Enter-to-send is disabled in the real settings store', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        storage.setState({ settings: { ...storage.getState().settings, agentInputEnterToSend: false } });
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        await act(async () => screen.findByTestId('ip-coordinator-pane')!.props.onLayout({ nativeEvent: { layout: { width: 900 } } }));
+        expect(screen.findByTestId('ip-composer-enter-hint')).toBeNull();
     });
 
     it('is Happier\'s session view in a normal build', async () => {
