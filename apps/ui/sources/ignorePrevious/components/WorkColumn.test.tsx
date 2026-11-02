@@ -110,7 +110,7 @@ describe('WorkColumn', () => {
         storage.setState(previous, true);
     });
 
-    it('groups live workers by issue, puts No issue last and leaves out archived ones', async () => {
+    it('groups live workers by issue, puts a working issue above idle No issue and leaves out archived ones', async () => {
         seed([
             session('s1', '/home/u/dev/wt/atr-6-overlay', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev'),

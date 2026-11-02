@@ -129,6 +129,22 @@ describe('DeskScreen stale and disconnected workers (F1-F3)', () => {
         expect(storage.getState().sessions.w1).toBe(before);
     });
 
+    it('F1 with S3 (ATR-37): a worker that goes stale ranks as idle, so its card drops below a quieter issue', async () => {
+        scenario = await startDeskScenario({ script: loadDeskScript({
+            covers: ['F1', 'S3'], sessions: [
+                { id: 'quiet', title: 'Quiet issue', path: '/work/atr-6-build', initial: { active: true, activeAt: 0 } },
+                { id: 'busy', title: 'Busy issue', path: '/work/atr-7-build', initial: { active: true, thinking: true, activeAt: 0, thinkingAt: 0 } },
+            ],
+        }) });
+        const cardOrder = () => scenario!.screen.findAll((node) =>
+            typeof node.type === 'string' && typeof node.props.testID === 'string' && node.props.testID.startsWith('ip-issue-'),
+        ).map((node) => node.props.testID);
+        expect(cardOrder()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        await scenario.advance(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS + 1_000);
+        // Both idle with the same last update, so the issue key breaks the tie.
+        expect(cardOrder()).toEqual(['ip-issue-ATR-6', 'ip-issue-ATR-7']);
+    });
+
     it('F2: a silent online worker keeps Allow and Deny with a note, loses Stop, and recovers on a signal', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.apply('w1', { requests: { r1: { tool: 'Bash', arguments: { command: 'echo test' } } } });
