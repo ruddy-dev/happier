@@ -119,17 +119,26 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
     const [phase, setPhase] = React.useState<'idle' | 'sending' | 'sent'>('idle');
     const busy = phase === 'sending';
     const disabled = phase !== 'idle';
+    // Whether this card holds the request (its own answer is in flight or sent). Read in the press
+    // handler, where a second press in the same commit can't see the state update yet.
+    const holdsRef = React.useRef(false);
+    const [elsewhere, setElsewhere] = React.useState(false);
 
     const send = async (call: () => Promise<void>) => {
         try {
-            // The guard runs the action only when this press wins the request; a refused press
-            // (another press or surface already holds it) changes nothing and reports nothing.
+            // The guard runs the action only when this press wins the request. A press refused
+            // while this card is answering changes nothing; one refused because another screen
+            // holds the request says so, and the buttons stay on for when that screen lets go.
             const sent = await guard.dispatch(requestKey, async () => {
+                holdsRef.current = true;
+                setElsewhere(false);
                 setPhase('sending');
                 await call();
             });
             if (sent) setPhase('sent');
+            else if (!holdsRef.current) setElsewhere(true);
         } catch {
+            holdsRef.current = false;
             setPhase('idle');
             // Only a thrown send lands here; it says nothing about whether the request is still open.
             Modal.alert(t('ignorePrevious.waiting.answerFailedTitle'), t('ignorePrevious.waiting.answerFailed'));
@@ -174,6 +183,11 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
                     {item.disabledReason === 'readOnly'
                         ? t('session.sharing.permissionApprovalsDisabledReadOnly')
                         : t('session.sharing.permissionApprovalsDisabledNotGranted')}
+                </Text>
+            ) : null}
+            {elsewhere ? (
+                <Text testID={`ip-waiting-elsewhere-${item.requestId}`} style={styles.secondary}>
+                    {t('ignorePrevious.waiting.answeringElsewhere')}
                 </Text>
             ) : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

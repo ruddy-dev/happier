@@ -178,8 +178,9 @@ describe('WaitingPanel safety', () => {
         expect(permissionCalls()).toHaveLength(1);
         expect(screen.findByTestId('ip-waiting-allow-r2')?.props.accessibilityState).toMatchObject({ disabled: true, busy: true });
         expect(screen.findByTestId('ip-waiting-deny-r2')?.props.accessibilityState).toMatchObject({ disabled: true, busy: true });
-        // A refused second press is silent: nothing failed.
+        // A refused second press is silent: nothing failed, and this card is the one answering.
         expect(state.alert).not.toHaveBeenCalled();
+        expect(screen.findByTestId('ip-waiting-elsewhere-r2')).toBeNull();
         await act(async () => {
             gate.resolve({ ok: true });
         });
@@ -233,6 +234,21 @@ describe('WaitingPanel safety', () => {
         await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r5'), 'allow');
         expect(permissionCalls()).toHaveLength(0);
         expect(state.alert).not.toHaveBeenCalled();
+        gate.resolve();
+        await expect(footerSend).resolves.toBe(true);
+    });
+
+    it('L3: a press refused because another screen is answering says so, and the buttons stay on', async () => {
+        const gate = createDeferred<void>();
+        seed([sessionWithRequest('s1', 'r18', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        const footer = createPermissionActionDispatchGuard('s1\u0000r18');
+        const footerSend = footer.dispatch('s1\u0000r18', () => gate.promise);
+        expect(screen.findByTestId('ip-waiting-elsewhere-r18')).toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r18'), 'allow');
+        expect(permissionCalls()).toHaveLength(0);
+        expect(screen.findByTestId('ip-waiting-elsewhere-r18')).not.toBeNull();
+        expect(screen.findByTestId('ip-waiting-allow-r18')?.props.accessibilityState).toMatchObject({ disabled: false });
         gate.resolve();
         await expect(footerSend).resolves.toBe(true);
     });
