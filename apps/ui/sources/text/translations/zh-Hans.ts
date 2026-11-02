@@ -11093,6 +11093,7 @@ settingsSession: {
     friendAcceptedGeneric: "好友请求已接受",
   },
     ignorePrevious: {
+        topBar: { sessions: 'Sessions', usage: 'Max: not available', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         chatStyle: {
             appearance: 'Appearance',
             title: 'Chat style',
@@ -11155,6 +11156,9 @@ settingsSession: {
             stopRejected: "The worker rejected Stop. Its state has not been changed. Try again.",
             modeUnknown: 'Mode unknown',
             modePublished: ({ mode }: { mode: string }) => `Published mode: ${mode}`,
+            modeConfirmed: ({ mode }: { mode: string }) => `Confirmed mode: ${mode}`,
+            modeDifference: ({ mode }: { mode: string }) => `Differs from published mode: ${mode}`,
+            modePublishedUnknown: 'Published mode unknown',
             modePending: ({ mode }: { mode: string }) => `${mode} pending publication`,
             modeNextPrompt: ({ mode }: { mode: string }) => `${mode} pending the next prompt from this app`,
             modeNotSent: ({ mode }: { mode: string }) => `${mode} pending, change not sent. Try again.`,
