@@ -14,6 +14,7 @@ import { ContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
 import { ShogView } from './ShogView';
+import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { useWaitingCount } from '../model/useDeskWaits';
 
 /**
@@ -26,22 +27,25 @@ function openShog() {
 }
 
 /**
- * Fixture builds (EXPO_PUBLIC_IP_FIXTURES=1) show a fixed transcript here, because Happier's chat needs
- * an account. The import sits inside the check so a normal build folds it away and ships nothing.
+ * The dev-only desk fixture route (EXPO_PUBLIC_IP_FIXTURES=1) shows a fixed transcript here, because Happier's
+ * chat needs an account. Only that route does: a fixture build's real desk keeps the real chat.
+ *
+ * The import sits inside the flag comparison, spelled out because Metro folds that away in a production build
+ * and does not fold a function call, so a normal build drops the import entirely (Metro's block list for the
+ * fixtures folder is the second defence). The import is also directly inside a try block, which Metro counts as
+ * an optional dependency, so a dev bundle made without the flag, which does not fold, still builds.
  */
 let fixtureBody: React.ComponentType | null = null;
-function loadFixtureBody(): Promise<{ default: React.ComponentType }> {
-    // In a try block on purpose: Metro treats that import as optional, so a dev bundle made without the
-    // flag (which does not fold the check, and whose block list hides the fixtures) still builds.
-    try {
-        return import('../fixtures/CoordinatorBodyStub').then((module) => ({ default: module.CoordinatorBodyStub }));
-    } catch (error) {
-        return Promise.reject(new Error('Desk fixture could not be loaded', { cause: error }));
-    }
-}
-function getFixtureBody(): React.ComponentType | null {
+function getFixtureBody(inFixtureRoute: boolean): React.ComponentType | null {
     if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') {
-        fixtureBody ??= React.lazy(loadFixtureBody);
+        if (!inFixtureRoute) return null;
+        try {
+            fixtureBody ??= React.lazy(() =>
+                import('../fixtures/CoordinatorBodyStub').then((module) => ({ default: module.CoordinatorBodyStub })),
+            );
+        } catch (error) {
+            throw new Error('Desk fixture could not be loaded', { cause: error });
+        }
         return fixtureBody;
     }
     return null;
@@ -56,7 +60,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     // and hand SessionView the state so it shows loading or retrying instead of "isn't available".
     const hydration = useHydrateSessionForRoute(sessionId, 'IgnorePrevious.CoordinatorPane');
     const waiting = useWaitingCount() > 0;
-    const FixtureBody = getFixtureBody();
+    const FixtureBody = getFixtureBody(React.useContext(DeskFixtureRouteContext));
 
     return (
         <View style={{ flex: 1, minHeight: 480 }}>
