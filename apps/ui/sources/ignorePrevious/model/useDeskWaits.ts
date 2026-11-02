@@ -16,7 +16,7 @@ import {
 } from '@/utils/sessions/sessionUtils';
 
 import { selectDeskSessions } from '../useDeskSessions';
-import { toWaitingItems, waitingItemKey, type WaitingDisabledReason, type WaitingItem } from './waitingItems';
+import { toWaitingItems, unloadedWaitKey, waitingItemKey, type WaitingDisabledReason, type WaitingItem } from './waitingItems';
 
 /**
  * A session that says it is waiting on you, but whose requests the desk can't show. `notLoaded`:
@@ -76,7 +76,12 @@ function collectSessionWait(row: SessionListRenderableSession, session: Session 
 }
 
 export type DeskWaitsSummary = Readonly<{ count: number; ready: boolean }>;
-type NotificationWaits = Readonly<{ waitIds: readonly string[]; ready: boolean }>;
+type NotificationWaits = Readonly<{
+    waitIds: readonly string[];
+    /** Session ownership lets the pure alert rule recognize placeholders gaining request details. */
+    waitSessionIds: Readonly<Record<string, string>>;
+    ready: boolean;
+}>;
 type Projection = {
     summary: DeskWaitsSummary;
     sourceInputs: readonly WaitInput[];
@@ -213,9 +218,14 @@ export function useDeskWaitsSummary(excludeSessionId?: string): DeskWaitsSummary
 export function selectDeskNotificationWaits(state: State): NotificationWaits {
     const { projection } = selectProjection(state);
     if (!projection.notificationWaits) {
+        const waitSessionIds = Object.fromEntries([
+            ...projection.inputs.flatMap(({ row, requests }) => requests.map(request => [waitingItemKey(row.id, request.id), row.id] as const)),
+            ...projection.unloaded.map(({ row }) => [unloadedWaitKey(row.id), row.id] as const),
+        ]);
         projection.notificationWaits = {
             ready: projection.summary.ready,
-            waitIds: projection.inputs.flatMap(({ row, requests }) => requests.map(request => waitingItemKey(row.id, request.id))).sort(),
+            waitIds: Object.keys(waitSessionIds).sort(),
+            waitSessionIds,
         };
     }
     return projection.notificationWaits;

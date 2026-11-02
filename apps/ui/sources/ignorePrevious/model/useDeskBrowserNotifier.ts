@@ -10,11 +10,14 @@ import { bulbFromSessionState, type Bulb } from './bulb';
 import { readDeskBrowserPermission } from './deskBrowserPermission';
 import { deskNotifyRule, type DeskNotifySnapshot } from './deskNotifyRule';
 import { selectDeskNotificationWaits } from './useDeskWaits';
+import { useDeskNow } from './useDeskNow';
 
 export function useDeskBrowserNotifier(coordinatorId: string | null): void {
     const [setting] = useDeskPref('deskNotify');
+    const nowMs = useDeskNow();
+    // Retain equivalent snapshots across clock-driven selector replacements as well as store writes.
+    const selected = React.useRef<DeskNotifySnapshot | undefined>(undefined);
     const selector = React.useMemo(() => {
-        let previous: DeskNotifySnapshot | undefined;
         let lastList: ReturnType<typeof selectDeskSessions>['list'] | undefined;
         let workerBulbs: Bulb[] = [];
         return (state: ReturnType<typeof storage.getState>): DeskNotifySnapshot => {
@@ -22,15 +25,17 @@ export function useDeskBrowserNotifier(coordinatorId: string | null): void {
             const waits = selectDeskNotificationWaits(state);
             if (lastList !== desk.list) {
                 workerBulbs = desk.list.filter(row => row.id !== coordinatorId)
-                    .map(row => bulbFromSessionState(getSessionStatus(row).state));
+                    .map(row => bulbFromSessionState(getSessionStatus(row, nowMs).state));
                 lastList = desk.list;
             }
+            const previous = selected.current;
             if (previous && previous.ready === waits.ready
-                && shallow(previous.waitIds, waits.waitIds) && shallow(previous.workerBulbs, workerBulbs)) return previous;
-            previous = { ...waits, workerBulbs };
-            return previous;
+                && shallow(previous.waitIds, waits.waitIds) && shallow(previous.waitSessionIds, waits.waitSessionIds)
+                && shallow(previous.workerBulbs, workerBulbs)) return previous;
+            selected.current = { ...waits, workerBulbs };
+            return selected.current;
         };
-    }, [coordinatorId]);
+    }, [coordinatorId, nowMs]);
     const current = storage(selector);
     const previous = React.useRef<DeskNotifySnapshot | undefined>(undefined);
 

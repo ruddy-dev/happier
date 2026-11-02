@@ -148,6 +148,10 @@ function optionalDisplayText(text: string | null): string | null {
 }
 
 /** Shared identity for a Waiting card and its browser alert, without building display details. */
+export function unloadedWaitKey(sessionId: string): string {
+    return `unloaded:${sessionId}`;
+}
+
 export function waitingItemKey(sessionId: string, requestId: string): string {
     return JSON.stringify([sessionId, requestId]);
 }
