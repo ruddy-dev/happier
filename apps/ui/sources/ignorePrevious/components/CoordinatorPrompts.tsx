@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Modal } from '@/modal';
-import { requestComposerText } from '@/components/sessions/model/composerRequests';
+import { readComposerText, requestComposerText } from '@/components/sessions/model/composerRequests';
 import { t } from '@/text';
 
 import { useDeskWaits, type DeskWaits } from '../model/useDeskWaits';
@@ -39,8 +39,10 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
     const { theme } = useUnistyles();
     const waits = useDeskWaits(coordinatorId);
     const { count } = waits;
+    // A chip never wipes what is already typed: the prompt goes after the draft, a blank line apart.
     const fill = (text: string) => {
-        if (!requestComposerText(coordinatorId, text, { focus: true })) {
+        const draft = (readComposerText(coordinatorId) ?? '').trimEnd();
+        if (!requestComposerText(coordinatorId, draft.trim() ? `${draft}\n\n${text}` : text, { focus: true })) {
             Modal.alert(t('ignorePrevious.composer.unavailableTitle'), t('ignorePrevious.composer.unavailable'));
         }
     };
