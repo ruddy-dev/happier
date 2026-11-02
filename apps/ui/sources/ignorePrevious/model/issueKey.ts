@@ -1,5 +1,6 @@
-// Branches and folders accept canonical IDs plus the catalogue's `atr_5` and `ATR13` forms.
-const ISSUE_PREFIX = /^([a-z]{2,})[-_]?(\d+)(?:-|$)/i;
+// Branches and folders: hyphenated codes accept 2+ letters in any case; underscore codes
+// accept 2–5 letters in any case; compact codes require 2–5 uppercase letters in the input.
+const ISSUE_PREFIX = /^([a-zA-Z]{2,}(?=-)|[a-zA-Z]{2,5}(?=_)|[A-Z]{2,5})[-_]?(\d+)(?:-|$)/;
 // Spawn tags retain the coordinator's canonical `<ID>-<role>` contract.
 const ISSUE_TAG = /^([a-z]{2,})-(\d+)(?:-|$)/i;
 // Worktree folders may also be `<repo>-<proj>-<n>[-suffix]`, e.g. `unclank-hub-59`.
