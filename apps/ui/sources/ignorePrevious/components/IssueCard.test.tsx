@@ -1,5 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act } from 'react-test-renderer';
+import { parsePermissionIntentAlias } from '@happier-dev/agents';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
+
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { storage } from '@/sync/domains/state/storage';
 
 import type { IssueGroup } from '../model/groupWorkers';
 
@@ -10,6 +15,11 @@ const state = vi.hoisted(() => ({ navigate: vi.fn() }));
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
     return createExpoVectorIconsMock();
+});
+
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
 });
 
 vi.mock('expo-router', async () => {
@@ -32,7 +42,16 @@ async function renderCard(open: boolean, onToggle = vi.fn()) {
 }
 
 describe('IssueCard', () => {
-    beforeEach(() => state.navigate.mockReset());
+    let previous: ReturnType<typeof storage.getState>;
+    beforeEach(() => {
+        previous = storage.getState();
+        state.navigate.mockReset();
+        storage.getState().applySessions(group.workers.map((worker) => createSessionFixture({
+            id: worker.sessionId,
+            metadata: { ...createSessionFixture().metadata!, permissionMode: parsePermissionIntentAlias(worker.permissionMode ?? '') ?? 'default' },
+        })));
+    });
+    afterEach(() => { act(() => storage.setState(previous, true)); });
 
     it('folded, shows the issue, its bulb and the newest worker, and toggles on press', async () => {
         const { screen, onToggle } = await renderCard(false);
@@ -50,7 +69,7 @@ describe('IssueCard', () => {
         expect(text).toContain('Builder');
         expect(text).toContain('Reviewer');
         expect(text).toContain('default');
-        expect(text).toContain('acceptEdits');
+        expect(text).toContain('Published mode: safe-yolo');
         expect(screen.findByTestId('ip-worker-context-s2')?.props.children).toEqual([64, '%']);
         expect(screen.findByTestId('ip-worker-context-s1')).toBeNull();
         await screen.pressByTestIdAsync('ip-open-worker-s2');
