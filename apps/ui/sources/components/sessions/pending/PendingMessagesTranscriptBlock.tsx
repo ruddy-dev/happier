@@ -7,6 +7,7 @@ import { useSession, useSetting } from '@/sync/domains/state/storage';
 import { sync } from '@/sync/sync';
 import { Modal } from '@/modal';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { useLayoutMaxWidth } from '@/components/ui/layout/layout';
 import { Text } from '@/components/ui/text/Text';
 import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
@@ -941,7 +942,7 @@ export function PendingMessagesTranscriptBlock(props: Readonly<{
                             ])}
                         >
                             {isExpanded ? (
-                                <MarkdownView markdown={text} textStyle={styles.transcriptMarkdownText} />
+                                <TranscriptAppearanceContext.Provider value={null}><MarkdownView markdown={text} textStyle={styles.transcriptMarkdownText} /></TranscriptAppearanceContext.Provider>
                             ) : (
                                 <Text
                                     numberOfLines={collapsedLines}

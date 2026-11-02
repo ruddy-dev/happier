@@ -59,7 +59,7 @@ function areMarkdownBlockViewPropsEqual(prev: MarkdownBlockViewProps, next: Mark
 }
 
 export const MarkdownBlockView = React.memo((props: MarkdownBlockViewProps) => {
-    const style = useMarkdownStyles();
+    const blockStyle = useMarkdownStyles();
     const appearance = React.useContext(TranscriptAppearanceContext);
     if (appearance?.markdownColors) props = { ...props, textStyle: [props.textStyle, { color: appearance.markdownColors.text.primary }] };
     const block = props.block;
@@ -68,7 +68,7 @@ export const MarkdownBlockView = React.memo((props: MarkdownBlockViewProps) => {
     } else if (block.type === 'header') {
         return <RenderHeaderBlock level={block.level} spans={block.content} first={props.first} last={props.last} selectable={props.selectable} onLinkPress={props.onLinkPress} textStyle={props.textStyle} variant={props.variant} streamingReveal={props.streamingReveal} streamingRevealPreset={props.streamingRevealPreset} />;
     } else if (block.type === 'horizontal-rule') {
-        return <View style={style.horizontalRule} />;
+        return <View style={blockStyle.horizontalRule} />;
     } else if (block.type === 'list') {
         return <RenderListBlock items={block.items} first={props.first} last={props.last} selectable={props.selectable} onLinkPress={props.onLinkPress} textStyle={props.textStyle} variant={props.variant} streamingReveal={props.streamingReveal} streamingRevealPreset={props.streamingRevealPreset} />;
     } else if (block.type === 'numbered-list') {

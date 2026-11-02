@@ -25,7 +25,7 @@ export function useCoordinatorTranscriptAppearance(): TranscriptAppearance {
                 backgroundColor: paint.bg, borderRadius: 0,
                 borderLeftWidth: 2, borderLeftColor: paint.bot, paddingLeft: 12,
             },
-            toolContainerStyle: { backgroundColor: paint.panel, borderRadius: 0 },
+            toolContainerStyle: { borderRadius: 0 },
             markdownColors: {
                 text: { primary: paint.ink, secondary: paint.mute, link: paint.hl },
                 surface: { inset: paint.panel, elevated: paint.panel2, selected: paint.panel2 },

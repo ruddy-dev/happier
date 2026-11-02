@@ -1,6 +1,6 @@
 /** Per-device desk choices. Written only on a user action, never on mount. */
 import * as React from 'react';
-import type { TerminalPalette } from './palette';
+import { terminalPalettes, type TerminalPalette } from './palette';
 import { MMKV } from 'react-native-mmkv';
 
 const mmkv = new MMKV();
@@ -8,10 +8,10 @@ const mmkv = new MMKV();
 export type ChatStyle = 'mask' | 'terminal';
 
 const keys = {
-    chatStyle: { storageKey: 'ignorePrevious.chatStyle', defaultValue: 'mask' as ChatStyle },
-    terminalPalette: { storageKey: 'ignorePrevious.terminalPalette', defaultValue: 'tokyo' as TerminalPalette },
+    chatStyle: { storageKey: 'ignorePrevious.chatStyle', defaultValue: 'mask' as ChatStyle, allowedValues: ['mask', 'terminal'] as readonly string[] },
+    terminalPalette: { storageKey: 'ignorePrevious.terminalPalette', defaultValue: 'tokyo' as TerminalPalette, allowedValues: Object.keys(terminalPalettes) },
     // C17 will consume this preference in the transcript pipeline.
-    thinkingAndTools: { storageKey: 'ignorePrevious.thinkingAndTools', defaultValue: 'reply-link' as 'reply-link' | 'hidden' },
+    thinkingAndTools: { storageKey: 'ignorePrevious.thinkingAndTools', defaultValue: 'reply-link' as 'reply-link' | 'hidden', allowedValues: ['reply-link', 'hidden'] as readonly string[] },
     coordinatorSessionId: { storageKey: 'ignorePrevious.coordinatorSessionId', defaultValue: null as string | null },
     workCollapsed: { storageKey: 'ignorePrevious.deskMinimised', defaultValue: false as boolean },
     approvalsOpen: { storageKey: 'ignorePrevious.approvalsOpen', defaultValue: false as boolean },
@@ -36,7 +36,8 @@ function get<K extends DeskPrefKey>(key: K): DeskPrefValue<K> {
     // Retain the original string flags, including the old deskMinimised key.
     const value = typeof definition.defaultValue === 'boolean'
         ? stored === undefined ? definition.defaultValue : stored === '1'
-        : stored ?? definition.defaultValue;
+        : stored !== undefined && (!('allowedValues' in definition) || definition.allowedValues.includes(stored))
+            ? stored : definition.defaultValue;
     return value as DeskPrefValue<K>;
 }
 

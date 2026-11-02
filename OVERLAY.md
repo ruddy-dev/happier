@@ -126,6 +126,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 |---|---|
 | `apps/ui/sources/components/sessions/transcript/TranscriptAppearanceContext.tsx` (new) | Nullable data/slot contract for user, agent and tool containers, optional markdown font/colours and an agent-leading node; imports no overlay code. |
 | `apps/ui/sources/components/sessions/transcript/MessageView.tsx` | Applies opt-in container styles after built-ins and the agent-leading slot; styles the streaming plain-text fallback. Resets the appearance beneath tool chrome to preserve tool-row typography. |
+| `apps/ui/sources/components/sessions/pending/PendingMessagesTranscriptBlock.tsx` | Resets transcript appearance for queued-message markdown on the stock Happier bubble. |
 | `apps/ui/sources/components/markdown/enriched/useEnrichedMarkdownStyle.ts` | Opt-in font and coordinated markdown colours, including emphasis and inline/code/table surfaces. The default builder inputs remain unchanged. |
 | `apps/ui/sources/components/markdown/MarkdownBlockView.tsx` | Applies typed optional font/colour overrides to the block renderer, including nested spans, lists, options and tables; retains the upstream static stylesheet without a provider. |
 | `apps/ui/sources/keyboard/escape.ts` | Exports the existing editable-target predicate so the desk popup hook uses the keyboard owner's rule instead of duplicating it. |
