@@ -13,6 +13,7 @@ import { listPendingPermissionRequests } from '@/utils/sessions/sessionUtils';
 import { deriveTranscriptInteraction } from '@/utils/sessions/deriveTranscriptInteraction';
 import { useDeskNow } from '../model/useDeskNow';
 import { workerPermissionMode, requestsApprovedAfterModeChange, type ModeChangeRequests } from '../model/workerPermissionMode';
+import { useWorkerPermissionOutcome } from '../model/workerPermissionOutcome';
 import { DeskText as Text } from '../typography/DeskText';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
@@ -77,7 +78,8 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
     const sessionId = session.id;
     const metadata = session.metadata;
     const mode = session.permissionMode ?? 'default';
-    const presentation = workerPermissionMode(session);
+    const outcome = useWorkerPermissionOutcome(sessionId);
+    const presentation = workerPermissionMode(session, outcome);
     const [failed, setFailed] = React.useState(false);
     const [change, setChange] = React.useState<ModeChangeRequests | null>(null);
     const cleared = requestsApprovedAfterModeChange(session, change);
@@ -122,6 +124,12 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
             ? t('ignorePrevious.workerControl.modeNextPrompt', { mode: presentation.pending })
             : t('ignorePrevious.workerControl.modePending', { mode: presentation.pending })) : null;
 
+    const modeText = presentation.confirmed
+        ? t('ignorePrevious.workerControl.modeConfirmed', { mode: presentation.confirmed })
+        : presentation.current ? t('ignorePrevious.workerControl.modePublished', { mode: presentation.current }) : t('ignorePrevious.workerControl.modeUnknown');
+    const difference = presentation.confirmed && presentation.confirmed !== presentation.current
+        ? presentation.current ? t('ignorePrevious.workerControl.modeDifference', { mode: presentation.current }) : t('ignorePrevious.workerControl.modePublishedUnknown')
+        : null;
     const chip = (
         <Text
             testID={`ip-mode-current-${sessionId}`}
@@ -135,11 +143,12 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
                 backgroundColor: theme.colors.surface.inset,
             }}
         >
-            {presentation.current ? t('ignorePrevious.workerControl.modePublished', { mode: presentation.current }) : t('ignorePrevious.workerControl.modeUnknown')}
+            {modeText}
         </Text>
     );
 
     const note = <>
+        {difference ? <Text testID={`ip-mode-difference-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>{difference}</Text> : null}
         {pendingText ? <Text testID={`ip-mode-pending-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>{pendingText}</Text> : null}
         {cleared.length ? <Text testID={`ip-mode-cleared-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>
             {t('ignorePrevious.workerControl.modeCleared', { requests: cleared.join('; ') })}
@@ -153,7 +162,7 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
                 testID={`ip-mode-${sessionId}`}
                 accessibilityRole="button"
                 accessibilityLabel={t('ignorePrevious.changeMode')}
-                accessibilityValue={{ text: [presentation.current ? t('ignorePrevious.workerControl.modePublished', { mode: presentation.current }) : t('ignorePrevious.workerControl.modeUnknown'), pendingText].filter(Boolean).join('. ') }}
+                accessibilityValue={{ text: [modeText, difference, pendingText].filter(Boolean).join('. ') }}
                 accessibilityState={{ expanded: open, disabled: applying }}
                 disabled={applying}
                 onPress={() => setOpen((value) => !value)}
