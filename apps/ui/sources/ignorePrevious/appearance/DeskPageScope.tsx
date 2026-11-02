@@ -1,9 +1,14 @@
 import * as React from 'react';
 import { ScopedTheme } from 'react-native-unistyles';
+import { mountDeskFont } from '../fonts/deskFont';
 import { DeskPageThemeContext } from './deskPageThemeContext';
 import type { DeskPageThemeName } from './deskPageThemes';
 
 export function DeskPageScope({ name, children }: Readonly<{ name: DeskPageThemeName; children: React.ReactNode }>) {
+    // A retained page or open dialog can outlive the current route's font root.
+    React.useEffect(() => {
+        if (typeof document !== 'undefined') return mountDeskFont(document);
+    }, []);
     return (
         <DeskPageThemeContext.Provider value={name}>
             <ScopedTheme name={name}>{children}</ScopedTheme>

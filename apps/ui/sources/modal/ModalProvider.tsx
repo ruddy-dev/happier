@@ -13,6 +13,7 @@ const ModalContext = createContext<ModalContextValue | undefined>(undefined);
 type ModalProviderProps = Readonly<{
     active?: boolean;
     children: React.ReactNode;
+    // Each wrapper shares one dialog's keyed lifetime, including its closing transition.
     modalContentWrapper?: React.ComponentType<React.PropsWithChildren>;
 }>;
 
@@ -229,78 +230,82 @@ export function ModalProvider({ active = true, children, modalContentWrapper: Mo
             <ModalContext.Provider value={contextValue}>
                 {children}
                 <OverlayPortalHost zIndex={screenOverlayPortalZIndex} />
-                {state.modals.length > 0 && <ModalContentWrapper>{state.modals.map((modal, index) => {
+                {state.modals.map((modal, index) => {
                     const showBackdrop = index === topVisibleIndex;
                     const modalZIndexBase = zIndexBase + index * zIndexStep;
 
                     if (modal.type === 'alert') {
                         return (
-                            <WebAlertModal
-                                key={modal.id}
-                                config={modal}
-                                onClose={() => {
-                                    Modal.resolveAlert(modal.id);
-                                    hideModal(modal.id);
-                                }}
-                                showBackdrop={showBackdrop}
-                                zIndexBase={modalZIndexBase}
-                            />
+                            <ModalContentWrapper key={modal.id}>
+                                <WebAlertModal
+                                    config={modal}
+                                    onClose={() => {
+                                        Modal.resolveAlert(modal.id);
+                                        hideModal(modal.id);
+                                    }}
+                                    showBackdrop={showBackdrop}
+                                    zIndexBase={modalZIndexBase}
+                                />
+                            </ModalContentWrapper>
                         );
                     }
 
                     if (modal.type === 'confirm') {
                         return (
-                            <WebAlertModal
-                                key={modal.id}
-                                config={modal}
-                                onClose={() => {
-                                    Modal.resolveConfirm(modal.id, false);
-                                    hideModal(modal.id);
-                                }}
-                                onConfirm={(value) => {
-                                    Modal.resolveConfirm(modal.id, value);
-                                    hideModal(modal.id);
-                                }}
-                                showBackdrop={showBackdrop}
-                                zIndexBase={modalZIndexBase}
-                            />
+                            <ModalContentWrapper key={modal.id}>
+                                <WebAlertModal
+                                    config={modal}
+                                    onClose={() => {
+                                        Modal.resolveConfirm(modal.id, false);
+                                        hideModal(modal.id);
+                                    }}
+                                    onConfirm={(value) => {
+                                        Modal.resolveConfirm(modal.id, value);
+                                        hideModal(modal.id);
+                                    }}
+                                    showBackdrop={showBackdrop}
+                                    zIndexBase={modalZIndexBase}
+                                />
+                            </ModalContentWrapper>
                         );
                     }
 
                     if (modal.type === 'prompt') {
                         return (
-                            <WebPromptModal
-                                key={modal.id}
-                                config={modal}
-                                onClose={() => {
-                                    Modal.resolvePrompt(modal.id, null);
-                                    hideModal(modal.id);
-                                }}
-                                onConfirm={(value) => {
-                                    Modal.resolvePrompt(modal.id, value);
-                                    hideModal(modal.id);
-                                }}
-                                showBackdrop={showBackdrop}
-                                zIndexBase={modalZIndexBase}
-                            />
+                            <ModalContentWrapper key={modal.id}>
+                                <WebPromptModal
+                                    config={modal}
+                                    onClose={() => {
+                                        Modal.resolvePrompt(modal.id, null);
+                                        hideModal(modal.id);
+                                    }}
+                                    onConfirm={(value) => {
+                                        Modal.resolvePrompt(modal.id, value);
+                                        hideModal(modal.id);
+                                    }}
+                                    showBackdrop={showBackdrop}
+                                    zIndexBase={modalZIndexBase}
+                                />
+                            </ModalContentWrapper>
                         );
                     }
 
                     if (modal.type === 'custom') {
                         return (
-                            <CustomModal
-                                key={modal.id}
-                                config={modal}
-                                onClose={() => hideModal(modal.id)}
-                                showBackdrop={showBackdrop}
-                                visible={modal.visible}
-                                zIndexBase={modalZIndexBase}
-                            />
+                            <ModalContentWrapper key={modal.id}>
+                                <CustomModal
+                                    config={modal}
+                                    onClose={() => hideModal(modal.id)}
+                                    showBackdrop={showBackdrop}
+                                    visible={modal.visible}
+                                    zIndexBase={modalZIndexBase}
+                                />
+                            </ModalContentWrapper>
                         );
                     }
 
                     return null;
-                })}</ModalContentWrapper>}
+                })}
             </ModalContext.Provider>
         </OverlayPortalProvider>
     );

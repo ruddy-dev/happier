@@ -1,12 +1,11 @@
 import * as React from 'react';
 import { Platform, View } from 'react-native';
-import { Stack, usePathname } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import type { NativeStackHeaderProps } from '@react-navigation/native-stack';
 
 import { createHeader } from '@/components/navigation/Header';
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
-import { DESK_HAPPIER_PAGE_ROUTES } from '../fonts/deskFont';
 import { DeskPageScope } from './DeskPageScope';
 import { deskPageFontStyle } from './deskPageThemeContext';
 
@@ -39,14 +38,13 @@ function DeskPageContent({ children, withHeader }: React.PropsWithChildren<{ wit
 }
 
 /** Mount on the three page entries, with sign-in confined to Home's unauthenticated branch. */
-export function DeskPageAppearance({ children }: React.PropsWithChildren) {
-    const pathname = usePathname();
+export function DeskPageAppearance({ children, withHeader = true }: React.PropsWithChildren<{ withHeader?: boolean }>) {
     const { theme } = useUnistyles();
-    if (Platform.OS !== 'web' || !DESK_HAPPIER_PAGE_ROUTES.includes(pathname)) return <>{children}</>;
+    if (Platform.OS !== 'web') return <>{children}</>;
     return (
         <DeskFontRoot>
             <DeskPageScope name={theme.dark ? 'deskPageDark' : 'deskPageLight'}>
-                <DeskPageContent withHeader={pathname !== '/'}>{children}</DeskPageContent>
+                <DeskPageContent withHeader={withHeader}>{children}</DeskPageContent>
             </DeskPageScope>
         </DeskFontRoot>
     );

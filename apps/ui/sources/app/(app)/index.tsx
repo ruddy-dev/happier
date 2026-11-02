@@ -65,7 +65,7 @@ function readWelcomeServerCheckRetryDelayMs(): number {
 export default function Home() {
     const auth = useAuth();
     if (!auth.isAuthenticated) {
-        return <DeskPageAppearance><NotAuthenticated /></DeskPageAppearance>;
+        return <DeskPageAppearance withHeader={false}><NotAuthenticated /></DeskPageAppearance>;
     }
     return (
         <Authenticated />

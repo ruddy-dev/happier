@@ -17,6 +17,14 @@ const mockState = vi.hoisted(() => ({
 }));
 let expoScheme: string | undefined = undefined;
 
+vi.mock('react-native-unistyles', async () => {
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    return {
+        ...(await createUnistylesMock()),
+        ScopedTheme: ({ children }: import('react').PropsWithChildren) => children,
+    };
+});
+
 vi.mock('expo-constants', () => ({
     default: {
         expoConfig: {
