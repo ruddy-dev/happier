@@ -14,16 +14,18 @@ test('Allow runs what the card showed, and the worker carries on', async ({ page
         await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('1', { timeout: 10_000 });
         await page.getByTestId('ip-approvals-open').click();
         const waiting = page.getByTestId('ip-waiting');
-        await expect(waiting.getByText('rm -rf build && yarn build'), 'the command on the card').toBeVisible();
+        const activeCard = waiting.getByTestId('ip-waiting-card-j2-bash');
+        await expect(activeCard, 'the active request card before Allow').toBeVisible();
+        await expect(activeCard.getByText('rm -rf build && yarn build'), 'the command on the card').toBeVisible();
         await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-turn'), 'the bulb before Allow').toBeVisible();
 
-        await page.getByRole('button', { name: 'Allow Bash' }).click();
+        await activeCard.getByRole('button', { name: 'Allow Bash' }).click();
         await expect.poll(() => worker.agent.getReceivedDecisions(), { message: "the agent's record of the answer" })
             .toEqual([expect.objectContaining({ id: 'j2-bash', approved: true })]);
         await worker.setWorking();
 
         // The active card goes; the panel keeps an Answered entry for it (signed J2 and J3).
-        await expect(page.getByTestId('ip-waiting-allow-j2-bash'), 'the card after Allow').toHaveCount(0);
+        await expect(activeCard, 'the active card after Allow, apart from Answered').toHaveCount(0);
         await expect(page.getByTestId('ip-answered-j2-bash'), 'the Answered entry').toBeVisible();
         await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('0');
         await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-working'), 'the bulb after Allow').toBeVisible();

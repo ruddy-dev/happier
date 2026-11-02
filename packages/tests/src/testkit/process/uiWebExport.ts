@@ -20,7 +20,7 @@ let sharedExportPromise: Promise<string> | null = null;
 let sharedExportDir: string | null = null;
 let sharedExportCacheKey: string | null = null;
 const UI_WEB_EXPORT_MANIFEST_VERSION = 1;
-const UI_WEB_EXPORT_SOURCE_FINGERPRINT_VERSION = 1;
+const UI_WEB_EXPORT_SOURCE_FINGERPRINT_VERSION = 2;
 
 type UiWebRuntimeConfig = Readonly<{
   serverUrl: string;
@@ -189,6 +189,11 @@ export function resolveUiWebExportSourceFingerprint(rootDir = repoRootDir()): st
     resolvePath(uiWorkspaceDir, 'metro.config.js'),
     resolvePath(uiWorkspaceDir, 'babel.config.js'),
   ];
+  // Metro resolves these workspace packages to source. Keep invalidation at this existing owner.
+  const uiPackage = JSON.parse(readFileSync(resolvePath(uiWorkspaceDir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> };
+  for (const name of Object.keys(uiPackage.dependencies ?? {}).sort()) {
+    if (name.startsWith('@happier-dev/')) roots.push(resolvePath(rootDir, 'packages', name.slice('@happier-dev/'.length)));
+  }
   const skipDirNames = new Set(['.expo', '.git', '.project', 'dist', 'node_modules', 'web-build']);
   const hash = createHash('sha1');
 
@@ -198,7 +203,7 @@ export function resolveUiWebExportSourceFingerprint(rootDir = repoRootDir()): st
     }
 
     const stats = statSync(targetPath);
-    const relativePath = targetPath.slice(uiWorkspaceDir.length + 1);
+    const relativePath = targetPath.slice(rootDir.length + 1);
     if (stats.isDirectory()) {
       const dirName = relativePath.split('/').pop() ?? '';
       if (skipDirNames.has(dirName)) {

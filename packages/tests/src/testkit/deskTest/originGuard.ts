@@ -38,7 +38,9 @@ export function forbiddenOriginLabel(url: string, extraForbidden: readonly strin
     } catch {
         return null;
     }
-    return FORBIDDEN_ORIGIN_PATTERNS.find((pattern) => pattern.test(parsed))?.label ?? null;
+    const label = FORBIDDEN_ORIGIN_PATTERNS.find((pattern) => pattern.test(parsed))?.label;
+    if (label) return label;
+    return extraForbidden.some((entry) => new URL(entry).host === parsed.host) ? 'a test-only forbidden origin' : null;
 }
 
 /**
@@ -52,7 +54,7 @@ export function isAllowedOrigin(url: string, allowed: readonly string[], extraFo
     } catch {
         return false;
     }
-    if (FORBIDDEN_ORIGIN_PATTERNS.some((pattern) => pattern.test(parsed))) return false;
+    if (forbiddenOriginLabel(url, extraForbidden)) return false;
     return allowed.some((entry) => {
         try {
             return new URL(entry).host === parsed.host;

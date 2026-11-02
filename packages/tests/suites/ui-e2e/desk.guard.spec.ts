@@ -1,39 +1,88 @@
+import { createServer, type Server } from 'node:http';
 import { expect } from '@playwright/test';
 
-import { deskGuardTest as test } from '../../src/testkit/deskTest/deskTest';
+import { deskGuardTest } from '../../src/testkit/deskTest/deskTest';
 
-/**
- * Proves the request guard fails a test. Each probe is expected to fail through the guard's teardown,
- * so the run goes red if the guard ever lets one through. Set DESK_GUARD_SHOW_FAILURE=1 to see the
- * failures themselves. The hosts can't resolve or route, so even a broken guard reaches nothing real
- * (originGuard.test.mjs covers 127.0.0.1:3005 and api.happier.dev without any traffic).
- */
-const PROBES = [
-    ['a non-local host', 'https://desk-guard-probe.invalid/'],
-    ['hosted Happier', 'https://desk-guard-probe.invalid.happier.dev/'],
-    ['a tailnet host', 'https://desk-guard-probe.invalid.ts.net/'],
-    ['port 3005', 'http://192.0.2.1:3005/desk-guard-probe'],
-] as const;
+type Probe = { origin: string; hits: () => number };
+type Probes = { plain: Probe; target: Probe; redirect: Probe };
 
-for (const [name, url] of PROBES) {
-    test(`a request to ${name} fails the test`, async ({ page }) => {
-        test.fail(process.env.DESK_GUARD_SHOW_FAILURE !== '1', 'the guard must fail this test');
-        await page.evaluate((target) => fetch(target, { mode: 'no-cors' }).catch(() => null), url);
+/** All destinations are disposable loopback servers, even if the guard breaks completely. */
+const test = deskGuardTest.extend<{ probes: Probes }>({
+    probes: async ({}, use) => {
+        const servers: Server[] = [];
+        const start = async (location?: (path: string) => string | null): Promise<Probe> => {
+            let hits = 0;
+            const server = createServer((req, res) => {
+                hits++;
+                const destination = location?.(req.url ?? '/') ?? null;
+                res.writeHead(destination ? 302 : 200, destination ? { location: destination } : { 'content-type': 'text/plain' });
+                res.end(destination ? '' : 'local probe');
+            });
+            servers.push(server);
+            server.on('upgrade', (_req, socket) => { hits++; socket.destroy(); });
+            await new Promise<void>((resolve, reject) => {
+                server.once('error', reject);
+                server.listen(0, '127.0.0.1', resolve);
+            });
+            const address = server.address();
+            if (!address || typeof address === 'string') throw new Error('No probe port');
+            return { origin: `http://127.0.0.1:${address.port}`, hits: () => hits };
+        };
+        try {
+            const plain = await start();
+            const target = await start();
+            const redirect = await start((path) => path === '/chain' ? '/next' : path === '/ok' ? null : `${target.origin}/target`);
+            await use({ plain, target, redirect });
+        } finally {
+            for (const server of servers.reverse()) {
+                server.closeAllConnections();
+                await new Promise<void>((resolve) => server.close(() => resolve()));
+            }
+        }
+    },
+    // Allow-listing the probes too proves forbidden rules override explicit permission.
+    deskAllowedOrigins: async ({ probes }, use) => {
+        await use([probes.plain.origin, probes.target.origin, probes.redirect.origin]);
+    },
+    deskExtraForbiddenOrigins: async ({ probes }, use) => {
+        await use([probes.plain.origin, probes.target.origin]);
+    },
+});
+
+test('a direct HTTP refusal records the exact URL without contacting the local server', async ({ page, probes, blockedRequests }) => {
+    const url = `${probes.plain.origin}/probe`;
+    await page.evaluate((target) => fetch(target, { mode: 'no-cors' }).catch(() => null), url);
+    expect(blockedRequests).toEqual([{ url, reason: 'a test-only forbidden origin' }]);
+    expect(probes.plain.hits()).toBe(0);
+    blockedRequests.splice(0); // Consume only after proving the specific refusal; teardown owns unexpected entries.
+});
+
+test('a websocket refusal records the exact URL without contacting the local server', async ({ page, probes, blockedRequests }) => {
+    const url = `${probes.plain.origin.replace('http:', 'ws:')}/socket`;
+    const outcome = await page.evaluate((target) => new Promise<string>((done) => {
+        const socket = new WebSocket(target);
+        socket.onopen = () => { socket.close(); done('opened'); };
+        socket.onclose = socket.onerror = () => done('closed');
+    }), url);
+    expect(outcome).toBe('closed');
+    expect(blockedRequests).toEqual([{ url, reason: 'a test-only forbidden origin' }]);
+    expect(probes.plain.hits()).toBe(0);
+    blockedRequests.splice(0);
+});
+
+for (const path of ['/redirect', '/chain']) {
+    test(`a forbidden redirect after ${path} never reaches its local destination`, async ({ page, probes, blockedRequests }) => {
+        await page.evaluate((url) => fetch(url, { mode: 'no-cors' }).catch(() => null), `${probes.redirect.origin}${path}`);
+        expect(probes.redirect.hits()).toBe(path === '/chain' ? 2 : 1);
+        expect(blockedRequests).toEqual([{ url: `${probes.target.origin}/target`, reason: 'a test-only forbidden origin' }]);
+        expect(probes.target.hits()).toBe(0);
+        expect(probes.plain.hits()).toBe(0);
+        blockedRequests.splice(0);
     });
 }
 
-test('a websocket to a non-local host fails the test', async ({ page }) => {
-    test.fail(process.env.DESK_GUARD_SHOW_FAILURE !== '1', 'the guard must fail this test');
-    await page.evaluate(
-        (target) => new Promise((done) => {
-            const socket = new WebSocket(target);
-            socket.onopen = socket.onclose = socket.onerror = () => done(null);
-        }),
-        'wss://desk-guard-probe.invalid/socket',
-    );
-});
-
-test('a page that asks for nothing forbidden passes', async ({ page, blockedRequests }) => {
-    await page.evaluate(() => 1 + 1);
+test('an allowed response reaches the browser without a refusal', async ({ page, probes, blockedRequests }) => {
+    await page.goto(`${probes.redirect.origin}/ok`);
+    await expect(page.locator('body')).toHaveText('local probe');
     expect(blockedRequests).toEqual([]);
 });

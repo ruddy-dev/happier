@@ -15,13 +15,14 @@ import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../ui
 import { waitForInitialAppUi } from '../uiE2e/waitForInitialAppUi';
 import { DESK_UI_ENV } from './deskUiEnv';
 import { assertServerPort, forbiddenOriginLabel, isAllowedOrigin } from './originGuard';
-import { guardDeskRoute } from './deskRequestGuard';
-
-export type BlockedRequest = Readonly<{ url: string; reason: string }>;
+import { assertNoBlockedRequests, guardDeskRoute, type BlockedRequest } from './deskRequestGuard';
+export type { BlockedRequest } from './deskRequestGuard';
 
 export type DeskTestOptions = {
     /** Origins the page may reach, besides the configured `baseURL`. */
     deskAllowedOrigins: string[];
+    /** Throwaway probe servers only. Real forbidden hosts are always refused. */
+    deskExtraForbiddenOrigins: string[];
 };
 
 type DeskGuardFixtures = {
@@ -29,8 +30,8 @@ type DeskGuardFixtures = {
     blockedRequests: BlockedRequest[];
 };
 
-function refusalReason(url: string): string {
-    return forbiddenOriginLabel(url) ?? 'not on the allowed list';
+function refusalReason(url: string, extraForbidden: readonly string[]): string {
+    return forbiddenOriginLabel(url, extraForbidden) ?? 'not on the allowed list';
 }
 
 /**
@@ -40,25 +41,23 @@ function refusalReason(url: string): string {
  */
 export const deskGuardTest = base.extend<DeskGuardFixtures & DeskTestOptions>({
     deskAllowedOrigins: [[], { option: true }],
+    deskExtraForbiddenOrigins: [[], { option: true }],
     blockedRequests: [
-        async ({ context, deskAllowedOrigins, baseURL }, use) => {
+        async ({ context, deskAllowedOrigins, deskExtraForbiddenOrigins, baseURL }, use) => {
             const allowed = baseURL ? [baseURL, ...deskAllowedOrigins] : deskAllowedOrigins;
             const blocked: BlockedRequest[] = [];
-            await context.route('**/*', (route) => guardDeskRoute(route, context.request, allowed, blocked));
+            await context.route('**/*', (route) => guardDeskRoute(route, context.request, allowed, blocked, deskExtraForbiddenOrigins));
             await context.routeWebSocket(() => true, async (socket) => {
                 const url = socket.url();
-                if (isAllowedOrigin(url, allowed)) {
+                if (isAllowedOrigin(url, allowed, deskExtraForbiddenOrigins)) {
                     socket.connectToServer();
                     return;
                 }
-                blocked.push({ url, reason: refusalReason(url) });
+                blocked.push({ url, reason: refusalReason(url, deskExtraForbiddenOrigins) });
                 await socket.close();
             });
             await use(blocked);
-            expect(
-                blocked,
-                `desk test reached origins it must not: ${blocked.map((entry) => `${entry.url} (${entry.reason})`).join(', ')}`,
-            ).toEqual([]);
+            assertNoBlockedRequests(blocked);
         },
         { auto: true },
     ],

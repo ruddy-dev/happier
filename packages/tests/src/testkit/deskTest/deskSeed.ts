@@ -57,8 +57,9 @@ async function postTurn(desk: DeskAccount, sessionId: string, turnId: string, ac
     }
 }
 
-async function goOnline(desk: DeskAccount, sessionId: string): Promise<SocketCollector> {
+async function goOnline(desk: DeskAccount, sessionId: string, register: (close: () => void) => void): Promise<SocketCollector> {
     const { socket } = await createMachineBoundSessionScopedSocketCollector({ baseUrl: desk.serverBaseUrl, token: desk.token, sessionId });
+    register(() => socket.close());
     socket.connect();
     await waitFor(async () => socket.isConnected(), { timeoutMs: 20_000, context: `presence socket for ${sessionId}` });
     socket.emit('session-alive', { sid: sessionId, time: Date.now(), thinking: false });
@@ -71,12 +72,12 @@ async function goOnline(desk: DeskAccount, sessionId: string): Promise<SocketCol
 
 export function createDeskSeeder(desk: DeskAccount) {
     const closers: (() => Promise<void> | void)[] = [];
+    const register = (close: () => Promise<void> | void) => { closers.push(close); };
 
     return {
         async startCoordinator(path: string): Promise<string> {
             const sessionId = await createPlainSession(desk, { name: 'Coordinator chat', path });
-            const socket = await goOnline(desk, sessionId);
-            closers.push(() => socket.close());
+            await goOnline(desk, sessionId, register);
             return sessionId;
         },
 
@@ -87,10 +88,10 @@ export function createDeskSeeder(desk: DeskAccount) {
                 path: `/tmp/desk-e2e-workers/${randomUUID()}`,
                 tag: params.issueTag,
             });
-            const socket = await goOnline(desk, sessionId);
+            const socket = await goOnline(desk, sessionId, register);
             const agent = new SyntheticAgent({ baseUrl: desk.serverBaseUrl, token: desk.token, sessionId, encryption: { type: 'plain' } });
+            register(() => agent.stop());
             await agent.start();
-            closers.push(() => socket.close(), () => agent.stop());
             let turnId: string | null = null;
             return {
                 sessionId,

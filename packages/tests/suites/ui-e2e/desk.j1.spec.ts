@@ -5,8 +5,7 @@ import { deskTest as test, openDesk } from '../../src/testkit/deskTest/deskTest'
 import { DESK_COORDINATOR_PATH } from '../../src/testkit/deskTest/deskUiEnv';
 
 /** J1, morning check-in from a cold load: one coordinator and three workers on two issues. */
-async function seedMorning(desk: Parameters<typeof createDeskSeeder>[0]) {
-    const seed = createDeskSeeder(desk);
+async function seedMorning(seed: ReturnType<typeof createDeskSeeder>) {
     await seed.startCoordinator(DESK_COORDINATOR_PATH);
     const working = await seed.startWorker({ issueTag: 'ATR-101-build', title: 'Wiring the export' });
     await working.setWorking();
@@ -14,12 +13,12 @@ async function seedMorning(desk: Parameters<typeof createDeskSeeder>[0]) {
     await idle.setIdle();
     const waiting = await seed.startWorker({ issueTag: 'ATR-102-build', title: 'Running the migration' });
     await waiting.agent.publishPermissionRequest({ id: 'j1-request', tool: 'Bash', args: { command: 'yarn db:migrate' } });
-    return seed;
 }
 
 test('the desk says who is waiting, working and idle, from a cold load', async ({ page, desk }) => {
-    const seed = await seedMorning(desk);
+    const seed = createDeskSeeder(desk);
     try {
+        await seedMorning(seed);
         // Every value the agent tile ever shows, so a 0 before the list arrives can't slip by between polls.
         await page.addInitScript(() => {
             const seen: string[] = [];
@@ -55,8 +54,9 @@ test('the desk says who is waiting, working and idle, from a cold load', async (
 });
 
 test.fixme('issue cards are ordered by urgency (item 2.3)', async ({ page, desk }) => {
-    const seed = await seedMorning(desk);
+    const seed = createDeskSeeder(desk);
     try {
+        await seedMorning(seed);
         await openDesk(page, desk);
         await expect(page.getByTestId('ip-work').locator('[data-testid^="ip-issue-"]')).toHaveCount(2, { timeout: 10_000 });
         const order = await page
