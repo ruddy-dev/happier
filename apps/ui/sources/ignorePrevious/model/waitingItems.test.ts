@@ -42,6 +42,21 @@ describe('describeRequest', () => {
         expect(describeRequest('CodexBash', { argv: ['git', 'status'] })).toBe('git status');
     });
 
+    it('joins an argument list only when every argument is plain text a shell reads the same way', () => {
+        // Joined, `#` reads as a comment and hides `--force`; execve passes both.
+        const comment = describeRequest('CodexBash', { command: ['git', 'push', '#', '--force'] });
+        expect(comment).not.toBe('git push # --force');
+        expect(comment).toContain('"#"');
+        expect(comment).toContain('"--force"');
+        // Each of these reads differently in a shell than in the argument list.
+        for (const part of ['*', '~', ';', '|', '&', '$HOME', '`id`', 'a\nb', '']) {
+            expect(describeRequest('CodexBash', { command: ['rm', '-rf', part] })).not.toBe(`rm -rf ${part}`);
+        }
+        expect(describeRequest('CodexBash', { command: ['git', 'commit', '-m', 'fix:x', '--author=a@b.c', './src/a_b-1.ts'] })).toBe(
+            'git commit -m fix:x --author=a@b.c ./src/a_b-1.ts',
+        );
+    });
+
     it('shows the file for edits', () => {
         expect(describeRequest('Edit', { file_path: 'src/a.ts', old_string: 'x' })).toBe('src/a.ts');
     });

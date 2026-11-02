@@ -41,8 +41,12 @@ export function summariseRequest(tool: string, args: unknown): string {
 
 const MAX_ARGUMENTS_DETAIL = 2000;
 const SHELL_WRAPPERS = new Set(['bash', '/bin/bash', 'zsh', '/bin/zsh']);
-/** An argument that reads the same whether or not it is joined with spaces. */
-const PLAIN_ARGUMENT = /^[^\s'"\\]+$/;
+/**
+ * An argument that reads the same joined into shell text as it does in the argument list. An
+ * allow-list: anything a shell treats specially (`#`, `;`, `|`, `$`, globs, `~`, quotes, spaces,
+ * newlines, any non-ASCII) or an empty argument takes the JSON form instead.
+ */
+const PLAIN_ARGUMENT = /^[A-Za-z0-9_.\/:=@%+,-]+$/;
 
 function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string');
