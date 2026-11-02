@@ -54,7 +54,7 @@ describe('IssueCard', () => {
         const { IssueCard } = await import('./IssueCard');
         const { WorkerSprite } = await import('./WorkerSprite');
         const screen = await renderScreen(<IssueCard group={{ ...group, stateWorker: undefined, workers: [] }} open={false} onToggle={() => {}} />);
-        expect(screen.findByTestId('ip-work-card-face-ATR-6')!.findByType(WorkerSprite.type).props.kind).toBe('ipdroid');
+        expect(screen.findByTestId('ip-work-card-face-ATR-6')!.findByType(WorkerSprite.type).props.kind).toBe('no-worker');
     });
     let previous: ReturnType<typeof storage.getState>;
     beforeEach(() => {

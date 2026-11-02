@@ -98,6 +98,30 @@ describe('WorkerSprite', () => {
         }
     });
 
+    it('reacts to robot paint, no-worker and face preferences', async () => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const { deskPrefs } = await import('../deskPrefs');
+        const screen = await renderScreen(<WorkerSprite kind="no-worker" bulb="idle" size={40} calm />);
+        const fills = () => screen.findByTestId('ip-sprite-pixels')!.findAll(node => typeof node.type === 'string' && typeof node.props.fill === 'string').map(node => node.props.fill);
+        expect(fills()).toContain(robotPresets.purple.body);
+        await act(async () => deskPrefs.set('noWorkerRobot', 'ipb'));
+        expect(fills()).toContain(robotPresets.blue.body);
+        await act(async () => deskPrefs.set('robotIpb', 'steel'));
+        expect(fills()).toContain(robotPresets.steel.body);
+        await act(async () => deskPrefs.set('workerFaces', 'B'));
+        expect(screen.findByTestId('ip-sprite-ascii')).not.toBeNull();
+        expect(screen.findByTestId('ip-sprite-pixels')).toBeNull();
+    });
+
+    it.each(Object.keys(spriteGrids) as SpriteKind[])('switches %s to ASCII from the shared preference', async (kind) => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const { deskPrefs } = await import('../deskPrefs');
+        const screen = await renderScreen(<WorkerSprite kind={kind} bulb="idle" size={28} calm />);
+        expect(screen.findByTestId('ip-sprite-pixels')).not.toBeNull();
+        await act(async () => deskPrefs.set('workerFaces', 'B'));
+        expect(screen.findByTestId('ip-sprite-ascii')).not.toBeNull();
+    });
+
     it('bobs IPB four times over 1.6 s, then stays still until the next start', async () => {
         const { WorkerSprite } = await import('./WorkerSprite');
         const screen = await renderScreen(<WorkerSprite kind="ipb" bulb="idle" size={28} testID="face" />);

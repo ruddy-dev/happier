@@ -7,6 +7,7 @@ import { renderScreen, standardCleanup } from '@/dev/testkit';
 import { readReactNativeMmkvStubEntries } from '@/dev/testkit/mocks/mmkv';
 import { storage } from '@/sync/domains/state/storage';
 import { setCoordinatorOverride } from '../deskPrefs';
+import { robotPresets } from '../palette';
 
 const state = vi.hoisted(() => ({
     pathname: '/desk/settings',
@@ -74,6 +75,33 @@ describe('/desk/settings', () => {
         expect(screen.findAllByProps({ 'data-ip-font': 'desk' })).toHaveLength(1);
         await screen.pressByTestIdAsync('ip-settings-back');
         expect(state.navigate).toHaveBeenCalledWith('/desk');
+    });
+
+    it('saves named robot swatches and face choices and updates the preview', async () => {
+        const screen = await renderScreen(await settingsPage());
+        for (const robot of ['droid', 'ipb', 'prompt', 'loupe', 'lab']) {
+            for (const [preset, name] of [['purple', 'Purple'], ['violet', 'Violet'], ['green', 'Green'], ['orange', 'Orange'], ['blue', 'Blue'], ['magenta', 'Magenta'], ['steel', 'Steel']]) {
+                const button = screen.findByTestId(`ip-robot-${robot}-${preset}`)!;
+                expect(button.props.accessibilityRole).toBe('radio');
+                expect(button.props.accessibilityLabel).toBe(name);
+            }
+        }
+        const swatch = screen.findByTestId('ip-robot-droid-steel')!;
+        expect(swatch.props.accessibilityRole).toBe('radio');
+        expect(swatch.props.accessibilityLabel).toBe('Steel');
+        expect(swatch.props.accessibilityState).toEqual({ checked: false });
+        await screen.pressByTestIdAsync('ip-robot-droid-steel');
+        expect(screen.findByTestId('ip-robot-droid-steel')!.props.accessibilityState).toEqual({ checked: true });
+        expect(readReactNativeMmkvStubEntries()).toContainEqual(['ignorePrevious.robotDroid', 'steel']);
+        const preview = screen.findByTestId('ip-robot-preview-droid')!;
+        expect(preview.findAll(node => node.props.fill === robotPresets.steel.body).length).toBeGreaterThan(0);
+        await screen.pressByTestIdAsync('ip-faces-B');
+        expect(screen.findByTestId('ip-faces-B')!.props.accessibilityState).toEqual({ checked: true });
+        expect(screen.findByTestId('ip-robot-preview-droid')!.findAllByProps({ testID: 'ip-sprite-ascii' })).toHaveLength(1);
+        await screen.pressByTestIdAsync('ip-no-worker-ipb');
+        expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+        expect(readReactNativeMmkvStubEntries()).toContainEqual(['ignorePrevious.noWorkerRobot', 'ipb']);
+        expect(readReactNativeMmkvStubEntries()).toContainEqual(['ignorePrevious.workerFaces', 'B']);
     });
 
     it('does not materialize defaults in storage on mount or remount', async () => {
