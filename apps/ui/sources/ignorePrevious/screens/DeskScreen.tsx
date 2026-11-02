@@ -14,8 +14,10 @@ import type { SessionListRenderableSession } from '@/sync/domains/session/listin
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 
+import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { CoordinatorPane } from '../components/CoordinatorPane';
 import { ApprovalsButton, ApprovalsCard, ApprovalsDrawer } from '../components/Approvals';
+import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
 import {
     getApprovalsOpen,
@@ -250,5 +252,12 @@ export function DeskScreen() {
         </View>
     );
 
-    return <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} />} />;
+    return (
+        <DeskFontRoot>
+            <View style={{ flex: 1 }}>
+                <DeskConnectionBanner />
+                <AppPaneScopeHost scopeId={SCOPE_ID} main={main} rightPane={<ApprovalsDrawer onClose={approvals.close} />} />
+            </View>
+        </DeskFontRoot>
+    );
 }

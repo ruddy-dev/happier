@@ -16,6 +16,7 @@ let previous: ReturnType<typeof storage.getState>;
 function seed(sessions: Session[]) {
     act(() => {
         storage.setState(previous, true);
+        storage.getState().setSocketStatus('connected');
         storage.getState().applySessions(sessions);
         // The first sync has finished; before it the panel says Connecting… (F4).
         storage.getState().applyReady();
@@ -28,6 +29,11 @@ const state = vi.hoisted(() => ({
     alert: vi.fn(),
     navigate: vi.fn(),
 }));
+
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
+});
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -98,7 +104,7 @@ describe('WaitingPanel', () => {
     it('denies a request', async () => {
         const screen = await renderPanel();
         await pressTestInstanceAsync(button(screen, 'Deny'));
-        expect(state.deny).toHaveBeenCalledWith('s1', 'r1');
+        expect(state.deny).toHaveBeenCalledWith('s1', 'r1', undefined, undefined, 'denied');
     });
 
     it('opens the session', async () => {
@@ -131,15 +137,15 @@ describe('WaitingPanel', () => {
         expect(screen.findByTestId('ip-waiting')).toBeNull();
     });
 
-    it('shows an error when the request was already answered', async () => {
+    it('says the answer was not sent when sending it fails', async () => {
         state.allow.mockRejectedValue(new Error('gone'));
         const screen = await renderPanel();
         await act(async () => {
             await pressTestInstanceAsync(button(screen, 'Allow Bash'));
         });
         expect(state.alert).toHaveBeenCalledWith(
-            expect.any(String),
-            'That request was already answered or has expired.',
+            'Answer not sent',
+            "Your answer didn't go through. Check the connection and try again.",
         );
     });
 

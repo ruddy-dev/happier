@@ -15,6 +15,12 @@ describe('resolveIssue', () => {
     it('N2 unparseable tag counts as absent', () =>
         expect(resolveIssue({ tag: 'ATR-6:builder', title: null, branch: 'atr-8-x', path: null })).toBe('ATR-8'));
 
+    it('N2: malformed tags do not gain branch-only shorthand or namespace syntax', () => {
+        for (const tag of ['feature/ATR-6-build', 'ATR_6-build', 'ATR6-build']) {
+            expect(resolveIssue({ tag, title: null, branch: 'atr-8-x', path: null })).toBe('ATR-8');
+        }
+    });
+
     it('N1 path alone resolves', () =>
         expect(resolveIssue({ tag: null, title: null, branch: null, path: '/w/atr-9-x' })).toBe('ATR-9'));
 
@@ -41,6 +47,9 @@ describe('resolveIssue', () => {
 
     it('A1 a title id stands alone when neither branch nor folder names an issue', () =>
         expect(resolveIssue({ tag: null, title: 'ATR-7 x', branch: null, path: null })).toBe('ATR-7'));
+
+    it('an ordinary compact folder name does not override a valid title', () =>
+        expect(resolveIssue({ tag: null, title: 'ATR-6 build', branch: null, path: '/work/python3' })).toBe('ATR-6'));
 
     it('everything null gives null', () =>
         expect(resolveIssue({ tag: null, title: null, branch: null, path: null })).toBeNull());

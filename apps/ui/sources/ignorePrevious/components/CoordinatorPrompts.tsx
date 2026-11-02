@@ -26,7 +26,8 @@ function waitingList({ items, unloaded }: DeskWaits): string {
     }
     for (const wait of unloaded) {
         n += 1;
-        lines.push(t('ignorePrevious.walkItemUnloaded', { n, session: wait.sessionTitle, id: wait.sessionId }));
+        const who = { n, session: wait.sessionTitle, id: wait.sessionId };
+        lines.push(wait.reason === 'unreadable' ? t('ignorePrevious.walkItemUnreadable', who) : t('ignorePrevious.walkItemUnloaded', who));
     }
     return lines.join('\n');
 }
@@ -37,7 +38,7 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  */
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
-    const waits = useDeskWaits();
+    const waits = useDeskWaits(coordinatorId);
     const { count } = waits;
     const [sending, setSending] = React.useState(false);
 

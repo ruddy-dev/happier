@@ -9,6 +9,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { KeyboardAwareModalFrame } from '@/components/ui/keyboardAvoidance';
 import { useChromeSafeAreaInsets } from '@/components/ui/layout/useChromeSafeAreaInsets';
 import { OverlayPortalHost, OverlayPortalProvider } from '@/components/ui/popover';
+import { ESCAPE_LAYER_PRIORITIES, registerEscapeKeyBlocker } from '@/keyboard/escape';
 import { requireRadixDialog, requireRadixDismissableLayer } from '@/utils/web/radixCjs';
 import { ModalPortalTargetProvider } from '@/modal/portal/ModalPortalTarget';
 import type { ModalPortalTarget } from '@/modal/portal/ModalPortalTarget';
@@ -167,6 +168,10 @@ export function BaseModal({
     zIndexBase,
     webPortalTarget = null,
 }: BaseModalProps) {
+    useEffect(() => {
+        if (Platform.OS !== 'web' || !visible) return;
+        return registerEscapeKeyBlocker(ESCAPE_LAYER_PRIORITIES.modal);
+    }, [visible]);
     const { theme } = useUnistyles();
     const uiBackdropBlurEnabled = useLocalSetting('uiBackdropBlurEnabled') !== false;
     const insets = useChromeSafeAreaInsets();

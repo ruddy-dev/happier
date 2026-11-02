@@ -14,7 +14,7 @@ function readTag(lookup: DeskSessions['lookup'], id: string): string | null {
 
 /**
  * The issue each listed session works on, keyed by session id. The tag lives on the full record,
- * so a session whose record hasn't loaded falls back to its title, branch and folder.
+ * so weaker matches wait until the full metadata has caught up with the list row.
  */
 export function useIssueKeys({ list, lookup }: DeskSessions): ReadonlyMap<string, string | null> {
     // Stable while the list is, so the branch selector isn't rebuilt every render.
@@ -23,16 +23,21 @@ export function useIssueKeys({ list, lookup }: DeskSessions): ReadonlyMap<string
     return React.useMemo(
         () =>
             new Map(
-                list.map((row) => [
-                    row.id,
-                    resolveIssue({
-                        tag: readTag(lookup, row.id),
-                        // The display title, not getSessionName: its folder-name fallback would outrank the branch.
-                        title: getSessionDisplayTitle(row),
-                        branch: branches[row.id] ?? null,
-                        path: row.metadata?.path ?? null,
-                    }),
-                ]),
+                list.map((row) => {
+                    const loaded = lookup.get(row.id);
+                    // A list-only or newer row cannot tell us whether a stronger tag exists yet.
+                    if (!loaded?.metadata || loaded.metadataVersion < row.metadataVersion) return [row.id, null];
+                    return [
+                        row.id,
+                        resolveIssue({
+                            tag: readTag(lookup, row.id),
+                            // The display title, not getSessionName: its folder-name fallback would outrank the branch.
+                            title: getSessionDisplayTitle(row),
+                            branch: branches[row.id] ?? null,
+                            path: row.metadata?.path ?? null,
+                        }),
+                    ];
+                }),
             ),
         [list, lookup, branches],
     );

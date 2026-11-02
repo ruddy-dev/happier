@@ -104,6 +104,7 @@ describe('WorkColumn', () => {
     let previous: ReturnType<typeof storage.getState>;
     beforeEach(() => {
         previous = storage.getState();
+        storage.getState().setSocketStatus('connected');
     });
     afterEach(() => {
         storage.setState(previous, true);
@@ -208,6 +209,7 @@ describe('WorkColumn freshness (F1)', () => {
     let previous: ReturnType<typeof storage.getState>;
     beforeEach(() => {
         previous = storage.getState();
+        storage.getState().setSocketStatus('connected');
         vi.useFakeTimers();
         vi.setSystemTime(t0);
     });

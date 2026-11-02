@@ -65,6 +65,7 @@ async function renderActions(row: WorkerRow) {
 
 describe('WorkerActions', () => {
     beforeEach(() => {
+        storage.getState().setSocketStatus('connected');
         state.abort.mockReset().mockResolvedValue(undefined);
         state.publish.mockReset().mockResolvedValue(undefined);
         state.navigate.mockReset();

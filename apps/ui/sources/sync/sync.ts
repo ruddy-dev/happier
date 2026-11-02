@@ -1,3 +1,4 @@
+import { releaseDeskFixture } from '@/ignorePrevious/deskFixtureGate';
 import Constants from 'expo-constants';
 import { parsePermissionIntentAlias, resolvePermissionIntentFromSessionMetadata } from '@happier-dev/agents';
 import { apiSocket } from '@/sync/api/session/apiSocket';
@@ -1945,6 +1946,7 @@ class Sync {
     };
 
     async create(credentials: AuthCredentials, encryption: Encryption) {
+        if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') releaseDeskFixture();
         const accountId = this.parseAccountIdForSettingsScope(credentials, 'create');
         if (!accountId) throw new Error('Invalid auth token');
         this.configureEncryptionRuntime(encryption, accountId);
@@ -1980,6 +1982,7 @@ class Sync {
     }
 
     async restore(credentials: AuthCredentials, encryption: Encryption) {
+        if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') releaseDeskFixture();
         const accountId = this.parseAccountIdForSettingsScope(credentials, 'restore');
         if (!accountId) throw new Error('Invalid auth token');
         // NOTE: No awaiting anything here, we're restoring from a disk (ie app restarted)

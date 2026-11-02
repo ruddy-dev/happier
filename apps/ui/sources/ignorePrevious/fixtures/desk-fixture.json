@@ -1,0 +1,19 @@
+{
+  "marker": "ip-fixture-marker-7f3a",
+  "coordinatorId": "fx-coord",
+  "sessions": [
+    { "id": "fx-coord", "path": "/work/projects", "title": "Coordinator", "active": true },
+    { "id": "fx-w1", "path": "/work/projects-wt/abc-12-overlay", "title": "ABC-12 builder", "active": true, "thinking": true },
+    { "id": "fx-w2", "path": "/work/projects-wt/abc-14-panels", "title": "ABC-14 panel tests", "active": true,
+      "request": { "tool": "Bash", "arguments": { "command": "npm run build" } } },
+    { "id": "fx-w3", "path": "/work/projects-wt/xyz-3-docs", "title": "XYZ-3 docs pass", "active": false },
+    { "id": "fx-w4", "path": "/work/scratch", "title": "Loose scratch session", "active": true }
+  ],
+  "coordinatorBody": {
+    "composerPlaceholder": "Message the coordinator",
+    "transcript": [
+      { "from": "you", "text": "What is waiting on me?" },
+      { "from": "agent", "text": "ABC-14 wants to run npm run build and is waiting for your answer. ABC-12 is still working on the overlay. XYZ-3 finished its docs pass and has stopped." }
+    ]
+  }
+}
