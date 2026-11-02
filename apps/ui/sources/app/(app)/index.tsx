@@ -140,8 +140,9 @@ function Authenticated() {
             </View>
         );
     }
-    // Keep explicit session links and terminal continuations with their existing owners.
-    if (!String(sessionId ?? '').trim() && isAuthenticatedRootDeepLinkRedirectAllowed() && !getPendingTerminalConnect()) {
+    // Only ordinary web roots open the desk; every query keeps its existing owner.
+    const hasWebQuery = Platform.OS === 'web' && Object.keys(params).length > 0;
+    if (!hasWebQuery && !String(sessionId ?? '').trim() && isAuthenticatedRootDeepLinkRedirectAllowed() && !getPendingTerminalConnect()) {
         return <Redirect href="/desk" />;
     }
     return <MainView variant="phone" />;
