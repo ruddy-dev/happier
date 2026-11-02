@@ -79,6 +79,7 @@ describe('Work presentation (N1, S1, W-series)', () => {
     it.each([390, 1100, 1440])('N1: Work and collapsed rail ScrollView direction is vertical at %i (overflow needs live QA)', async (width) => {
         viewport.width = width;
         scenario = await startDeskScenario({ script });
+        if (width <= 820) await scenario.screen.pressByTestIdAsync('ip-tab-work');
         const scrolls = () => scenario!.screen.tree.root.findAll(node => typeof node.type === 'string' && String(node.type) === 'ScrollView');
         expect(scrolls().some(node => node.props.horizontal === true)).toBe(false);
         await scenario.screen.pressByTestIdAsync('ip-work-collapse');
