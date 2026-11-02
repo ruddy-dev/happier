@@ -113,6 +113,64 @@ describe('describeRequest', () => {
     });
 });
 
+describe('describeRequest: text that would read differently from what runs', () => {
+    const INVISIBLE = /[\u0000-\u0008\u000B-\u001F\u007F\u00A0\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/;
+
+    it('shows bidi controls as visible escapes, so they cannot reorder the command', () => {
+        const rlo = describeRequest('Bash', { command: ': "\u202E" ; X=\u2066 touch /work/PWNED \u2069; : \u202C' });
+        expect(rlo).not.toMatch(INVISIBLE);
+        expect(rlo).toContain('U+202E');
+        expect(rlo).toContain('U+2066');
+        expect(rlo).toContain('touch /work/PWNED');
+        const isolates = describeRequest('CodexBash', { command: ['ls', '\u2066-la\u2069', '\u2067x\u2069'] });
+        expect(isolates).not.toMatch(INVISIBLE);
+        expect(isolates).toContain('U+2067');
+    });
+
+    it('shows zero-width, BOM, joiner, odd spaces and control characters as escapes', () => {
+        for (const [command, code] of [
+            ['rm -rf ./build\u200B /', 'U+200B'],
+            ['cat \uFEFFREADME\u200D.md', 'U+FEFF'],
+            ['cat \uFEFFREADME\u200D.md', 'U+200D'],
+            ['rm a\u00A0b', 'U+00A0'],
+            ['echo ok\rrm -rf ~', 'U+000D'],
+        ] as const) {
+            const out = describeRequest('Bash', { command });
+            expect(out).not.toMatch(INVISIBLE);
+            expect(out).toContain(code);
+        }
+        // Ordinary layout stays as it is.
+        expect(describeRequest('Bash', { command: 'a\tb\nc' })).toBe('a\tb\nc');
+    });
+
+    it('collapses a flood of blank lines or spaces to a count, keeping the text after it', () => {
+        const lines = describeRequest('Bash', { command: `git status${'\n'.repeat(200)}rm -rf ~${'\n'.repeat(200)}git diff` });
+        expect(lines).toContain('rm -rf ~');
+        expect(lines).toContain('git diff');
+        expect(lines).not.toContain('\n\n\n\n');
+        expect(lines).toContain('199');
+        const spaces = describeRequest('Bash', { command: `echo ok${' '.repeat(3000)}; rm -rf ~` });
+        expect(spaces).toContain('; rm -rf ~');
+        expect(spaces).not.toContain(' '.repeat(40));
+        expect(spaces).toContain('3000');
+        // A newline before a harmless line hides nothing: both lines stay.
+        expect(describeRequest('Bash', { command: 'rm -rf ~\necho "listing files"' })).toBe('rm -rf ~\necho "listing files"');
+    });
+
+    it("escapes the agent's note too", () => {
+        const [item] = toWaitingItems([
+            {
+                sessionId: 's1',
+                sessionTitle: 'Builder',
+                disabledReason: null,
+                requests: [{ id: 'r1', kind: 'permission', tool: 'Bash', arguments: { command: 'ls', description: 'List \u202Esfiles' }, createdAt: 1 } as never],
+            },
+        ]);
+        expect(item!.agentNote).not.toMatch(INVISIBLE);
+        expect(item!.agentNote).toContain('U+202E');
+    });
+});
+
 describe('toWaitingItems', () => {
     it('flattens requests across sessions, oldest first, unknown times last', () => {
         const items = toWaitingItems([

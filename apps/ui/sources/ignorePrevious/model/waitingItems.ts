@@ -1,3 +1,4 @@
+import { displayText } from './displayText';
 import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 
 /** Why you can't answer a request from here, as the session's own footer would say; null when you can. */
@@ -123,6 +124,10 @@ function describeArguments(tool: string, args: unknown): string {
  * every other field it came with; an edit shows its file; anything else shows its tool and arguments.
  */
 export function describeRequest(tool: string, args: unknown): string {
+    return displayText(describeRawRequest(tool, args));
+}
+
+function describeRawRequest(tool: string, args: unknown): string {
     const parsed = parseArguments(args);
     const shell = readShellRequest(parsed);
     if (shell) {
@@ -130,6 +135,10 @@ export function describeRequest(tool: string, args: unknown): string {
     }
     const file = FILE_TOOLS.has(tool) ? stringField(parsed, 'file_path') : null;
     return file ?? describeArguments(tool, parsed);
+}
+
+function optionalDisplayText(text: string | null): string | null {
+    return text === null ? null : displayText(text);
 }
 
 export function toWaitingItems(
@@ -150,7 +159,7 @@ export function toWaitingItems(
             kind: request.kind,
             summary: summariseRequest(request.tool, request.arguments),
             detail: describeRequest(request.tool, request.arguments),
-            agentNote: stringField(parseArguments(request.arguments), 'description'),
+            agentNote: optionalDisplayText(stringField(parseArguments(request.arguments), 'description')),
             createdAt: request.createdAt,
             disabledReason,
         })),
