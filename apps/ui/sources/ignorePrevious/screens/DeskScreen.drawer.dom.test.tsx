@@ -14,7 +14,7 @@ vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
     const web = await import('react-native-web');
     return createReactNativeWebMock({
-        View: web.View, Pressable: web.Pressable, Text: web.Text, ScrollView: web.ScrollView,
+        View: web.View, Pressable: web.Pressable, Text: web.Text, TextInput: web.TextInput, ScrollView: web.ScrollView,
         Animated: web.Animated, Easing: web.Easing, useWindowDimensions: () => viewport,
     });
 });
@@ -127,7 +127,7 @@ it('Medium 1: a user open never moves focus into a docked drawer, including afte
     expect(document.activeElement).toBe(element('composer'));
 });
 it('Low 6: DeskScreen follows the fullscreen boundary at 820 and 821 without remounting', async () => {
-    await render(820); await click('ip-approvals-open');
+    await render(820); await click('ip-tab-waiting');
     const content = drawer()!;
     const placement = () => getComputedStyle(drawer()!.parentElement!).width;
     expect(placement()).toBe('100%');
@@ -163,4 +163,48 @@ it('Medium 2: explicit close clears dirty state before the drawer is opened agai
     await click('composer'); expect(drawer()).not.toBeNull();
     await click('ip-approvals-close'); await click('ip-approvals-open');
     await click('composer'); expect(drawer()).toBeNull();
+});
+
+it('shows desk chrome and phone panes at the agreed boundary', async () => {
+    await render(1440);
+    const bar = element('ip-top-bar');
+    expect([...bar.children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-sessions', 'ip-top-usage', 'ip-top-waiting', 'ip-top-settings']);
+    expect(container.querySelectorAll('[data-testid="ip-approvals-open"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
+    expect(element('ip-top-usage').textContent).toContain('not available');
+    expect(element('ip-approvals-count').textContent).toBe('0');
+    await render(390);
+    expect(container.querySelector('[data-testid="ip-top-sessions"]')).toBeNull();
+    expect(container.querySelector('[data-testid="ip-work"]')).toBeNull();
+    await click('ip-tab-work');
+    expect(element('ip-work')).toBeTruthy();
+    expect(container.querySelector('[data-testid="composer"]')).toBeNull();
+    await click('ip-tab-shog');
+    expect(element('composer')).toBeTruthy();
+    await render(820);
+    expect(element('ip-tab-work')).toBeTruthy();
+    expect(element('ip-tab-shog')).toBeTruthy();
+    await click('ip-tab-waiting');
+    expect(drawer()).not.toBeNull();
+    expect(getComputedStyle(drawer()!.parentElement!).width).toBe('100%');
+    await render(821);
+    expect(container.querySelector('[data-testid="ip-tab-work"]')).toBeNull();
+});
+
+
+it('opens a searchable non-modal Sessions sheet and returns focus on Escape', async () => {
+    storage.getState().applySessions([createSessionFixture({ id: 'worker', active: true })]);
+    await render(1440);
+    await click('ip-top-sessions');
+    const sheet = element('ip-sessions-sheet');
+    expect(sheet.getAttribute('aria-modal')).not.toBe('true');
+    expect(sheet.textContent).toContain('Coordinator');
+    expect(sheet.textContent).toContain('On issues');
+    expect(sheet.textContent).toContain('No issue');
+    expect(sheet.querySelectorAll('[data-testid="ip-sessions-row-coordinator"]')).toHaveLength(1);
+    await type('ip-sessions-search', 'coordinator');
+    expect(sheet.querySelector('[data-testid="ip-sessions-row-worker"]')).toBeNull();
+    await escape();
+    expect(container.querySelector('[data-testid="ip-sessions-sheet"]')).toBeNull();
+    expect(document.activeElement).toBe(element('ip-top-sessions'));
 });
