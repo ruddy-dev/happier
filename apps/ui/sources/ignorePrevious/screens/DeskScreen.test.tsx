@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { act } from 'react';
+import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen } from '@/dev/testkit';
@@ -32,7 +33,7 @@ vi.mock('@react-navigation/native', async () => {
 
 vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
-    return createExpoRouterMock().module;
+    return createExpoRouterMock({ pathname: '/desk' }).module;
 });
 
 vi.mock('@/modal', async () => {
@@ -99,13 +100,17 @@ async function renderDesk() {
 
 describe('DeskScreen', () => {
     let previous: ReturnType<typeof storage.getState>;
+    let previousPlatform: typeof Platform.OS;
     afterEach(() => {
+        Platform.OS = previousPlatform;
         act(() => {
             storage.setState(previous, true);
         });
     });
 
     beforeEach(() => {
+        previousPlatform = Platform.OS;
+        Platform.OS = 'web';
         previous = storage.getState();
         setStoredCoordinatorId(null);
         setWorkCollapsed(false);
@@ -119,6 +124,7 @@ describe('DeskScreen', () => {
     it('asks for a coordinator when there are no sessions', async () => {
         seed([]);
         const screen = await renderDesk();
+        expect(screen.findAllByProps({ 'data-ip-font': 'desk' })).toHaveLength(1);
         expect(screen.getTextContent()).toContain('Pick the coordinator session');
         expect(screen.getTextContent()).toContain('claude --agent coordinator');
     });
