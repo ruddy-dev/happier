@@ -35,20 +35,20 @@ export function CoordinatorHeader({ session, onOpenShog, accessory }: {
     const now = useDeskNow();
     const status = session ? getSessionStatus(session, now, { workingTextMode: 'static' }) : null;
     const waits = useDeskWaitsActivity();
-    const state = coordinatorStateLine(status, waits.count ?? 0);
+    const state = coordinatorStateLine(status, waits.count);
     const mode = useCreatureMode({
-        coordinator: state.kind === 'offline' ? 'offline' : status?.state === 'resuming' ? 'resuming'
-            : state.kind === 'thinking' ? 'replying' : 'idle',
+        coordinator: state?.kind === 'offline' ? 'offline' : status?.state === 'resuming' ? 'resuming'
+            : state?.kind === 'thinking' ? 'replying' : 'idle',
         waitingCount: waits.count,
         requests: waits.requests,
         unloadedSessionIds: waits.unloadedSessionIds,
         calm: !creatureEnabled,
     });
-    const stateText = state.kind === 'waiting'
+    const stateText = !state ? null : state.kind === 'waiting'
         ? t('ignorePrevious.coordinatorHeader.waiting', { count: state.count })
         : t(`ignorePrevious.coordinatorHeader.${state.kind}`);
-    const signal = state.kind === 'waiting' ? paint.turnSignal
-        : state.kind === 'thinking' ? paint.work : state.kind === 'offline' ? paint.off : paint.idleSignal;
+    const signal = state?.kind === 'waiting' ? paint.turnSignal
+        : state?.kind === 'thinking' ? paint.work : state?.kind === 'offline' ? paint.off : paint.idleSignal;
     // Same mask-relative geometry as hGeom in mockup 12; width ratios drift at wide sizes.
     const anchor = width > 0 ? {
         x: (padding + maskLeft + maskSize / 2) / width,
@@ -78,11 +78,11 @@ export function CoordinatorHeader({ session, onOpenShog, accessory }: {
                         {t('ignorePrevious.coordinatorHeader.role')}
                     </DeskText>
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                {state ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                     <View accessible={false} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: signal }} />
                     <DeskText testID="ip-coord-state" accessibilityLiveRegion="polite" numberOfLines={1}
                         style={{ color: paint.ink, fontSize: 13.5, flexShrink: 1 }}>{stateText}</DeskText>
-                </View>
+                </View> : null}
             </View>
             {accessory ? <View style={[scrim, { marginLeft: 'auto', padding: 4, flexShrink: 0 }]}>{accessory}</View> : null}
         </View>
