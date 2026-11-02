@@ -102,7 +102,7 @@ export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } =
                                 <Pressable
                                     accessibilityRole="button"
                                     style={buttonStyle}
-                                    onPress={() => void answer(() => sessionDeny(item.sessionId, item.requestId))}
+                                    onPress={() => void answer(() => sessionDeny(item.sessionId, item.requestId, undefined, undefined, 'denied'))}
                                 >
                                     <Text style={buttonText}>{t('ignorePrevious.deny')}</Text>
                                 </Pressable>

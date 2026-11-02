@@ -98,7 +98,7 @@ describe('WaitingPanel', () => {
     it('denies a request', async () => {
         const screen = await renderPanel();
         await pressTestInstanceAsync(button(screen, 'Deny'));
-        expect(state.deny).toHaveBeenCalledWith('s1', 'r1');
+        expect(state.deny).toHaveBeenCalledWith('s1', 'r1', undefined, undefined, 'denied');
     });
 
     it('opens the session', async () => {
