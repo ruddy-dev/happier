@@ -1,6 +1,9 @@
+import * as React from 'react';
 import { act } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { storage } from '@/sync/domains/state/storage';
+import { renderScreen } from '@/dev/testkit';
+import { CoordinatorCard } from '../components/CoordinatorCard';
 import { sessionContextMeter } from '../components/ContextMeter';
 import { t } from '@/text';
 
@@ -56,7 +59,10 @@ const script = loadDeskScript(raw);
 
 describe('DeskScreen coordinator row (L1)', () => {
     let scenario: DeskScenario | null = null;
+    let card: Awaited<ReturnType<typeof renderScreen>> | null = null;
     afterEach(async () => {
+        await card?.unmount();
+        card = null;
         await scenario?.dispose();
         scenario = null;
         viewport.width = 1440;
@@ -110,7 +116,7 @@ describe('DeskScreen coordinator row (L1)', () => {
         expect(scenario.screen.findByTestId('ip-coordinator-pane')).not.toBeNull();
     });
 
-    it('uses the state-line model with shared waiting N, including the coordinator, without a worker row (L1/L2)', async () => {
+    it('counts only coordinator questions while keeping the shared state line and worker walk-through (L1/L2)', async () => {
         viewport.width = 390;
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.screen.pressByTestIdAsync('ip-tab-work');
@@ -118,15 +124,38 @@ describe('DeskScreen coordinator row (L1)', () => {
         await scenario.apply('c1', { thinking: false });
         expect(scenario.textOf('ip-coord-card-state')).toBe('Idle');
         await scenario.apply('c1', { requests: { own: { tool: 'AskUserQuestion', arguments: { questions: [] } } } });
+        expect(scenario.textOf('ip-coord-card-waiting')).toBe(t('ignorePrevious.coordinatorCard.waiting', { count: 1 }));
+        expect(scenario.textOf('ip-count-turn')).toBe('0');
         await scenario.apply('w1', { requests: { worker: { tool: 'Bash', arguments: { command: 'echo ready' } } } });
         expect(scenario.textOf('ip-coord-card-state')).toBe('Waiting on you: 2');
-        expect(scenario.textOf('ip-coord-card-waiting')).toContain('2');
+        expect(scenario.textOf('ip-coord-card-waiting')).toBe(t('ignorePrevious.coordinatorCard.waiting', { count: 1 }));
         expect(scenario.textOf('ip-count-all')).toBe('2');
         expect(scenario.textOf('ip-count-turn')).toBe('1');
         // The existing walk-through excludes the coordinator's own blocked prompt (L2).
         expect(scenario.textOf('ip-walk-waiting')).toContain('(1)');
+        await scenario.apply('c1', { completed: { own: 'approved' } });
+        expect(scenario.textOf('ip-coord-card-waiting')).toBe(t('ignorePrevious.coordinatorCard.waiting', { count: 0 }));
+        expect(scenario.textOf('ip-coord-card-state')).toBe('Waiting on you: 1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1');
         await scenario.apply('c1', { active: false, thinking: true });
         expect(scenario.textOf('ip-coord-card-state')).toBe('offline');
+    });
+
+    it.each(['full', 'slim', 'rail'] as const)('the real %s card withholds the count and Idle until waits are ready', async (form) => {
+        scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
+        await scenario.apply('c1', { thinking: false });
+        // DeskScreen hides the card before list readiness. Mount its real owner to reach unknown waits.
+        card = await renderScreen(<CoordinatorCard sessionId="c1" form={form} onOpen={() => {}} />);
+        const label = () => card!.findByTestId(`ip-coord-card-${form}`)!.props.accessibilityLabel;
+        expect(card.findByTestId(`ip-coord-card-${form}`)).not.toBeNull();
+        expect(card.findByTestId('ip-coord-card-waiting')).toBeNull();
+        expect(card.findByTestId('ip-coord-card-state')).toBeNull();
+        expect(label()).not.toContain(t('ignorePrevious.coordinatorHeader.idle'));
+        expect(label()).not.toContain(t('ignorePrevious.coordinatorCard.waiting', { count: 0 }));
+        await scenario.ready();
+        expect(card.findByTestId('ip-coord-card-waiting')).not.toBeNull();
+        expect(label()).toContain(t('ignorePrevious.coordinatorHeader.idle'));
+        expect(label()).toContain(t('ignorePrevious.coordinatorCard.waiting', { count: 0 }));
     });
 
     it('does not claim zero waits or Idle before the coordinator list is ready', async () => {

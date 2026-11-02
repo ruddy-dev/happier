@@ -110,6 +110,50 @@ it('reuses the badge summary identity when details change at the same count', ()
     expect(readDeskWaits().items[0]?.sessionTitle).toBe('Renamed worker');
 });
 
+it('scopes summaries to one session while sharing classification, readiness and stable summaries', () => {
+    const values: ReturnType<typeof useDeskWaitsSummary>[] = [];
+    function Badge({ sessionId }: { sessionId: string }) {
+        const summary = useDeskWaitsSummary({ onlySessionId: sessionId });
+        values.push(summary);
+        const global = useDeskWaitsSummary();
+        const workers = useDeskWaitsSummary(sessionId);
+        return <span>{`${summary.ready}:${summary.count}/${global.count}/${workers.count}`}</span>;
+    }
+    const details = vi.spyOn(waitingItems, 'toWaitingItems');
+    act(() => {
+        storage.getState().applySessions([createSessionFixture({ id: 'other-waiting', active: true, agentState: {} })]);
+        storage.setState({ isDataReady: false });
+    });
+    act(() => root.render(<Badge sessionId="waiting" />));
+    expect(container.textContent).toBe('false:0/0/0');
+    act(() => storage.getState().applyReady());
+    write('waiting', 50, true);
+    expect(container.textContent).toBe('true:1/1/0');
+    const own = values.at(-1);
+    write('other-waiting', 51, true);
+    expect(container.textContent).toBe('true:1/2/1');
+    expect(values.at(-1)).toBe(own);
+    // Switching the selected session must invalidate the scoped selector.
+    write('other-waiting', 52, true);
+    act(() => root.render(<Badge sessionId="other-waiting" />));
+    expect(container.textContent).toBe('true:2/3/1');
+    expect(details).not.toHaveBeenCalled();
+});
+
+it('counts unloaded waits only for the selected session', () => {
+    act(() => storage.getState().applySessions(['own-unloaded', 'worker-unloaded'].map(id => createSessionFixture({
+        id, active: true, agentState: {}, pendingUserActionRequestCount: 1,
+    }))));
+    function Badge() {
+        const own = useDeskWaitsSummary({ onlySessionId: 'own-unloaded' });
+        const worker = useDeskWaitsSummary({ onlySessionId: 'worker-unloaded' });
+        const empty = useDeskWaitsSummary({ onlySessionId: 'waiting' });
+        return <span>{`${own.count}/${worker.count}/${empty.count}`}</span>;
+    }
+    act(() => root.render(<Badge />));
+    expect(container.textContent).toBe('1/1/0');
+});
+
 
 it('projects creature request identities without drawer work and retains equivalent activity', () => {
     const values: ReturnType<typeof useDeskWaitsActivity>[] = [];
