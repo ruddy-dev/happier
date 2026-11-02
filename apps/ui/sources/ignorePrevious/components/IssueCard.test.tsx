@@ -32,8 +32,8 @@ const group: IssueGroup = {
     issueKey: 'ATR-6',
     bulb: 'turn',
     workers: [
-        { sessionId: 's1', title: 'Builder', issueKey: 'ATR-6', bulb: 'turn', permissionMode: 'default', updatedAt: 20 },
-        { sessionId: 's2', title: 'Reviewer', issueKey: 'ATR-6', bulb: 'working', permissionMode: 'acceptEdits', updatedAt: 10, contextPercent: 64 },
+        { sessionId: 's1', title: 'Builder', issueKey: 'ATR-6', model: 'claude-sonnet-5.5', bulb: 'turn', permissionMode: 'default', updatedAt: 20 },
+        { sessionId: 's2', title: 'Reviewer', issueKey: 'ATR-6', model: 'gpt-6.1-sol', bulb: 'working', permissionMode: 'acceptEdits', updatedAt: 10, contextPercent: 64 },
     ],
 };
 
@@ -43,6 +43,23 @@ async function renderCard(open: boolean, onToggle = vi.fn()) {
 }
 
 describe('IssueCard', () => {
+    it('draws the newest model on its 40 px card and each worker at 24 px', async () => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const { screen } = await renderCard(true);
+        const card = screen.findByTestId('ip-work-card-face-ATR-6')!;
+        expect(card.findByType(WorkerSprite.type).props).toMatchObject({ kind: 'ginger', size: 40, bulb: 'turn' });
+        expect(screen.findByTestId('ip-worker-face-s1')!.findByType(WorkerSprite.type).props)
+            .toMatchObject({ kind: 'ginger', size: 24, bulb: 'turn' });
+        expect(screen.findByTestId('ip-worker-face-s2')!.findByType(WorkerSprite.type).props)
+            .toMatchObject({ kind: 'cxloupe', size: 24, bulb: 'working' });
+    });
+
+    it('draws Droid when the issue has no worker', async () => {
+        const { IssueCard } = await import('./IssueCard');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const screen = await renderScreen(<IssueCard group={{ ...group, workers: [] }} open={false} onToggle={() => {}} />);
+        expect(screen.findByTestId('ip-work-card-face-ATR-6')!.findByType(WorkerSprite.type).props.kind).toBe('ipdroid');
+    });
     let previous: ReturnType<typeof storage.getState>;
     beforeEach(() => {
         previous = storage.getState();

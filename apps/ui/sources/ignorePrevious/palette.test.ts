@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as palette from './palette';
+import { spriteGrids } from './sprites';
 
 describe('desk palette data', () => {
     it('provides the seven approved desk themes', () => {
@@ -73,8 +74,12 @@ describe('ATR-9 criterion 3: state signal without a sprite, 3:1 graphical bar', 
         for (const [state, token] of Object.entries(palette.spriteStateTokens)) {
             for (const surface of surfaces) {
                 checkPair(`signal/${name}/${state}/${surface}`, () => {
-                    const signal = state === 'turn' ? theme.turnSignal : state === 'idle' ? theme.idleSignal : theme[token];
+                    const signal = palette.spriteSignalColour(theme, state as keyof typeof palette.spriteStateTokens);
                     expect(contrast(signal, theme[surface])).toBeGreaterThanOrEqual(3);
+                    // The M16 cue is shared by every kind, including a missing/unloaded worker.
+                    for (const kind of Object.keys(spriteGrids) as (keyof typeof spriteGrids)[]) {
+                        expect(palette.spritePixelColour(theme, kind, state as keyof typeof palette.spriteStateTokens, 'O')).toBe(theme[token]);
+                    }
                 });
             }
         }
