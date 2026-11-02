@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
+import { runInNewContext } from 'node:vm';
 import { tsImport } from 'tsx/esm/api';
 import { decodeRequestPath, installNetworkGuard, isForbiddenRequestUrl } from './ipFixtureShots.mjs';
 import { buildShotMatrix, buildStorageSeed, captureShot, createStaticServer, renderSheetHtml, THEME_MAP, waitForAppReady } from './ipFixtureShots.mjs';
@@ -216,34 +217,175 @@ test('readiness fails clearly when Relay not supported appears instead of a form
     await assert.rejects(waitForAppReady(pendingForm, { page: 'sign-in', readyTestId: 'welcome-secondary-login' }), /Relay not supported/);
 });
 
-test('a relay error fails readiness while restore or any phone sign-in step is pending', async () => {
-    for (const [shot, pendingAction] of [
+test('a relay error fails the row while restore or any phone sign-in step is pending', async () => {
+    for (const [row, pendingAction] of [
         [{ page: 'restore', readyTestId: 'restore-manual-secret-input' }, 'wait:restore-manual-secret-input'],
         [{ page: 'sign-in', width: 390, readyTestId: 'welcome-secondary-login' }, 'wait:brand-hero-get-started'],
         [{ page: 'sign-in', width: 390, readyTestId: 'welcome-secondary-login' }, 'click:brand-hero-get-started'],
         [{ page: 'sign-in', width: 390, readyTestId: 'welcome-secondary-login' }, 'wait:welcome-secondary-login'],
     ]) {
+        const shot = { ...row, appPath: '/', appImage: 'app/pending.png' };
         let showRelayError;
+        // The browser can show the error even if production never installs its watcher.
+        const relayShown = new Promise(resolve => { showRelayError = resolve; });
         let visible = false;
         let reachPending;
         const pending = new Promise(resolve => { reachPending = resolve; });
+        let releasePending;
+        const pendingFinished = new Promise(resolve => { releasePending = resolve; });
         const action = key => {
             if (key !== pendingAction) return Promise.resolve();
             reachPending();
-            return new Promise(() => {});
+            return pendingFinished;
         };
+        const screenshots = [];
         const page = {
+            goto: async () => {},
+            screenshot: async options => { screenshots.push(options.path); },
             getByTestId: id => ({ waitFor: () => action(`wait:${id}`), click: () => action(`click:${id}`) }),
             getByText: () => ({ first() { return this; },
-                waitFor: () => new Promise(resolve => { showRelayError = resolve; }),
+                waitFor: () => relayShown,
                 isVisible: async () => visible,
             }),
         };
-        const ready = waitForAppReady(page, shot);
-        await Promise.race([pending, ready.then(() => assert.fail(`Readiness completed before ${pendingAction}`))]);
-        visible = true;
-        showRelayError();
-        await assert.rejects(ready, /Relay not supported/, pendingAction);
+        const captured = captureShot(page, shot, 'app', 'http://127.0.0.1:1', '/shots')
+            .then(() => ({ success: true }), error => ({ error }));
+        try {
+            await Promise.race([pending, captured.then(() => assert.fail(`Capture completed before ${pendingAction}`))]);
+            visible = true;
+            showRelayError();
+            const result = await Promise.race([
+                captured,
+                new Promise(resolve => setImmediate(() => resolve({ pending: true }))),
+            ]);
+            assert.equal(result.pending, undefined, `Relay must fail the row while ${pendingAction} is still pending`);
+            assert.match(result.error?.message ?? '', /Relay not supported/, pendingAction);
+            assert.match(shot.appError ?? '', /Relay not supported/);
+            assert.equal(shot.appFailureImage, 'app/pending-FAIL.png');
+            assert.deepEqual(screenshots, [join('/shots', shot.appFailureImage)]);
+        } finally {
+            releasePending();
+            await captured;
+        }
+    }
+});
+
+const BOUNDARY_TEST_IDS = new Set(['router_error_message', 'app-crash-restart']);
+
+// Playwright boundary: locator state and browser globals change as the clock/fonts settle.
+// The runner's navigation, readiness, evaluation callbacks and capture/error handling remain real.
+function capturePage(shot, { onClock = () => {}, onFonts = () => {}, boundaryVisible = false, boundaryTestId = 'router_error_message' } = {}) {
+    const state = { boundaryVisible, boundaryTestId, relayVisible: false, absent: new Set(), hidden: new Set() };
+    const screenshots = [];
+    const locator = id => ({
+        first() { return this; },
+        isVisible: async () => BOUNDARY_TEST_IDS.has(id) ? state.boundaryVisible && id === state.boundaryTestId
+            : id === 'Relay not supported' ? state.relayVisible : !state.absent.has(id) && !state.hidden.has(id),
+        count: async () => state.absent.has(id) ? 0 : 1,
+        click: async () => {},
+        waitFor: async ({ state: required }) => {
+            if (id === 'Relay not supported') {
+                if (state.relayVisible) return;
+                return new Promise(() => {});
+            }
+            if (state.absent.has(id) || (required === 'visible' && state.hidden.has(id))) {
+                throw new Error(`Element ${id} is not ${required}`);
+            }
+        },
+    });
+    const document = {
+        fonts: { get ready() { onFonts(state); return Promise.resolve(); } },
+        documentElement: { scrollWidth: shot.width },
+        body: { get innerText() { return state.relayVisible ? 'Relay not supported' : ''; } },
+        querySelectorAll: () => [],
+    };
+    return {
+        state, screenshots,
+        goto: async () => {},
+        getByTestId: locator, getByText: locator,
+        clock: { runFor: async () => { onClock(state); } },
+        evaluate: async fn => runInNewContext(`(${fn})()`, { document, location: { pathname: shot.appPath }, innerWidth: shot.width }),
+        screenshot: async options => { screenshots.push(options.path); },
+    };
+}
+
+async function assertFailedCapture(page, shot, expected) {
+    await assert.rejects(captureShot(page, shot, 'app', 'http://127.0.0.1:1', '/shots'), expected);
+    assert.match(shot.appError, expected);
+    const failureImage = shot.appImage.replace(/\.png$/, '-FAIL.png');
+    assert.equal(shot.appFailureImage, failureImage);
+    assert.deepEqual(page.screenshots, [join('/shots', failureImage)]);
+    if (shot.theme) {
+        const html = renderSheetHtml([shot]);
+        assert.ok(html.includes(`href="${failureImage}"`));
+        assert.ok(!html.includes(`src="${shot.appImage}"`));
+    }
+}
+
+const capturedRows = () => [...buildShotMatrix(), ...buildShotMatrix('sheet').filter(shot => !shot.appGap)];
+
+test('an error appearing after readiness during clock or font settling fails capture with a diagnostic image', async () => {
+    for (const row of capturedRows()) for (const phase of ['onClock', 'onFonts']) {
+        const shot = { ...row };
+        const page = capturePage(shot, { [phase]: state => {
+            state.boundaryVisible = true;
+            state.absent = new Set(['ip-work', 'ABC-12', 'ip-fixture-coordinator-body', shot.readyTestId]);
+        } });
+        await assertFailedCapture(page, shot, /error boundary/i);
+    }
+});
+
+test('an error boundary beside surviving ready elements still fails capture', async () => {
+    for (const shot of capturedRows()) {
+        await assertFailedCapture(capturePage(shot, { boundaryVisible: true }), shot, /error boundary/i);
+    }
+});
+
+test("Happier's crash recovery screen fails capture, before or after settling", async () => {
+    for (const shot of capturedRows()) {
+        const shown = { ...shot };
+        await assertFailedCapture(
+            capturePage(shown, { boundaryVisible: true, boundaryTestId: 'app-crash-restart' }),
+            shown, /error boundary/i);
+        const settled = { ...shot };
+        const page = capturePage(settled, { boundaryTestId: 'app-crash-restart', onFonts: state => {
+            state.boundaryVisible = true;
+        } });
+        await assertFailedCapture(page, settled, /error boundary/i);
+    }
+});
+
+test('a relay error appearing after readiness fails capture with the relay message', async () => {
+    for (const shot of capturedRows()) {
+        const page = capturePage(shot, { onFonts: state => { state.relayVisible = true; } });
+        await assertFailedCapture(page, shot, /Relay not supported/);
+    }
+});
+
+test('capture rechecks every ready element after fonts, retaining the phone attached rule', async () => {
+    for (const row of capturedRows()) {
+        const ids = row.page === 'desk' ? ['ip-work', 'ABC-12', 'ip-fixture-coordinator-body'] : [row.readyTestId];
+        for (const id of ids) for (const change of ['absent', 'hidden']) {
+            const shot = { ...row };
+            const page = capturePage(shot, { onFonts: state => { state[change].add(id); } });
+            if (change === 'hidden' && shot.width === 390 && ['ip-work', 'ABC-12'].includes(id)) {
+                await captureShot(page, shot, 'app', 'http://127.0.0.1:1', '/shots');
+                assert.equal(shot.appError, undefined);
+                assert.deepEqual(page.screenshots, [join('/shots', shot.appImage)]);
+            } else {
+                await assertFailedCapture(page, shot, /ready element/i);
+            }
+        }
+    }
+});
+
+test('healthy ready rows still capture successfully in both modes', async () => {
+    for (const shot of capturedRows()) {
+        const page = capturePage(shot);
+        await captureShot(page, shot, 'app', 'http://127.0.0.1:1', '/shots');
+        assert.equal(shot.appError, undefined);
+        assert.equal(shot.appFailureImage, undefined);
+        assert.deepEqual(page.screenshots, [join('/shots', shot.appImage)]);
     }
 });
 
