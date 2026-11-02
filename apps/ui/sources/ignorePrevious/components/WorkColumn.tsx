@@ -165,7 +165,7 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
                                 <View pointerEvents="none" accessible={false} style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 3, backgroundColor: bulbColour(colours, group.bulb) }} />
                             ) : null}
                             <View testID={`ip-rail-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 28, height: 28, flexShrink: 0 }}>
-                                <WorkerSprite kind={spriteForModel(group.workers[0]?.model)} bulb={group.bulb} size={28} faceStyle={faceStyle} calm={calm} />
+                                <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} bulb={group.bulb} size={28} faceStyle={faceStyle} calm={calm} />
                             </View>
                             <Text style={{ color: text.primary, fontSize: 11, fontWeight: '600', maxWidth: '100%' }} numberOfLines={1} ellipsizeMode="tail">
                                 {label}

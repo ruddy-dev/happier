@@ -1,17 +1,17 @@
 import * as React from 'react';
 import { Animated, Easing, View } from 'react-native';
-import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Path, Rect, Text as SvgText, TSpan } from 'react-native-svg';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 
 import type { Bulb } from '../model/bulb';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
-import { spriteAsciiColour, spritePixelColour, spriteSignalColour, useDeskPaint } from '../palette';
+import { spriteAsciiColour, spritePixelColour, spriteSignalColour, spriteStateTokens, useDeskPaint } from '../palette';
 import { spriteAscii, spriteGrids, type SpriteKind } from '../sprites';
 
 export type WorkerSpriteProps = Readonly<{
     kind: SpriteKind;
     bulb: Bulb;
-    /** Card 40, rail/header 28, worker row 24. The grid uses whole-number cell sizes. */
+    /** Card 40, rail 28, worker row 24. The grid uses whole-number cell sizes. */
     size: 24 | 28 | 40;
     faceStyle?: 'A' | 'B';
     calm?: boolean;
@@ -66,7 +66,13 @@ export const WorkerSprite = React.memo(function WorkerSprite({ kind, bulb, size,
             <Animated.View testID="ip-sprite-art" style={{ width: size, height: size, transform: [{ translateY }] }}>
                 <Svg testID={ascii ? 'ip-sprite-ascii' : 'ip-sprite-pixels'} width={size} height={size} viewBox={`0 0 ${size} ${size}`} accessible={false}>
                     {pixels}
-                    {ascii?.lines.map((line, i) => <SvgText key={i} x={x0} y={y0 + lh * i + fontSize * 0.82} fontSize={fontSize} fontFamily={DESK_FONT_STACK} fontWeight="700" fontVariantLigatures="none" fill={spriteAsciiColour(paint, kind)}>{line.replace(/ /g, '\u00a0')}</SvgText>)}
+                    {ascii?.runs.map((runs, i) => (
+                        <SvgText key={i} x={x0} y={y0 + lh * i + fontSize * 0.82} fontSize={fontSize} fontFamily={DESK_FONT_STACK} fontWeight="700" fontVariantLigatures="none" fill={spriteAsciiColour(paint, kind)}>
+                            {runs.map((run, x) => run.eye
+                                ? <TSpan key={x} fill={paint[spriteStateTokens[bulb]]}>{run.text.replace(/ /g, '\u00a0')}</TSpan>
+                                : run.text.replace(/ /g, '\u00a0'))}
+                        </SvgText>
+                    ))}
                     {ascii ? <Rect testID="ip-sprite-cursor" x={x0 + (ascii.lines[ascii.face].length + 0.12) * cw} y={y0 + lh * ascii.face + fontSize * 0.02} width={cw * 0.82} height={fontSize * 0.98} fill={signal} /> : null}
                 </Svg>
             </Animated.View>

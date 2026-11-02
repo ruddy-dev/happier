@@ -840,8 +840,8 @@ export const noWorkerSprite: SpriteKind = 'ipdroid';
 
 /** Match model identifiers, never the session's agent flavour. Unknown/unloaded models use Droid. */
 export function spriteForModel(model: string | null | undefined): SpriteKind {
-    const id = model?.trim().toLowerCase() ?? '';
-    const parts = id.split(/[-_./:\s]+/);
+    const id = model?.trim().toLowerCase().replace(/_/g, '-') ?? '';
+    const parts = id.split(/[-./:\s]+/);
     if (/^(claude\b|opus\b|sonnet\b|haiku\b|fable\b)/.test(id)) {
         for (const tier of ['opus', 'sonnet', 'haiku', 'fable'] as const) {
             if (parts.includes(tier)) return modelSprites[tier];
@@ -885,5 +885,11 @@ export function spriteAscii(kind: SpriteKind, bulb: Bulb, detail: SpriteDetail) 
     const eye = bulb === 'stuck' ? 'x' : kind === 'cxprompt'
         ? (bulb === 'turn' ? '_' : bulb === 'idle' ? ' ' : '.')
         : (bulb === 'turn' ? 'o' : '-');
-    return { lines: (detail === 'S' ? [mini] : full).map(line => line.replace(/E/g, eye)), face: detail === 'S' ? 0 : base.face };
+    const lines = detail === 'S' ? [mini] : full;
+    const runs = lines.map(line => line.split(/(E)/).filter(Boolean).map(text => ({ text: text === 'E' ? eye : text, eye: text === 'E' })));
+    return {
+        lines: runs.map(line => line.map(run => run.text).join('')),
+        runs,
+        face: detail === 'S' ? 0 : base.face,
+    };
 }

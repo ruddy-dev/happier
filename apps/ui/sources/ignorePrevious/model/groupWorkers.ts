@@ -27,6 +27,8 @@ export type WorkerRow = {
 export type IssueGroup = {
     issueKey: string | null;
     bulb: Bulb;
+    /** Owns the reported state; equal urgency uses the latest activity observation. */
+    stateWorker?: WorkerRow;
     workers: WorkerRow[];
 };
 
@@ -44,7 +46,9 @@ export function groupWorkersByIssue(rows: readonly WorkerRow[]): IssueGroup[] {
     }
     const groups = [...byKey].map(([issueKey, workers]) => {
         workers.sort((a, b) => recency(b) - recency(a));
-        return { issueKey, bulb: issueBulb(workers.map((w) => w.bulb)), workers };
+        const bulb = issueBulb(workers.map((w) => w.bulb));
+        const stateWorker = workers.find(worker => worker.bulb === bulb);
+        return { issueKey, bulb, stateWorker, workers };
     });
     return groups.sort((a, b) => {
         const priority = BULB_RANK[a.bulb] - BULB_RANK[b.bulb] || recency(b.workers[0]) - recency(a.workers[0]);

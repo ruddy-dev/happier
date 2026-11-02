@@ -57,7 +57,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8, paddingLeft: 12, paddingRight: 6, minWidth: 0, borderRadius: 11 }}
             >
                 <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }}>
-                    <WorkerSprite kind={spriteForModel(newest?.model)} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
+                    <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 15, fontWeight: '600' }}>
