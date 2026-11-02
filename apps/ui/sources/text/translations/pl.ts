@@ -11517,6 +11517,17 @@ settingsSession: {
     },
   },
     ignorePrevious: {
+        workerControl: {
+            stopNotListening: "Stop did not reach the worker. The worker is not listening. Its state has not been changed.",
+            stopEncryptionUnavailable: "Stop was not sent because session encryption is unavailable. The worker may still be running.",
+            modeUnknown: 'Mode unknown',
+            modePublished: ({ mode }: { mode: string }) => `Published mode: ${mode}`,
+            modePending: ({ mode }: { mode: string }) => `${mode} pending publication`,
+            modeNextPrompt: ({ mode }: { mode: string }) => `${mode} pending the next prompt from this app`,
+            modeNotSent: ({ mode }: { mode: string }) => `${mode} pending, change not sent. Try again.`,
+            modeCleared: ({ requests }: { requests: string }) => `Approved after mode change: ${requests}`,
+            machineOffline: 'Machine offline',
+        },
         connection: {
             lastSeen: ({ time }: { time: string }) => `Not connected. Last connected at ${time}.`,
             noData: 'Not connected. Waiting for the first update.',
