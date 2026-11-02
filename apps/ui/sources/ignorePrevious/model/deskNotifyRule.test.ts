@@ -1,10 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { deskNotifyRule, type DeskNotifySnapshot } from './deskNotifyRule';
 
-const empty: DeskNotifySnapshot = { waitIds: [], waitSessionIds: {}, workerBulbs: [], ready: true };
-const waiting: DeskNotifySnapshot = { waitIds: ['one'], waitSessionIds: { one: 'worker', two: 'worker' }, workerBulbs: ['turn', 'stuck', 'waiting', 'idle'], ready: true };
+const empty: DeskNotifySnapshot = { waitIds: [], waitSessionIds: {}, loadingSessionSinceMs: {}, observedAtMs: 0, workerBulbs: [], ready: true };
+const waiting: DeskNotifySnapshot = { ...empty, waitIds: ['one'], waitSessionIds: { one: 'worker', two: 'worker' }, workerBulbs: ['turn', 'stuck', 'waiting', 'idle'] };
 
 describe('deskNotifyRule', () => {
+    it('every absorbs staged details through completion, then alerts for the next new request', () => {
+        const placeholder = { ...empty, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' }, loadingSessionSinceMs: { worker: 0 } };
+        const partial = { ...waiting, loadingSessionSinceMs: { worker: 0 }, observedAtMs: 30_000 };
+        const loaded = { ...waiting, waitIds: ['one', 'two'], observedAtMs: 60_000 };
+        expect(deskNotifyRule(placeholder, partial, 'every')).toBe(false);
+        expect(deskNotifyRule(partial, loaded, 'every')).toBe(false);
+        expect(deskNotifyRule(loaded, { ...loaded, waitIds: ['one', 'two', 'three'] }, 'every')).toBe(true);
+    });
+
+    it('every stops absorbing ids after 60 seconds even if loading never finishes', () => {
+        const partial = { ...waiting, loadingSessionSinceMs: { worker: 0 } };
+        const next = { ...partial, waitIds: ['one', 'two'], observedAtMs: 60_001 };
+        expect(deskNotifyRule(partial, next, 'every')).toBe(true);
+        const placeholder = { ...partial, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' }, loadingSessionSinceMs: { worker: 0 } };
+        expect(deskNotifyRule(placeholder, next, 'every')).toBe(true);
+    });
     it('every fires only for a newly appearing id, including removal and reappearance', () => {
         expect(deskNotifyRule(empty, waiting, 'every')).toBe(true);
         expect(deskNotifyRule(waiting, { ...waiting, waitIds: ['one'] }, 'every')).toBe(false);
@@ -31,7 +47,7 @@ describe('deskNotifyRule', () => {
     });
 
     it('every does not treat loaded details for a previous placeholder as a new wait', () => {
-        const unloaded = { ...empty, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' } };
+        const unloaded = { ...empty, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' }, loadingSessionSinceMs: { worker: 0 } };
         const loaded = { ...empty, waitIds: ['request-one', 'request-two'], waitSessionIds: { 'request-one': 'worker', 'request-two': 'worker' } };
         expect(deskNotifyRule(unloaded, loaded, 'every')).toBe(false);
         const otherSession = { ...loaded, waitIds: [...loaded.waitIds, 'other-request'],
@@ -40,7 +56,7 @@ describe('deskNotifyRule', () => {
     });
 
     it('every fires once for a new placeholder and not again when its details arrive', () => {
-        const unloaded = { ...empty, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' } };
+        const unloaded = { ...empty, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' }, loadingSessionSinceMs: { worker: 0 } };
         const loaded = { ...empty, waitIds: ['request'], waitSessionIds: { request: 'worker' } };
         expect(deskNotifyRule(empty, unloaded, 'every')).toBe(true);
         expect(deskNotifyRule(unloaded, unloaded, 'every')).toBe(false);
@@ -48,7 +64,7 @@ describe('deskNotifyRule', () => {
     });
 
     it('blocked counts an unloaded placeholder as a wait', () => {
-        const unloaded = { ...empty, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' } };
+        const unloaded = { ...empty, waitIds: ['unloaded:worker'], waitSessionIds: { 'unloaded:worker': 'worker' }, loadingSessionSinceMs: { worker: 0 } };
         expect(deskNotifyRule(empty, unloaded, 'blocked')).toBe(true);
         expect(deskNotifyRule(unloaded, unloaded, 'blocked')).toBe(false);
         expect(deskNotifyRule(empty, { ...unloaded, workerBulbs: ['working'] }, 'blocked')).toBe(false);

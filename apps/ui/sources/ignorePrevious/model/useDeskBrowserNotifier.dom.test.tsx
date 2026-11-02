@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit';
 import { storage } from '@/sync/domains/state/storage';
+import type { NormalizedMessage } from '@/sync/typesRaw';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS } from '@/sync/domains/session/attention/deriveSessionRuntimePresentationState';
 import { getSessionStatus } from '@/utils/sessions/sessionUtils';
@@ -67,7 +68,8 @@ afterEach(() => {
 function worker(id: string, ids: string[] = [], thinking = false) {
     const old = storage.getState().sessions[id];
     const now = Date.now();
-    act(() => storage.getState().applySessions([createSessionFixture({
+    act(() => {
+        storage.getState().applySessions([createSessionFixture({
         id, active: true, activeAt: now, updatedAt: now, thinking, thinkingAt: now,
         metadata: { path: '/tmp/desk-worker', host: 'test-host', flavor: 'claude' },
         agentStateVersion: (old?.agentStateVersion ?? 0) + 1,
@@ -75,7 +77,9 @@ function worker(id: string, ids: string[] = [], thinking = false) {
             tool: 'Bash', arguments: { command: 'private work detail' }, createdAt: now,
         }])) },
         pendingPermissionRequestCount: ids.length, pendingUserActionRequestCount: 0,
-    })]));
+        })]);
+        storage.getState().applyMessagesLoaded(id);
+    });
 }
 function ready() { act(() => storage.getState().applyReady()); }
 function mount() { act(() => root.render(<DeskBrowserNotifier coordinatorId="coordinator" />)); }
@@ -88,7 +92,144 @@ function unloadedWorker(id: string) {
     }))]));
 }
 
+function transcriptWaits(ids: string[], loaded: boolean) {
+    const messages: NormalizedMessage[] = ids.map((id, index) => ({
+        id: `message-${id}`, localId: null, createdAt: index + 100,
+        role: 'agent', isSidechain: false,
+        content: [{ type: 'tool-call', id, name: 'bash',
+            input: { permissionId: id, status: 'pending', command: 'echo ready' },
+            description: null, uuid: `message-${id}`, parentUUID: null }],
+    }));
+    act(() => {
+        storage.getState().applyMessages('worker', messages);
+        if (loaded) storage.getState().applyMessagesLoaded('worker');
+    });
+}
+
+function waitingRecord() {
+    act(() => storage.getState().applySessions([createSessionFixture({ id: 'worker', active: true,
+        activeAt: Date.now(), metadata: { path: '/tmp/desk-worker', host: 'test-host', flavor: 'claude' },
+        pendingPermissionRequestCount: 2, pendingUserActionRequestCount: 0, agentState: {},
+    })]));
+}
+
 describe('desk browser notifier', () => {
+    it('rechecks a hidden thinking worker without a store write or desk clock tick and alerts once', () => {
+        worker('busy', [], true);
+        worker('worker', ['one']);
+        ready();
+        mount();
+        const before = storage.getState();
+        const deskNow = readNowMs(DESK_TICK_MS);
+        act(() => vi.advanceTimersByTime(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS - 1));
+        expect(BrowserNotification.instances).toHaveLength(0);
+        act(() => vi.advanceTimersByTime(30_001));
+        expect(storage.getState()).toBe(before);
+        expect(readNowMs(DESK_TICK_MS)).toBe(deskNow);
+        expect(getSessionStatus(before.sessionListRenderables.busy!, Date.now()).state).not.toBe('thinking');
+        expect(BrowserNotification.instances).toHaveLength(1);
+        act(() => vi.advanceTimersByTime(30_000));
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
+    it('owns one hidden interval and clears it on focus, preference change, no waits and unmount', () => {
+        const intervals = vi.spyOn(globalThis, 'setInterval');
+        const clears = vi.spyOn(globalThis, 'clearInterval');
+        ready();
+        mount();
+        const rechecks = () => intervals.mock.calls.filter(([, delay]) => delay === 30_000);
+        const lastRecheckHandle = () => intervals.mock.results[
+            intervals.mock.calls.map(([, delay]) => delay).lastIndexOf(30_000)
+        ]!.value;
+        expect(rechecks()).toHaveLength(0);
+        worker('worker', ['one']);
+        expect(rechecks()).toHaveLength(1);
+        const handle = intervals.mock.results[intervals.mock.calls.findIndex(([, delay]) => delay === 30_000)]!.value;
+        vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+        vi.mocked(document.hasFocus).mockReturnValue(true);
+        act(() => document.dispatchEvent(new Event('visibilitychange')));
+        expect(clears).toHaveBeenCalledWith(handle);
+        const focusedCount = rechecks().length;
+        worker('worker', ['one', 'two']);
+        expect(rechecks()).toHaveLength(focusedCount);
+        vi.mocked(document.hasFocus).mockReturnValue(false);
+        act(() => window.dispatchEvent(new Event('blur')));
+        expect(rechecks()).toHaveLength(focusedCount + 1);
+        const blurredHandle = lastRecheckHandle();
+        act(() => deskPrefs.set('deskNotify', 'every'));
+        expect(clears).toHaveBeenCalledWith(blurredHandle);
+        const everyCount = rechecks().length;
+        worker('worker', ['three']);
+        expect(rechecks()).toHaveLength(everyCount);
+        act(() => deskPrefs.set('deskNotify', 'blocked'));
+        expect(rechecks()).toHaveLength(everyCount + 1);
+        const blockedHandle = lastRecheckHandle();
+        worker('worker');
+        expect(clears).toHaveBeenCalledWith(blockedHandle);
+        const noWaitCount = rechecks().length;
+        act(() => window.dispatchEvent(new Event('blur')));
+        expect(rechecks()).toHaveLength(noWaitCount);
+        worker('worker', ['four']);
+        act(() => root.unmount());
+        root = createRoot(document.createElement('div'));
+        for (const [index, [, delay]] of intervals.mock.calls.entries()) {
+            if (delay === 30_000) expect(clears).toHaveBeenCalledWith(intervals.mock.results[index]!.value);
+        }
+    });
+
+    it.each(['unsupported', 'native'] as const)('does not start a hidden interval on %s', support => {
+        if (support === 'native') platform.os = 'ios';
+        else vi.stubGlobal('Notification', undefined);
+        const intervals = vi.spyOn(globalThis, 'setInterval');
+        worker('worker', ['one']);
+        ready();
+        mount();
+        expect(intervals.mock.calls.filter(([, delay]) => delay === 30_000)).toHaveLength(0);
+    });
+
+    it('every absorbs placeholder and staged transcript requests, then alerts once after fully read', () => {
+        deskPrefs.set('deskNotify', 'every');
+        unloadedWorker('worker');
+        ready();
+        mount();
+        // Both requests predate the baseline. The transcript exposes them in separate snapshots.
+        waitingRecord();
+        transcriptWaits(['one'], false);
+        expect(storage.getState().sessionMessages.worker?.isLoaded).toBe(false);
+        expect(BrowserNotification.instances).toHaveLength(0);
+        transcriptWaits(['two'], true);
+        expect(BrowserNotification.instances).toHaveLength(0);
+        transcriptWaits(['three'], true);
+        expect(BrowserNotification.instances).toHaveLength(1);
+        transcriptWaits(['three'], true);
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
+    it('every stops absorbing requests in a session whose transcript stays unloaded for over 60 seconds', () => {
+        deskPrefs.set('deskNotify', 'every');
+        unloadedWorker('worker');
+        ready();
+        mount();
+        act(() => vi.advanceTimersByTime(30_000));
+        waitingRecord();
+        transcriptWaits(['old'], false);
+        expect(BrowserNotification.instances).toHaveLength(0);
+        act(() => vi.advanceTimersByTime(30_001));
+        worker('worker', ['new']);
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
+    it('does not rearm a hidden stale worker on an unrelated store write after a recheck', () => {
+        worker('busy', [], true);
+        worker('worker', ['one']);
+        ready();
+        mount();
+        act(() => vi.advanceTimersByTime(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS + 30_000));
+        expect(BrowserNotification.instances).toHaveLength(1);
+        act(() => storage.setState({ isDataReady: true }));
+        act(() => vi.advanceTimersByTime(30_000));
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
     it('sends only the private title and replacement tag for a hidden new wait, and click focuses and closes', () => {
         ready();
         mount();
