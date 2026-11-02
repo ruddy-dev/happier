@@ -10870,6 +10870,15 @@ settingsSession: {
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
         work: 'Work',
+        workCard: {
+            plan: 'Plan',
+            build: 'Build',
+            pr: 'PR',
+            merged: 'Merged',
+            blocked: 'Blocked',
+            needsYou: 'Needs you',
+            stage: ({ stage }: { stage: string }) => `Stage: ${stage}`,
+        },
         workList: {
             workerCount: ({ count }: { count: number }) => count === 1 ? '1 worker' : `${count} workers`,
             cardLabel: ({ key, state, count, summary, unheard }: { key: string; state: string; count: string; summary: string; unheard: string }) => [`${key}: ${state}`, count, summary, unheard].filter(Boolean).join('. '),
