@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
@@ -376,6 +377,39 @@ test('capture rechecks every ready element after fonts, retaining the phone atta
                 await assertFailedCapture(page, shot, /ready element/i);
             }
         }
+    }
+});
+
+test('an error or lost ready element appearing during the screenshot fails the row and removes the success image', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'ip-shots-'));
+    try {
+        await mkdir(join(out, 'app'), { recursive: true });
+        const transitions = {
+            boundary: [/error boundary/i, state => { state.boundaryVisible = true; }],
+            crash: [/error boundary/i, state => { state.boundaryVisible = true; state.boundaryTestId = 'app-crash-restart'; }],
+            relay: [/Relay not supported/, state => { state.relayVisible = true; }],
+            ready: [/no longer/, (state, shot) => { state.absent = new Set([shot.readyTestId ?? 'ip-work']); }],
+        };
+        for (const row of capturedRows()) for (const [name, [expected, change]] of Object.entries(transitions)) {
+            const shot = { ...row };
+            const page = capturePage(shot);
+            const record = page.screenshot;
+            page.screenshot = async options => {
+                if (page.screenshots.length === 0) change(page.state, shot);
+                await record(options);
+                await writeFile(options.path, '');
+            };
+            await assert.rejects(captureShot(page, shot, 'app', 'http://127.0.0.1:1', out), expected, name);
+            const failureImage = shot.appImage.replace(/\.png$/, '-FAIL.png');
+            assert.match(shot.appError ?? '', expected, name);
+            assert.equal(shot.appFailureImage, failureImage, name);
+            assert.deepEqual(page.screenshots, [join(out, shot.appImage), join(out, failureImage)], name);
+            assert.equal(existsSync(join(out, shot.appImage)), false, `${name}: success image must not remain`);
+            assert.equal(existsSync(join(out, failureImage)), true, name);
+            assert.ok(!renderSheetHtml([shot]).includes(`src="${shot.appImage}"`), name);
+        }
+    } finally {
+        await rm(out, { recursive: true, force: true });
     }
 });
 
