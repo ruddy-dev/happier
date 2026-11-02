@@ -1,7 +1,77 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Writable } from 'node:stream';
+import { tsImport } from 'tsx/esm/api';
 import { decodeRequestPath, installNetworkGuard, isForbiddenRequestUrl } from './ipFixtureShots.mjs';
-import { buildShotMatrix, buildStorageSeed, renderSheetHtml, THEME_MAP, waitForAppReady } from './ipFixtureShots.mjs';
+import { buildShotMatrix, buildStorageSeed, captureShot, createStaticServer, renderSheetHtml, THEME_MAP, waitForAppReady } from './ipFixtureShots.mjs';
+
+// Load the protocol owner directly, so stale workspace dist files cannot hide schema drift.
+const { FeaturesResponseSchema } = await tsImport('../../../packages/protocol/src/features/payload/featuresResponseSchema.ts', import.meta.url);
+
+function requestStatic(server, path, method = 'GET') {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        // HTTP transport boundary only. The server's real request handler runs without binding a socket.
+        const response = new Writable({ write(chunk, _encoding, done) { chunks.push(chunk); done(); } });
+        response.writeHead = (status, headers = {}) => {
+            response.status = status;
+            response.headers = headers;
+            return response;
+        };
+        response.on('error', reject);
+        response.on('finish', () => resolve(new Response(Buffer.concat(chunks), {
+            status: response.status, headers: response.headers,
+        })));
+        server.emit('request', { url: path, method }, response);
+    });
+}
+
+async function staticHost(t) {
+    const dist = await mkdtemp(join(tmpdir(), 'ip-shots-'));
+    t.after(() => rm(dist, { recursive: true, force: true }));
+    await writeFile(join(dist, 'index.html'), '<html><head></head><body>SPA shell</body></html>');
+    const { server } = createStaticServer(dist);
+    server.address = () => ({ port: 1 });
+    return server;
+}
+
+test('the static host serves a supported offline welcome contract', async t => {
+    const server = await staticHost(t);
+    const response = await requestStatic(server, '/v1/features');
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+    const features = FeaturesResponseSchema.parse(await response.json());
+    const auth = features.capabilities.auth;
+    // Matches createWelcomeFeaturesResponse's key-only path. No OAuth/mTLS redirect or auth grant.
+    assert.deepEqual(auth.signup.methods, [{ id: 'anonymous', enabled: true }]);
+    assert.deepEqual(auth.login.methods, [{ id: 'key_challenge', enabled: true }]);
+    assert.deepEqual(auth.methods, [{
+        id: 'key_challenge',
+        actions: [{ id: 'login', enabled: true, mode: 'keyed' }, { id: 'provision', enabled: true, mode: 'keyed' }],
+        ui: { displayName: 'Device key', iconHint: null },
+    }]);
+    assert.deepEqual(auth.ui.autoRedirect, { enabled: false, providerId: null });
+    assert.deepEqual(auth.providers, {});
+    assert.deepEqual(features.capabilities.oauth.providers, {});
+    assert.equal(features.features.auth.login.keyChallenge.enabled, true);
+});
+
+test('other API paths return JSON 404s, including auth writes, while app routes retain the SPA fallback', async t => {
+    const server = await staticHost(t);
+    for (const [method, path] of [['GET', '/v1/unknown'], ['GET', '/v1/unknown.json'],
+        ['POST', '/v1/auth'], ['POST', '/v1/features']]) {
+        const missing = await requestStatic(server, path, method);
+        assert.equal(missing.status, 404, `${method} ${path}`);
+        assert.match(missing.headers.get('content-type'), /application\/json/);
+        assert.deepEqual(await missing.json(), { error: 'not_found' });
+    }
+    const route = await requestStatic(server, '/restore/manual');
+    assert.match(route.headers.get('content-type'), /text\/html/);
+    assert.match(await route.text(), /SPA shell/);
+});
 
 test('the default matrix preserves the three original fixture captures', () => {
     assert.deepEqual(buildShotMatrix().map(({ name, width, height, openApprovals, appImage }) =>
@@ -37,10 +107,12 @@ test('the sheet matrix covers every theme and size, and extra pages in dark and 
         if (shot.page === 'desk') assert.equal(shot.appPath, '/dev/desk-fixture');
         if (shot.page === 'sign-in') {
             assert.equal(shot.appPath, '/');
+            assert.equal(shot.readyTestId, 'welcome-secondary-login');
             assert.match(shot.mockupGap, /no sign-in/i);
         }
         if (shot.page === 'restore') {
             assert.equal(shot.appPath, '/restore/manual');
+            assert.equal(shot.readyTestId, 'restore-manual-secret-input');
             assert.match(shot.mockupGap, /no secret-key/i);
         }
         if (shot.page === 'voice' || shot.page === 'robots') {
@@ -90,15 +162,101 @@ test('HTML pairs app left and mockup right using relative paths, and makes missi
     assert.match(failed, /Render failed/);
     assert.match(failed, /Missing selector/);
     assert.doesNotMatch(failed, /<img/);
+    const failureImage = 'app/night-1440-sign-in-FAIL.png';
+    const diagnosed = renderSheetHtml([{ ...row, appError: 'Relay <unsupported>', appFailureImage: failureImage }]);
+    assert.match(diagnosed, /Relay &lt;unsupported&gt;/);
+    assert.ok(diagnosed.includes(`href="${failureImage}"`));
+    assert.ok(!diagnosed.includes(`src="${row.appImage}"`), 'a failure must not show a previous successful capture');
 });
 
-test('phone readiness accepts the mounted hidden Work tab while requiring the visible coordinator', async () => {
+function readinessPage({ relayVisible = false, readyError } = {}) {
     const waits = [];
     const locator = id => ({
         first() { return this; },
-        waitFor: async options => { waits.push([id, options.state ?? 'visible']); },
+        isVisible: async () => id === 'Relay not supported' && relayVisible,
+        waitFor: async options => {
+            if (id === 'Relay not supported') {
+                if (relayVisible) return;
+                return new Promise(() => {}); // Browser locator stays pending until ready or context close.
+            }
+            waits.push([id, options.state ?? 'visible']);
+            if (readyError) throw readyError;
+        },
     });
-    const page = { getByTestId: locator, getByText: locator };
+    return { waits, getByTestId: locator, getByText: locator };
+}
+
+test('signed-out readiness requires the real form rather than the shell', async () => {
+    for (const shot of buildShotMatrix('sheet').filter(shot => ['sign-in', 'restore'].includes(shot.page))) {
+        const page = readinessPage();
+        await waitForAppReady(page, shot);
+        assert.deepEqual(page.waits, [[shot.page === 'sign-in' ? 'welcome-secondary-login' : 'restore-manual-secret-input', 'visible']]);
+    }
+});
+
+test('readiness fails clearly when Relay not supported appears instead of a form', async () => {
+    for (const shot of [
+        { page: 'sign-in', readyTestId: 'welcome-secondary-login' },
+        { page: 'restore', readyTestId: 'restore-manual-secret-input' },
+        { page: 'desk', width: 390 },
+    ]) {
+        const unsupported = readinessPage({ relayVisible: true });
+        await assert.rejects(waitForAppReady(unsupported, shot), /Relay not supported/);
+    }
+    const pendingForm = readinessPage({ relayVisible: true, readyError: new Error('selector timed out') });
+    await assert.rejects(waitForAppReady(pendingForm, { page: 'sign-in', readyTestId: 'welcome-secondary-login' }), /Relay not supported/);
+});
+
+test('a relay error appearing while the form is pending fails without waiting for its selector timeout', async () => {
+    let showRelayError;
+    let visible = false;
+    const page = {
+        getByTestId: () => ({ waitFor: () => new Promise(() => {}) }),
+        getByText: () => ({ first() { return this; },
+            waitFor: () => new Promise(resolve => { showRelayError = resolve; }),
+            isVisible: async () => visible,
+        }),
+    };
+    const ready = waitForAppReady(page, { page: 'restore', readyTestId: 'restore-manual-secret-input' });
+    visible = true;
+    showRelayError();
+    await assert.rejects(ready, /Relay not supported/);
+});
+
+test('an unavailable failure screenshot preserves the original failure and never links a missing image', async () => {
+    const [shot] = buildShotMatrix('sheet');
+    const original = new Error('navigation failed');
+    const page = {
+        goto: async () => { throw original; },
+        screenshot: async () => { throw new Error('page closed'); },
+    };
+    await assert.rejects(captureShot(page, shot, 'app', 'http://127.0.0.1:1', '/shots'), error => error === original);
+    assert.match(shot.appError ?? '', /navigation failed.*failure screenshot.*page closed/i);
+    assert.equal(shot.appFailureImage, undefined);
+    assert.doesNotMatch(renderSheetHtml([shot]), /href="app\/[^"\s]*-FAIL\.png"/);
+});
+
+test('failed captures save a diagnostic image beside the intended image and link it from the sheet', async () => {
+    for (const side of ['app', 'mockup']) {
+        const [shot] = buildShotMatrix('sheet');
+        const renderedError = new Error('navigation failed');
+        const screenshots = [];
+        const page = {
+            goto: async () => { throw renderedError; },
+            screenshot: async options => { screenshots.push(options.path); },
+        };
+        await assert.rejects(captureShot(page, shot, side, 'http://127.0.0.1:1', '/shots'), error => error === renderedError);
+        const failureImage = shot[`${side}Image`].replace(/\.png$/, '-FAIL.png');
+        assert.deepEqual(screenshots, [join('/shots', failureImage)]);
+        assert.equal(shot[`${side}Error`], renderedError.message);
+        assert.equal(shot[`${side}FailureImage`], failureImage);
+        assert.ok(renderSheetHtml([shot]).includes(`href="${failureImage}"`));
+    }
+});
+
+test('phone readiness accepts the mounted hidden Work tab while requiring the visible coordinator', async () => {
+    const page = readinessPage();
+    const { waits } = page;
     await waitForAppReady(page, { page: 'desk', width: 390 });
     assert.deepEqual(waits, [
         ['ip-work', 'attached'], ['ABC-12', 'attached'], ['ip-fixture-coordinator-body', 'visible'],
