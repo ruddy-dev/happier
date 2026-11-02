@@ -5,7 +5,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit';
 import { storage } from '@/sync/domains/state/storage';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS } from '@/sync/domains/session/attention/deriveSessionRuntimePresentationState';
+import { getSessionStatus } from '@/utils/sessions/sessionUtils';
+import { readNowMs } from '@/hooks/time/nowMsClockStore';
 import { deskPrefs } from '../deskPrefs';
+import { DESK_TICK_MS } from './useDeskNow';
 import { DeskBrowserNotifier, useDeskBrowserNotifier } from './useDeskBrowserNotifier';
 import * as waitingItems from './waitingItems';
 
@@ -13,6 +18,12 @@ const platform = vi.hoisted(() => ({ os: 'web' }));
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
     return createReactNativeWebMock({ Platform: { get OS() { return platform.os; } } });
+});
+
+// Navigation is the external boundary; the real desk clock and session store stay active.
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
 });
 
 class BrowserNotification {
@@ -30,8 +41,11 @@ class BrowserNotification {
 let root: Root;
 let previous: ReturnType<typeof storage.getState>;
 beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
     previous = storage.getState();
     storage.setState({ sessions: {}, sessionListRenderables: {}, sessionMessages: {}, isDataReady: false });
+    storage.getState().setSocketStatus('connected');
     root = createRoot(document.createElement('div'));
     platform.os = 'web';
     BrowserNotification.permission = 'granted';
@@ -47,6 +61,7 @@ afterEach(() => {
     storage.setState(previous, true);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
 });
 
 function worker(id: string, ids: string[] = [], thinking = false) {
@@ -64,6 +79,14 @@ function worker(id: string, ids: string[] = [], thinking = false) {
 }
 function ready() { act(() => storage.getState().applyReady()); }
 function mount() { act(() => root.render(<DeskBrowserNotifier coordinatorId="coordinator" />)); }
+
+function unloadedWorker(id: string) {
+    act(() => storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(createSessionFixture({
+        id, active: true, activeAt: Date.now(), updatedAt: Date.now(),
+        metadata: { path: '/tmp/desk-worker', host: 'test-host', flavor: 'claude' },
+        pendingPermissionRequestCount: 1, pendingUserActionRequestCount: 0,
+    }))]));
+}
 
 describe('desk browser notifier', () => {
     it('sends only the private title and replacement tag for a hidden new wait, and click focuses and closes', () => {
@@ -105,6 +128,60 @@ describe('desk browser notifier', () => {
         worker('busy', [], true);
         worker('busy');
         expect(BrowserNotification.instances).toHaveLength(2);
+    });
+
+    it('blocked alerts when a thinking signal ages out on the desk clock with no store write', () => {
+        // The shared clock runs in a visible tab; an unfocused window still permits an alert.
+        vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+        worker('busy', [], true);
+        worker('worker', ['one']);
+        ready();
+        mount();
+        const before = storage.getState();
+        expect(getSessionStatus(before.sessionListRenderables.busy!, readNowMs(DESK_TICK_MS)).state).toBe('thinking');
+        act(() => vi.advanceTimersByTime(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS - DESK_TICK_MS));
+        expect(BrowserNotification.instances).toHaveLength(0);
+        act(() => vi.advanceTimersByTime(2 * DESK_TICK_MS));
+        expect(storage.getState()).toBe(before);
+        expect(getSessionStatus(before.sessionListRenderables.busy!, Date.now()).state).not.toBe('thinking');
+        expect(BrowserNotification.instances).toHaveLength(1);
+        act(() => vi.advanceTimersByTime(DESK_TICK_MS));
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
+    it.each(['every', 'blocked'] as const)('%s baselines an unloaded wait and never alerts when its details arrive later', setting => {
+        deskPrefs.set('deskNotify', setting);
+        unloadedWorker('worker');
+        mount();
+        ready();
+        expect(BrowserNotification.instances).toHaveLength(0);
+        worker('worker', ['one', 'two']);
+        expect(BrowserNotification.instances).toHaveLength(0);
+    });
+
+    it.each(['every', 'blocked'] as const)('%s alerts for a new unloaded wait once, then suppresses its loaded details', setting => {
+        deskPrefs.set('deskNotify', setting);
+        ready();
+        mount();
+        unloadedWorker('worker');
+        expect(BrowserNotification.instances).toHaveLength(1);
+        worker('worker', ['one']);
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
+    it('a shared clock tick with unchanged bulbs keeps the snapshot and desk render stable', () => {
+        vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+        worker('busy', [], true);
+        ready();
+        let deskRenders = 0;
+        function Desk() { deskRenders++; return <DeskBrowserNotifier coordinatorId={null} />; }
+        act(() => root.render(<Desk />));
+        const baseline = deskRenders;
+        const before = readNowMs(DESK_TICK_MS);
+        act(() => vi.advanceTimersByTime(DESK_TICK_MS));
+        expect(readNowMs(DESK_TICK_MS)).toBe(before + DESK_TICK_MS);
+        expect(deskRenders).toBe(baseline);
+        expect(BrowserNotification.instances).toHaveLength(0);
     });
 
     it.each(['every', 'blocked'] as const)('%s does not alert for existing items or initial readiness', setting => {
