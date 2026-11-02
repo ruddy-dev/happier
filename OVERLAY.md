@@ -144,7 +144,6 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/dev/vitestSetup.ts` | Installs `vitestOriginGuard`, so no UI unit test can reach the developer's server on port 3005, `*.happier.dev` or `*.ts.net`. The UI can't import from `packages/tests`, so the guard repeats the forbidden list in `packages/tests/src/testkit/deskTest/originGuard.ts`; change both together. |
 | `apps/ui/sources/dev/testkit/index.ts` | Exports the two new mocks. |
 | `apps/ui/sources/dev/testkit/mocks/mockFactories.test.ts` | Covers the two new mocks. |
-| `packages/tests/suites/ui-e2e/desk.j1.spec.ts` | Uses `ip-issue-<KEY>` within the expanded Work column, including folded Faces cards. The collapsed rail uses separate `ip-rail-issue-<KEY>` selectors. |
 | `apps/ui/sources/sync/ops/sessions.permissionDeny.test.ts`, `apps/ui/sources/sync/ops/__tests__/sessionAbort.test.ts` | Use the shared `@/sync/sync` stub instead of their own inline mocks. |
 | `packages/tests/src/testkit/syntheticAgent/syntheticAgent.ts` | The synthetic agent can run a plain-mode session and send `update-state` (agentState plus the activity summary the server counts requests from). |
 | `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
@@ -170,5 +169,11 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/sessions/shell/SessionView.composerSeam.test.tsx` | Verifies the footer-leading override reaches AgentInput alongside the existing status actions, and Send-as-Stop retains SessionView's existing abort path while hiding the secondary Stop and mic. |
 | `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing status actions, leading footer actions, gauge and mic replacement, Send-as-Stop, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
 | `apps/ui/sources/sync/ops/__tests__/sessionAbortResult.test.ts` | Covers result-bearing abort failures, success recovery, error propagation and legacy compatibility at the RPC boundary. |
+| `packages/tests/package.json` | Adds `desk:export` and `desk:test`, plus the pinned `playwright-core` development dependency for the system-Chrome journey runner. |
+| `packages/tests/playwright.ui.config.mjs` | Excludes `desk.*.spec.ts`; desk journeys run only under the desk config and its request guard. |
+| `packages/tests/playwright.ui.lane-j.config.mjs` | Excludes `desk.*.spec.ts` from the upstream lane-J project for the same reason. |
+| `packages/tests/src/testkit/process/uiWebExport.ts` | Exposes the existing cache-current decision and includes the UI's direct `@happier-dev/*` workspace dependencies in its source fingerprint. The UI and shared packages retain the same size/mtime cache owner. |
+
+The desk runner adds overlay-owned files under `packages/tests`: `playwright.desk.config.mjs`, `scripts/desk-{env,global-setup}.mjs`, `scripts/desk-export.ts`, `src/testkit/deskTest/*`, and `suites/ui-e2e/desk.{guard,j1,j2,j3}.spec.ts`. These are new files rather than edits to upstream specs. J1 scopes `ip-issue-<KEY>` to the expanded Work column, including folded Faces cards; the collapsed rail uses `ip-rail-issue-<KEY>`. J2 checks the specific active `ip-waiting-card-<requestId>` root separately from Answered history. Seed setup is inside cleanup scopes, including partially started workers.
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.
