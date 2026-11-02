@@ -22,8 +22,9 @@ test('Allow runs what the card showed, and the worker carries on', async ({ page
             .toEqual([expect.objectContaining({ id: 'j2-bash', approved: true })]);
         await worker.setWorking();
 
-        await expect(waiting, 'the card after Allow').toHaveCount(0);
-        await expect(page.getByTestId('ip-waiting-empty'), 'the empty list').toBeVisible();
+        // The active card goes; the panel keeps an Answered entry for it (signed J2 and J3).
+        await expect(page.getByTestId('ip-waiting-allow-j2-bash'), 'the card after Allow').toHaveCount(0);
+        await expect(page.getByTestId('ip-answered-j2-bash'), 'the Answered entry').toBeVisible();
         await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('0');
         await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-working'), 'the bulb after Allow').toBeVisible();
     } finally {

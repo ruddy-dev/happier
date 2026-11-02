@@ -144,7 +144,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/dev/vitestSetup.ts` | Installs `vitestOriginGuard`, so no UI unit test can reach the developer's server on port 3005, `*.happier.dev` or `*.ts.net`. The UI can't import from `packages/tests`, so the guard repeats the forbidden list in `packages/tests/src/testkit/deskTest/originGuard.ts`; change both together. |
 | `apps/ui/sources/dev/testkit/index.ts` | Exports the two new mocks. |
 | `apps/ui/sources/dev/testkit/mocks/mockFactories.test.ts` | Covers the two new mocks. |
-| `packages/tests/suites/ui-e2e/desk.j1.spec.ts` | Uses the Faces-mode `ip-rail-issue-<KEY>` selectors required by the integrated desk restyle. |
+| `packages/tests/suites/ui-e2e/desk.j1.spec.ts` | Uses `ip-issue-<KEY>` within the expanded Work column, including folded Faces cards. The collapsed rail uses separate `ip-rail-issue-<KEY>` selectors. |
 | `apps/ui/sources/sync/ops/sessions.permissionDeny.test.ts`, `apps/ui/sources/sync/ops/__tests__/sessionAbort.test.ts` | Use the shared `@/sync/sync` stub instead of their own inline mocks. |
 | `packages/tests/src/testkit/syntheticAgent/syntheticAgent.ts` | The synthetic agent can run a plain-mode session and send `update-state` (agentState plus the activity summary the server counts requests from). |
 | `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
