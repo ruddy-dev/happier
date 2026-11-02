@@ -13,7 +13,7 @@ export function assertNoBlockedRequests(blocked: readonly BlockedRequest[]): voi
 
 // Playwright 1.58.2 lib/client/errors.js:36-42 defines this closed-target message.
 // API call names and call logs can surround it; unrelated transport failures must reject.
-function isClosedTargetError(error: unknown): boolean {
+export function isClosedTargetError(error: unknown): boolean {
     return error instanceof Error && error.message.includes('Target page, context or browser has been closed');
 }
 

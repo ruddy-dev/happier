@@ -315,9 +315,9 @@ export async function ensureUiWebExportBuilt(params: { testDir: string; env: Nod
   const exportedDistCacheKeyPath = resolvePath(exportedDistParent, 'cache-key.json');
   const exportedDistManifestPath = resolvePath(exportedDistParent, 'export-manifest.json');
 
-  if (sharedExportDir && sharedExportCacheKey === cacheKey) return sharedExportDir;
+  if (!params.rebuild && sharedExportDir && sharedExportCacheKey === cacheKey) return sharedExportDir;
   if (sharedExportPromise && sharedExportCacheKey === cacheKey) return await sharedExportPromise;
-  if (canReusePersistedUiWebExport({
+  if (!params.rebuild && canReusePersistedUiWebExport({
     distDir: exportedDistDir,
     cacheKeyPath: exportedDistCacheKeyPath,
     cacheKey,

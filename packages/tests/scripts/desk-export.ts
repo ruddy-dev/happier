@@ -4,10 +4,12 @@ import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 
+import { parseDeskExportArgs } from '../src/testkit/deskTest/deskExportArgs';
 import { clearDeskMetroFileMaps } from '../src/testkit/deskTest/deskMetroCache';
 import { DESK_UI_ENV } from '../src/testkit/deskTest/deskUiEnv';
-import { isUiWebExportCurrent, startUiWebExport } from '../src/testkit/process/uiWebExport';
+import { ensureUiWebExportBuilt, isUiWebExportCurrent } from '../src/testkit/process/uiWebExport';
 
+const { rebuild } = parseDeskExportArgs(process.argv.slice(2));
 const repoRoot = resolve(import.meta.dirname, '../../..');
 
 // A linked worktree's node_modules are symlinks into the primary install, which Metro must also watch.
@@ -27,10 +29,9 @@ const env = {
     TMPDIR: metroTmp,
     HAPPIER_E2E_UI_WEB_EXPORT_TIMEOUT_MS: '1500000',
 };
-const cached = isUiWebExportCurrent(env);
+const cached = !rebuild && isUiWebExportCurrent(env);
 // Persisted maps can be stale across runs with linked node_modules. Keep transform caches.
 if (!cached) await clearDeskMetroFileMaps(metroTmp);
 const started = Date.now();
-const ui = await startUiWebExport({ testDir: mkdtempSync(join(tmpdir(), 'desk-export-')), env });
-await ui.stop();
+await ensureUiWebExportBuilt({ testDir: mkdtempSync(join(tmpdir(), 'desk-export-')), env, rebuild });
 console.log(cached ? 'desk export: cache hit, nothing built' : `desk export: built in ${Math.round((Date.now() - started) / 1000)} s`);
