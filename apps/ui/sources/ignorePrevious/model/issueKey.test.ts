@@ -8,9 +8,22 @@ describe('issueKeyFromBranch', () => {
         expect(issueKeyFromBranch('HUB-59')).toBe('HUB-59');
     });
 
+    it('N5: slash-delimited branches preserve canonical issue keys', () => {
+        expect(issueKeyFromBranch('feature/atr-6-x')).toBe('ATR-6');
+        expect(issueKeyFromBranch('atr-13/foo')).toBe('ATR-13');
+        expect(issueKeyFromBranch('feature/PROJECT-14-change')).toBe('PROJECT-14');
+        expect(issueKeyFromBranch('feature/atr-6.5-release')).toBeNull();
+    });
+
+    it.todo('N4: a branch that looks like a key but is not a wq project stays unassigned; item 2.7 owns the authoritative wq inventory');
+    it.todo('N4: folders such as my-app-2 and node-22 must not invent issues; item 2.7 owns the authoritative wq inventory');
+    it.each([['atr_5', 'ATR-5'], ['ATR13', 'ATR-13']])('N5: branch and folder %s resolve to %s', (input, expected) => {
+        expect(issueKeyFromBranch(input)).toBe(expected);
+        expect(issueKeyFromPath(`/work/${input}`)).toBe(expected);
+    });
+
     it('ignores branches without a leading issue id', () => {
         expect(issueKeyFromBranch('main')).toBeNull();
-        expect(issueKeyFromBranch('feature/atr-6-x')).toBeNull();
         expect(issueKeyFromBranch('ui-web-v0')).toBeNull();
         expect(issueKeyFromBranch(null)).toBeNull();
     });

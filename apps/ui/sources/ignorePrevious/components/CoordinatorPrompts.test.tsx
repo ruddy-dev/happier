@@ -85,6 +85,31 @@ describe('CoordinatorPrompts', () => {
         expect(String(text).length).toBeGreaterThan(String(displayText).length);
     });
 
+    it('L2: the walk-through includes worker requests but never its own coordinator request', async () => {
+        seed([
+            session('coord', { tool: 'Bash', arguments: { command: 'coordinator-command' }, createdAt: 10 }),
+            session('s1', { tool: 'Bash', arguments: { command: 'worker-command' }, createdAt: 20 }),
+        ]);
+        const screen = await renderPrompts();
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+        const text = String(state.submit.mock.calls[0]?.[1]);
+        expect(text).toContain('worker-command');
+        expect(text).not.toContain('coordinator-command');
+        expect(text).not.toContain('Title coord');
+    });
+
+    it('L2: no walk-through when only the coordinator waits', async () => {
+        seed([session('coord', { tool: 'Bash', arguments: { command: 'coordinator-command' }, createdAt: 10 })]);
+        const screen = await renderPrompts();
+        expect(screen.findByTestId('ip-walk-waiting')).toBeNull();
+    });
+
+    it('L2: an unloaded coordinator request is also excluded from the walk-through', async () => {
+        seed([{ ...session('coord', null), pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now() }]);
+        const screen = await renderPrompts();
+        expect(screen.findByTestId('ip-walk-waiting')).toBeNull();
+    });
+
     it('offers only the PR walk-through when nothing waits', async () => {
         seed([session('coord', null)]);
         const screen = await renderPrompts();

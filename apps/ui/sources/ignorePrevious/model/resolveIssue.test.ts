@@ -15,6 +15,12 @@ describe('resolveIssue', () => {
     it('N2 unparseable tag counts as absent', () =>
         expect(resolveIssue({ tag: 'ATR-6:builder', title: null, branch: 'atr-8-x', path: null })).toBe('ATR-8'));
 
+    it('N2: malformed tags do not gain branch-only shorthand or namespace syntax', () => {
+        for (const tag of ['feature/ATR-6-build', 'ATR_6-build', 'ATR6-build']) {
+            expect(resolveIssue({ tag, title: null, branch: 'atr-8-x', path: null })).toBe('ATR-8');
+        }
+    });
+
     it('N1 path alone resolves', () =>
         expect(resolveIssue({ tag: null, title: null, branch: null, path: '/w/atr-9-x' })).toBe('ATR-9'));
 
