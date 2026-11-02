@@ -28,15 +28,15 @@ function isWaitingOnYou(row: SessionListRenderableSession): boolean {
     return state === 'permission_required' || state === 'action_required';
 }
 
-/**
- * The desk's one source of sessions. On a cold load the sidebar's list arrives first and full
- * records load per session later, so which sessions exist always comes from the list.
- */
 type DeskSource = Pick<ReturnType<typeof storage.getState>, 'sessions' | 'sessionListRenderables' | 'isDataReady'>;
 let previousSource: DeskSource | undefined;
 let previousDesk: DeskSessions | undefined;
 
-/** Shared by React consumers and the waits selector, including modal roots. */
+/**
+ * The desk's one source of sessions. On a cold load the sidebar's list arrives first and full
+ * records load per session later, so which sessions exist always comes from the list.
+ * Shared by React consumers and the waits selector, including modal roots.
+ */
 export function selectDeskSessions(state: DeskSource): DeskSessions {
     if (previousDesk && previousSource?.sessions === state.sessions
         && previousSource.sessionListRenderables === state.sessionListRenderables

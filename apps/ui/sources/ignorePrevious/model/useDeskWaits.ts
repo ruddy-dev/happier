@@ -113,7 +113,8 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
             const transcript = entry ? { messages: readStoredSessionMessagesFromStateLike(entry), isLoaded: entry.isLoaded === true } : undefined;
             const value = collectSessionWait(row, session, transcript);
             const requestSignature = buildStableJsonSignature(value.input.requests);
-            // Streaming can replace a row without changing anything the waits UI displays.
+            // Same row and same requests: keep the input so item and detail identities survive.
+            // A replaced row gets a new input; the summary still compares equal, so its identity holds.
             if (cached && cached.requestSignature === requestSignature
                 && cached.value.input.row === row) {
                 value.input = cached.value.input;
