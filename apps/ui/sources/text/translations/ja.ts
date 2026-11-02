@@ -11426,7 +11426,7 @@ settingsSession: {
         work: 'Work',
         workList: {
             workerCount: ({ count }: { count: number }) => count === 1 ? '1 worker' : `${count} workers`,
-            cardLabel: ({ key, state, count, summary }: { key: string; state: string; count: string; summary: string }) => `${key}: ${state}. ${count}. ${summary}`,
+            cardLabel: ({ key, state, count, summary, unheard }: { key: string; state: string; count: string; summary: string; unheard: string }) => [`${key}: ${state}`, count, summary, unheard].filter(Boolean).join('. '),
             railLabel: ({ key, state, count }: { key: string; state: string; count: string }) => `${key}: ${state}. ${count}`,
         },
         noIssue: 'No issue',

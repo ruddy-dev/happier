@@ -1,13 +1,12 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
 
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { t } from '@/text';
 
 import { DeskText as Text } from '../typography/DeskText';
 import type { IssueGroup } from '../model/groupWorkers';
-import { bulbColour, deskThemes, useIpColours } from '../palette';
+import { bulbColour, useDeskPaint } from '../palette';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { WorkerActions } from './WorkerActions';
 
@@ -22,9 +21,7 @@ export type IssueCardProps = Readonly<{
  * bulb dot and word, and the newest worker's title. Open, it lists every worker on that issue.
  */
 export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }: IssueCardProps) {
-    const { theme } = useUnistyles();
-    const colours = useIpColours();
-    const paint = deskThemes[theme.dark ? 'night' : 'paper'];
+    const { paint, borderWidth, colours } = useDeskPaint();
     const navigateToSession = useNavigateToSession();
     const label = group.issueKey ?? t('ignorePrevious.noIssue');
     const newest = group.workers[0];
@@ -36,7 +33,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
             testID={`ip-issue-${group.issueKey ?? 'none'}`}
             style={{
                 borderRadius: 13,
-                borderWidth: theme.dark ? 1.5 : 2,
+                borderWidth,
                 borderColor: group.bulb === 'stuck' ? bulbColour(colours, group.bulb) : paint.rule,
                 backgroundColor: paint.panel2,
                 minWidth: 0,
@@ -50,14 +47,14 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
             <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded: open }}
-                accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: label, state: bulbWord(group.bulb), count, summary: newest?.title ?? '' })}
+                accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: label, state: bulbWord(group.bulb), count, summary: newest?.title ?? '', unheard: newest?.unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: newest.unheardMinutes }) : '' })}
                 onPress={onToggle}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8, paddingLeft: 12, paddingRight: 6, minWidth: 0, borderRadius: 11 }}
             >
                 {/* Reserved for the 40 px face in item 1.16; empty and decorative today. */}
                 <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }} />
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                    <Text accessibilityLabel={label} numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 15, fontWeight: '600' }}>
+                    <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 15, fontWeight: '600' }}>
                         {label}
                     </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 }}>
@@ -65,7 +62,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                         <Text testID={`ip-work-worker-count-${group.issueKey ?? 'none'}`} style={secondary}>{count}</Text>
                     </View>
                     {open || !newest ? null : (
-                        <Text accessibilityLabel={newest.title} style={secondary} numberOfLines={1} ellipsizeMode="tail">
+                        <Text style={secondary} numberOfLines={1} ellipsizeMode="tail">
                             {newest.title}
                         </Text>
                     )}
@@ -80,7 +77,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                 ? group.workers.map((worker) => (
                       <View key={worker.sessionId} style={{ minWidth: 0, gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: paint.rule }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                              <Text accessibilityLabel={worker.title} style={{ color: paint.ink, fontSize: 14, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">
+                              <Text style={{ color: paint.ink, fontSize: 14, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">
                                   {worker.title}
                               </Text>
                               {typeof worker.contextPercent === 'number' ? (

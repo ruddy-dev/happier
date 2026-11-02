@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
 
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
@@ -14,7 +13,7 @@ import { useCoordinatorId } from '../model/useCoordinatorId';
 import { workerUnheardMinutes } from '../model/workerFreshness';
 import { useDeskNow } from '../model/useDeskNow';
 import { useIssueKeys } from '../model/useIssueKeys';
-import { bulbColour, useIpColours } from '../palette';
+import { bulbColour, useDeskPaint } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { IssueCard } from './IssueCard';
@@ -53,8 +52,7 @@ const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'idle'];
 
 /** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
 function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolean }) {
-    const { theme } = useUnistyles();
-    const colours = useIpColours();
+    const { text, colours } = useDeskPaint();
     const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, idle: 0 };
     for (const row of rows) counts[row.bulb] += 1;
 
@@ -62,14 +60,14 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
         <View key={id} style={{ minWidth: 64, gap: 2 }}>
             <Text
                 testID={`ip-count-${id}`}
-                style={{ color: theme.colors.text.primary, fontSize: 22, fontWeight: '600' }}
+                style={{ color: text.primary, fontSize: 22, fontWeight: '600' }}
             >
                 {/* Before the first sync a 0 would be a false count, so each tile shows a dash. */}
                 {ready ? value : '–'}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 {dot ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
-                <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{label}</Text>
+                <Text style={{ color: text.secondary, fontSize: 12 }}>{label}</Text>
             </View>
         </View>
     );
@@ -88,8 +86,7 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
  * (the desk's collapsed rail) or a row (its narrow-screen strip).
  */
 export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
-    const { theme } = useUnistyles();
-    const colours = useIpColours();
+    const { text, inset, colours } = useDeskPaint();
     const desk = useDeskSessions();
     const { lookup, ready } = desk;
     // The coordinator is the chat beside this panel, not a worker: it gets no row, tile or card (L1).
@@ -125,10 +122,10 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
                 paddingHorizontal: 10,
                 paddingVertical: 4,
                 borderRadius: 8,
-                backgroundColor: active ? theme.colors.surface.inset : 'transparent',
+                backgroundColor: active ? inset : 'transparent',
             }}
         >
-            <Text style={{ color: active ? theme.colors.text.primary : theme.colors.text.secondary, fontSize: 13 }}>{label}</Text>
+            <Text style={{ color: active ? text.primary : text.secondary, fontSize: 13 }}>{label}</Text>
         </Pressable>
     );
 
@@ -150,11 +147,11 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
                             ) : null}
                             {/* Reserved for the 28 px face in item 1.16. */}
                             <View testID={`ip-rail-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 28, height: 28, flexShrink: 0 }} />
-                            <Text accessibilityLabel={label} style={{ color: theme.colors.text.primary, fontSize: 11, fontWeight: '600', maxWidth: '100%' }} numberOfLines={1} ellipsizeMode="tail">
+                            <Text style={{ color: text.primary, fontSize: 11, fontWeight: '600', maxWidth: '100%' }} numberOfLines={1} ellipsizeMode="tail">
                                 {label}
                             </Text>
                             <BulbLabel bulb={group.bulb} size={8} />
-                            <Text accessibilityLabel={t('ignorePrevious.workList.workerCount', { count: group.workers.length })} style={{ color: theme.colors.text.secondary, fontSize: 11 }}>{group.workers.length}</Text>
+                            <Text accessibilityLabel={t('ignorePrevious.workList.workerCount', { count: group.workers.length })} style={{ color: text.secondary, fontSize: 11 }}>{group.workers.length}</Text>
                         </View>
                     );
                 })}
@@ -165,7 +162,7 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     return (
         <View style={{ gap: 10, minWidth: 0, maxWidth: '100%' }}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                <Text style={{ color: theme.colors.text.primary, fontSize: 18, fontWeight: '600' }}>
+                <Text style={{ color: text.primary, fontSize: 18, fontWeight: '600' }}>
                     {t('ignorePrevious.work')}
                 </Text>
                 <View style={{ flexDirection: 'row', marginLeft: 'auto', gap: 4 }}>
