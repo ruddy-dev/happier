@@ -215,22 +215,24 @@ export function DeskScreen() {
         work = workCollapsed ? (
             <ScrollView
                 testID="ip-work-rail"
-                style={{ width: 104, flexGrow: 0, ...divider }}
-                contentContainerStyle={{ gap: 12, padding: 12 }}
+                horizontal={false}
+                showsHorizontalScrollIndicator={false}
+                style={{ width: 76, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...divider }}
+                contentContainerStyle={{ gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }}
             >
                 {expand}
                 <WorkColumn compact="column" />
             </ScrollView>
         ) : (
-            <ScrollView testID="ip-work" style={{ width: 360, flexGrow: 0, ...divider }} contentContainerStyle={{ gap: 8, padding: 16 }}>
+            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
                 <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
                 <WorkColumn />
             </ScrollView>
         );
     } else {
         work = workCollapsed ? (
-            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, ...divider }}>
-                <ScrollView horizontal style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center' }}>
+            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...divider }}>
+                <ScrollView horizontal={false} showsHorizontalScrollIndicator={false} style={{ flex: 1, minWidth: 0, maxHeight: Math.max(0, Math.round(height * 0.45) - 16), overflow: 'hidden' }} contentContainerStyle={{ minWidth: 0 }}>
                     <WorkColumn compact="row" />
                 </ScrollView>
                 {expand}
@@ -238,7 +240,9 @@ export function DeskScreen() {
         ) : (
             <ScrollView
                 testID="ip-work"
-                style={{ maxHeight: Math.round(height * 0.45), flexGrow: 0, ...divider }}
+                horizontal={false}
+                showsHorizontalScrollIndicator={false}
+                style={{ minWidth: 0, overflow: 'hidden', maxHeight: Math.round(height * 0.45), flexGrow: 0, ...divider }}
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
                 <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
@@ -250,7 +254,7 @@ export function DeskScreen() {
     const main = (
         <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
             {work}
-            <View style={{ flex: 1 }}>{coordinator}</View>
+            <View style={{ flex: 1, minWidth: 0 }}>{coordinator}</View>
         </View>
     );
 

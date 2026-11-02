@@ -308,6 +308,8 @@ interface AgentInputProps {
     };
     statusBadges?: ReadonlyArray<AgentInputStatusBadgeDescriptor>;
     statusTrailingActions?: React.ReactNode;
+    /** Host actions that remain visible when the built-in controls collapse. */
+    footerLeadingActions?: React.ReactNode;
     /** Hosts with an editable permission chip may omit the repeated status-row label. */
     showStatusPermissionMode?: boolean;
     activeStatusBadgeKey?: string | null;
@@ -3035,7 +3037,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         </>
     );
 
-    const renderActionRows = () => (
+    const renderActionRows = (leadingActions: React.ReactNode) => (
         <View style={styles.actionButtonsContainer}>
             <View
                 style={[
@@ -3047,6 +3049,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     key="row1"
                     style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null]}
                 >
+                    {leadingActions}
                     {actionBarShouldScroll ? (
                         <AgentInputScrollableChipRow
                             containerStyle={styles.actionButtonsLeftScroll}
@@ -3154,12 +3157,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
     const renderActionFooterSection = () => (
         <View
+            testID="agent-input-action-footer"
             style={styles.nativeKeyboardFooterSection}
             onLayout={(event) => {
                 updateLayoutHeight(setActionFooterHeightPx, event.nativeEvent.layout.height);
             }}
         >
-            {renderActionRows()}
+            {renderActionRows(props.footerLeadingActions)}
         </View>
     );
 

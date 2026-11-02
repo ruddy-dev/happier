@@ -12,6 +12,7 @@ import { Modal } from '@/modal';
 import { useSession, useSetting } from '@/sync/store/hooks';
 import { t } from '@/text';
 
+import { RunSettingsMenu } from './RunSettingsMenu';
 import { ContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
@@ -38,8 +39,9 @@ function openShog() {
  * fixtures folder is the second defence). The import is also directly inside a try block, which Metro counts as
  * an optional dependency, so a dev bundle made without the flag, which does not fold, still builds.
  */
-let fixtureBody: React.ComponentType | null = null;
-function getFixtureBody(inFixtureRoute: boolean): React.ComponentType | null {
+type FixtureBodyProps = { footerLeadingActions?: React.ReactNode };
+let fixtureBody: React.ComponentType<FixtureBodyProps> | null = null;
+function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBodyProps> | null {
     if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') {
         if (!inFixtureRoute) return null;
         try {
@@ -64,12 +66,13 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const enterHint = t('ignorePrevious.composer.enterHint');
     const composer = React.useMemo<SessionViewComposerOverrides>(() => ({
         placeholder,
+        footerLeadingActions: <RunSettingsMenu key={sessionId} />,
         statusTrailingActions: showEnterHint ? (
             <DeskText testID="ip-composer-enter-hint" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
                 {enterHint}
             </DeskText>
         ) : null,
-    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary]);
+    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary, sessionId]);
     // The meter needs the full record; it appears once the coordinator's record has loaded.
     const coordinator = useSession(sessionId);
     // On a cold load the desk knows the coordinator from the sidebar's list before its record has
@@ -104,7 +107,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             <View style={{ flex: 1 }}>
                 {FixtureBody ? (
                     <React.Suspense fallback={null}>
-                        <FixtureBody />
+                        <FixtureBody footerLeadingActions={composer.footerLeadingActions} />
                     </React.Suspense>
                 ) : (
                     <SessionView

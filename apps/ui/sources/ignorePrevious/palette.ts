@@ -26,9 +26,23 @@ export type IpColours = Readonly<{
     paleEye: string;
 }>;
 
-export function useIpColours(): IpColours {
+/** The current light/dark bridge; the future desk selector replaces this decision only. */
+export function useDeskPaint() {
     const { theme } = useUnistyles();
-    return theme.dark ? ipPalette.dark : ipPalette.light;
+    const selected = theme.dark
+        ? { paint: deskThemes.night, borderWidth: 1.5, colours: ipPalette.dark }
+        : { paint: deskThemes.paper, borderWidth: 2, colours: ipPalette.light };
+    return {
+        ...selected,
+        // Preserve existing Work chrome paint until the desk selector owns these roles too.
+        text: theme.colors.text,
+        inset: theme.colors.surface.inset,
+        strongBorder: theme.colors.border.strong,
+    };
+}
+
+export function useIpColours(): IpColours {
+    return useDeskPaint().colours;
 }
 
 export function bulbColour(colours: IpColours, bulb: Bulb): string {
