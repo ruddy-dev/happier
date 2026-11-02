@@ -10,18 +10,22 @@ import { bulbColour, useDeskPaint } from '../palette';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { WorkerActions } from './WorkerActions';
 import { WorkerUsageLimitLine } from './WorkerUsageLimitLine';
+import { WorkerSprite, type WorkerSpriteProps } from './WorkerSprite';
+import { spriteForModel } from '../sprites';
 
 export type IssueCardProps = Readonly<{
     group: IssueGroup;
     open: boolean;
     onToggle: () => void;
+    faceStyle?: WorkerSpriteProps['faceStyle'];
+    calm?: boolean;
 }>;
 
 /**
  * One issue in the Work column. Folded, it shows the issue key, the most urgent worker's state as a
  * bulb dot and word, and the newest worker's title. Open, it lists every worker on that issue.
  */
-export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }: IssueCardProps) {
+export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, faceStyle, calm }: IssueCardProps) {
     const { paint, borderWidth, colours } = useDeskPaint();
     const navigateToSession = useNavigateToSession();
     const label = group.issueKey ?? t('ignorePrevious.noIssue');
@@ -52,8 +56,9 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                 onPress={onToggle}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8, paddingLeft: 12, paddingRight: 6, minWidth: 0, borderRadius: 11 }}
             >
-                {/* Reserved for the 40 px face in item 1.16; empty and decorative today. */}
-                <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }} />
+                <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }}>
+                    <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
+                </View>
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 15, fontWeight: '600' }}>
                         {label}
@@ -78,6 +83,9 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                 ? group.workers.map((worker) => (
                       <View key={worker.sessionId} style={{ minWidth: 0, gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: paint.rule }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <View testID={`ip-worker-face-${worker.sessionId}`}>
+                                  <WorkerSprite kind={spriteForModel(worker.model)} bulb={worker.bulb} size={24} faceStyle={faceStyle} calm={calm} />
+                              </View>
                               <Text style={{ color: paint.ink, fontSize: 14, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">
                                   {worker.title}
                               </Text>

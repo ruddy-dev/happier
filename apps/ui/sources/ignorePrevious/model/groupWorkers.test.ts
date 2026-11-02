@@ -7,6 +7,18 @@ function row(partial: Partial<WorkerRow> & Pick<WorkerRow, 'sessionId'>): Worker
 }
 
 describe('groupWorkersByIssue', () => {
+    it('exposes the state-owning worker, with the most recent signal breaking urgency ties', () => {
+        const quiet = row({ sessionId: 'quiet', issueKey: 'ATR-9', bulb: 'idle', updatedAt: 300 });
+        const older = row({ sessionId: 'older', issueKey: 'ATR-9', bulb: 'turn', updatedAt: 400, lastActivityAt: 10 });
+        const newer = row({ sessionId: 'newer', issueKey: 'ATR-9', bulb: 'turn', updatedAt: 1, lastActivityAt: 20 });
+        for (const rows of [[quiet, older], [older, quiet]]) {
+            expect(groupWorkersByIssue(rows)[0]).toMatchObject({ bulb: 'turn', stateWorker: older });
+        }
+        for (const rows of [[quiet, older, newer], [newer, older, quiet]]) {
+            expect(groupWorkersByIssue(rows)[0]).toMatchObject({ bulb: 'turn', stateWorker: newer });
+            expect(groupWorkersByIssue(rows)[0].workers.map(worker => worker.sessionId)).toEqual(['quiet', 'newer', 'older']);
+        }
+    });
     it('finding 2: a Working issue precedes a newer Waiting issue', () => {
         const groups = groupWorkersByIssue([
             row({ sessionId: 'limited', issueKey: 'ATR-7', bulb: 'waiting', updatedAt: 100 }),
