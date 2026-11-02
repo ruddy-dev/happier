@@ -26,6 +26,7 @@ import {
     setStoredCoordinatorId,
     setWorkCollapsed,
 } from '../deskPrefs';
+import { useDeskWorkerRecordConsumers } from '../model/useDeskWorkerRecordConsumers';
 import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskSessions } from '../useDeskSessions';
 
@@ -149,6 +150,7 @@ export function DeskScreen() {
     const approvals = useApprovalsDrawer();
 
     const coordinatorId = useCoordinatorId(sessions);
+    useDeskWorkerRecordConsumers(sessions, coordinatorId);
 
     // Not persisted: a reload while choosing shows the stored coordinator again.
     const [changing, setChanging] = React.useState(false);
