@@ -3,7 +3,7 @@ import { View, Platform, Linking } from 'react-native';
 import * as React from 'react';
 import { encodeBase64 } from "@/encryption/base64";
 import { authGetToken } from "@/auth/flows/getToken";
-import { router, useRouter, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useRouter, useLocalSearchParams } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "@/platform/cryptoRandom";
 import { trackAccountCreated, trackAccountRestored } from '@/track';
@@ -139,6 +139,11 @@ function Authenticated() {
                 <DesktopLocalSetupPanel />
             </View>
         );
+    }
+    // Only ordinary web roots open the desk; every query keeps its existing owner.
+    const hasWebQuery = Platform.OS === 'web' && Object.keys(params).length > 0;
+    if (!hasWebQuery && !String(sessionId ?? '').trim() && isAuthenticatedRootDeepLinkRedirectAllowed() && !getPendingTerminalConnect()) {
+        return <Redirect href="/desk" />;
     }
     return <MainView variant="phone" />;
 }
