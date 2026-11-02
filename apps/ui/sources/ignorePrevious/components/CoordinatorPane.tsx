@@ -13,7 +13,8 @@ import { useSession, useSetting } from '@/sync/store/hooks';
 import { t } from '@/text';
 
 import { RunSettingsMenu } from './RunSettingsMenu';
-import { ContextMeter } from './ContextMeter';
+import { ContextGauge } from './ContextGauge';
+import { sessionContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { MaskFace } from './MaskFace';
 import { ShogView } from './ShogView';
@@ -39,7 +40,7 @@ function openShog() {
  * fixtures folder is the second defence). The import is also directly inside a try block, which Metro counts as
  * an optional dependency, so a dev bundle made without the flag, which does not fold, still builds.
  */
-type FixtureBodyProps = { footerLeadingActions?: React.ReactNode };
+type FixtureBodyProps = { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode };
 let fixtureBody: React.ComponentType<FixtureBodyProps> | null = null;
 function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBodyProps> | null {
     if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') {
@@ -64,17 +65,21 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const showEnterHint = enterToSend === true && !isMobileLayoutWidth(windowWidth) && !isMobileLayoutWidth(chatWidth);
     const placeholder = t('ignorePrevious.composer.placeholder');
     const enterHint = t('ignorePrevious.composer.enterHint');
+    const coordinator = useSession(sessionId);
     const composer = React.useMemo<SessionViewComposerOverrides>(() => ({
         placeholder,
         footerLeadingActions: <RunSettingsMenu key={sessionId} />,
-        statusTrailingActions: showEnterHint ? (
-            <DeskText testID="ip-composer-enter-hint" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
-                {enterHint}
-            </DeskText>
-        ) : null,
-    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary, sessionId]);
-    // The meter needs the full record; it appears once the coordinator's record has loaded.
-    const coordinator = useSession(sessionId);
+        providerUsageGauge: null,
+        hide: { contextUsage: true },
+        statusTrailingActions: (showEnterHint || (coordinator && sessionContextMeter(coordinator))) ? <>
+            {showEnterHint ? (
+                <DeskText testID="ip-composer-enter-hint" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
+                    {enterHint}
+                </DeskText>
+            ) : null}
+            {coordinator ? <ContextGauge session={coordinator} /> : null}
+        </> : null,
+    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary, sessionId, coordinator]);
     // On a cold load the desk knows the coordinator from the sidebar's list before its record has
     // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does,
     // and hand SessionView the state so it shows loading or retrying instead of "isn't available".
@@ -99,7 +104,6 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                 </Text>
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 13 }}>{t('ignorePrevious.coordinatorNickname')}</Text>
                 <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    {coordinator ? <ContextMeter session={coordinator} /> : null}
                     {headerAccessory}
                 </View>
             </View>
@@ -107,7 +111,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             <View style={{ flex: 1 }}>
                 {FixtureBody ? (
                     <React.Suspense fallback={null}>
-                        <FixtureBody footerLeadingActions={composer.footerLeadingActions} />
+                        <FixtureBody footerLeadingActions={composer.footerLeadingActions} statusTrailingActions={composer.statusTrailingActions} />
                     </React.Suspense>
                 ) : (
                     <SessionView

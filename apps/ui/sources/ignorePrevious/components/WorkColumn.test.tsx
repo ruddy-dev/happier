@@ -118,6 +118,7 @@ describe('WorkColumn', () => {
         storage.setState(previous, true);
         vi.useRealTimers();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
         resetServerFeaturesClientForTests();
     });
 
@@ -267,6 +268,19 @@ describe('WorkColumn', () => {
         expect(screen.findByTestId('ip-worker-usage-limit-limited')).toBeNull();
         expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(0);
     });
+
+    it.each([[95_500, 43], [197_800, 90], [220_000, 100], [242_000, 110]])(
+        'Finding 4 displays the canonical context percentage for %i tokens', async (used, percent) => {
+            vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE', '220000');
+            seed([session('worker-context', '/workspace/project', { latestUsage: {
+                inputTokens: 0, outputTokens: 0, cacheCreation: 0, cacheRead: 0,
+                contextSize: used, contextSizeIsReported: true, contextWindowTokens: 1_000_000, timestamp: 1,
+            } })]);
+            const screen = await renderColumn();
+            await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+            expect(screen.findByTestId('ip-worker-context-worker-context')?.props.children).toEqual([percent, '%']);
+        },
+    );
 
     it('groups live workers by issue, puts a working issue above idle No issue and leaves out archived ones', async () => {
         seed([
