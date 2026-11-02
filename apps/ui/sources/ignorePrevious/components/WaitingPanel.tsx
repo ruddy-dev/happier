@@ -171,8 +171,15 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
                     </Text>
                 </>
             )}
+            {item.kind !== 'user_action' && item.disabledReason ? (
+                <Text style={styles.secondary}>
+                    {item.disabledReason === 'readOnly'
+                        ? t('session.sharing.permissionApprovalsDisabledReadOnly')
+                        : t('session.sharing.permissionApprovalsDisabledNotGranted')}
+                </Text>
+            ) : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {item.kind === 'user_action' ? null : (
+                {item.kind === 'user_action' || item.disabledReason ? null : (
                     <>
                         {answerButton('allow', t('ignorePrevious.allow', { tool: item.tool }), () =>
                             sessionAllow(item.sessionId, item.requestId),

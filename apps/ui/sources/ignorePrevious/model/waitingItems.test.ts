@@ -63,6 +63,7 @@ describe('toWaitingItems', () => {
             {
                 sessionId: 's1',
                 sessionTitle: 'Builder',
+                disabledReason: null,
                 requests: [
                     { id: 'r1', tool: 'Bash', kind: 'permission', arguments: { command: 'ls', description: 'List files' }, createdAt: 30 },
                     { id: 'r2', tool: 'Edit', kind: 'permission', arguments: { file_path: 'a.ts' }, createdAt: null },
@@ -71,11 +72,13 @@ describe('toWaitingItems', () => {
             {
                 sessionId: 's2',
                 sessionTitle: 'Reviewer',
+                disabledReason: 'readOnly',
                 requests: [{ id: 'r3', tool: 'Bash', kind: 'permission', arguments: { command: 'pwd' }, createdAt: 10 }],
             },
         ]);
         expect(items.map((i) => i.key)).toEqual(['s2:r3', 's1:r1', 's1:r2']);
         expect(items[1]).toMatchObject({ sessionId: 's1', requestId: 'r1', sessionTitle: 'Builder', summary: 'ls', detail: 'ls', agentNote: 'List files', kind: 'permission' });
         expect(items[2].agentNote).toBeNull();
+        expect(items[0].disabledReason).toBe('readOnly');
     });
 });

@@ -2,6 +2,9 @@ import { extractShellCommand } from '@happier-dev/protocol';
 
 import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 
+/** Why you can't answer a request from here, as the session's own footer would say; null when you can. */
+export type WaitingDisabledReason = 'readOnly' | 'notGranted' | null;
+
 export type WaitingItem = {
     key: string;
     sessionId: string;
@@ -17,6 +20,8 @@ export type WaitingItem = {
     /** The agent's own description of the request: a claim, shown labelled as the agent's. */
     agentNote: string | null;
     createdAt: number | null;
+    /** Set for a shared session you may watch but not approve in: the card shows no Allow or Deny. */
+    disabledReason: WaitingDisabledReason;
 };
 
 const MAX_SUMMARY = 140;
@@ -91,9 +96,14 @@ export function describeRequest(tool: string, args: unknown): string {
 }
 
 export function toWaitingItems(
-    input: readonly { sessionId: string; sessionTitle: string; requests: readonly SessionPendingRequest[] }[],
+    input: readonly {
+        sessionId: string;
+        sessionTitle: string;
+        requests: readonly SessionPendingRequest[];
+        disabledReason: WaitingDisabledReason;
+    }[],
 ): WaitingItem[] {
-    const items = input.flatMap(({ sessionId, sessionTitle, requests }) =>
+    const items = input.flatMap(({ sessionId, sessionTitle, requests, disabledReason }) =>
         requests.map((request) => ({
             key: `${sessionId}:${request.id}`,
             sessionId,
@@ -105,6 +115,7 @@ export function toWaitingItems(
             detail: describeRequest(request.tool, request.arguments),
             agentNote: stringField(request.arguments, 'description'),
             createdAt: request.createdAt,
+            disabledReason,
         })),
     );
     return items.sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

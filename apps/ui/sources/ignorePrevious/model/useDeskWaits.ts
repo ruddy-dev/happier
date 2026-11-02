@@ -6,6 +6,7 @@ import type { Message } from '@/sync/domains/messages/messageTypes';
 import { readStoredSessionMessagesFromStateLike } from '@/sync/domains/messages/readStoredSessionMessages';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
+import { deriveTranscriptInteraction } from '@/utils/sessions/deriveTranscriptInteraction';
 import {
     getSessionName,
     getSessionStatus,
@@ -15,12 +16,28 @@ import {
 } from '@/utils/sessions/sessionUtils';
 
 import { useDeskSessions } from '../useDeskSessions';
-import { toWaitingItems, type WaitingItem } from './waitingItems';
+import { toWaitingItems, type WaitingDisabledReason, type WaitingItem } from './waitingItems';
 
 /** A session that says it is waiting on you, but whose requests live in a record or transcript not loaded here. */
 export type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string }>;
 
 export type DeskWaits = Readonly<{ items: WaitingItem[]; unloaded: UnloadedWait[]; count: number; ready: boolean }>;
+
+/**
+ * Whether you may answer this session's requests, by the same policy as its transcript footer.
+ * Only live sessions' requests reach the desk, so activity is not the question here. Fails closed:
+ * a refusal with no reason the desk can name reads as "not granted".
+ */
+function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisabledReason {
+    const interaction = deriveTranscriptInteraction({
+        kind: 'session',
+        accessLevel: row.accessLevel,
+        canApprovePermissions: row.canApprovePermissions,
+        isSessionActive: true,
+    });
+    if (interaction.canApprovePermissions) return null;
+    return interaction.permissionDisabledReason === 'readOnly' ? 'readOnly' : 'notGranted';
+}
 
 /**
  * What waits on you, from the desk's sessions. Name and state come from the list row, as in the
@@ -39,7 +56,13 @@ export function collectWaits(
         const permissions = session ? listPendingPermissionRequests(session, messages) : [];
         const seen = new Set(permissions.map((request) => request.id));
         const questions = session ? listPendingUserActionRequests(session, messages).filter((request) => !seen.has(request.id)) : [];
-        return { row, sessionId: row.id, sessionTitle: getSessionName(row), requests: [...permissions, ...questions] };
+        return {
+            row,
+            sessionId: row.id,
+            sessionTitle: getSessionName(row),
+            requests: [...permissions, ...questions],
+            disabledReason: approvalDisabledReason(row),
+        };
     });
     const unloaded = input
         .filter(({ row, requests }) => {

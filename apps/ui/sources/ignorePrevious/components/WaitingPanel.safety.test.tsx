@@ -246,4 +246,38 @@ describe('WaitingPanel safety', () => {
         const screen = await renderPanel();
         expect(textUnder(screen.findByTestId('ip-waiting'))).toContain('https://example.invalid/x');
     });
+
+    it('W9: a view-only session shows no Allow or Deny', async () => {
+        seed([sessionWithRequest('s1', 'r13', { tool: 'Bash', arguments: { command: 'npm test' } }, { accessLevel: 'view' })]);
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-allow-r13')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-r13')).toBeNull();
+        const waiting = textUnder(screen.findByTestId('ip-waiting'));
+        expect(waiting).toContain('You have view-only access to this session.');
+        expect(waiting).toContain('npm test');
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session'), 'Open session');
+        expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
+        expect(permissionCalls()).toHaveLength(0);
+    });
+
+    it('W9: edit access without approval rights says the owner did not allow it', async () => {
+        seed([
+            sessionWithRequest('s1', 'r14', { tool: 'Bash', arguments: { command: 'npm test' } }, { accessLevel: 'edit', canApprovePermissions: false }),
+        ]);
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-allow-r14')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-r14')).toBeNull();
+        expect(textUnder(screen.findByTestId('ip-waiting'))).toContain(
+            'The owner did not allow you to approve permissions for this session.',
+        );
+    });
+
+    it('W9: edit access with approval rights keeps the buttons', async () => {
+        seed([
+            sessionWithRequest('s1', 'r15', { tool: 'Bash', arguments: { command: 'npm test' } }, { accessLevel: 'edit', canApprovePermissions: true }),
+        ]);
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-allow-r15')).toBeTruthy();
+        expect(screen.findByTestId('ip-waiting-deny-r15')).toBeTruthy();
+    });
 });
