@@ -5,10 +5,11 @@ import { getPermissionModeOverrideForSpawn } from '@/sync/domains/permissions/pe
 import { summariseRequest } from './waitingItems';
 
 /** Local selection is intent; metadata is the last published mode, not a runtime acknowledgement. */
-export function workerPermissionMode(session: Session) {
+export function workerPermissionMode(session: Session, outcome: string | null = null) {
     const pending = getPermissionModeOverrideForSpawn(session);
     return {
         current: parsePermissionIntentAlias(session.metadata?.permissionMode ?? ''),
+        confirmed: resolveAgentIdFromSessionMetadata(session.metadata) === 'claude' ? outcome : null,
         pending: pending?.permissionMode ?? null,
     };
 }
