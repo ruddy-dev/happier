@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Serve a flag-on web export and shoot the dev-only desk fixture route in system Chrome.
 // Usage: node scripts/ipFixtureShots.mjs <export-dir> <out-dir> [chrome-path]   (run from apps/ui)
+// Sheet: append --sheet <mockup-12-dir>. All captures and index.html go under out-dir.
 // - Static server on a random 127.0.0.1 port, SPA fallback to index.html. The runtime config points the app's
 //   server at that same origin, so nothing defaults to a hosted server.
 // - Network guard (installNetworkGuard): any http(s) request to a host other than 127.0.0.1, localhost or [::1]
@@ -9,13 +10,102 @@
 // - Reduced motion, a frozen clock, no GPU; shots at 1440x900 (also with the approvals drawer open) and 390x844.
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const NETWORK_PROTOCOLS = new Set(['http:', 'https:', 'ws:', 'wss:']);
+
+// App key -> mockup-12/scripts/shoot.js THEMES + hashOf. Keep the correspondence in one place.
+export const THEME_MAP = Object.freeze(Object.fromEntries([
+    ['night', 'slip', 'dark', 'dark'], ['paper', 'slip', 'light', 'light'],
+    ['tokyo', 'term', 'tokyo', 'dark'], ['kanagawa', 'term', 'kanagawa', 'dark'],
+    ['gruvbox', 'term', 'gruvbox', 'dark'], ['dracula', 'term', 'dracula', 'dark'],
+    ['terminalPaper', 'term', 'paper', 'light'],
+].map(([key, style, variant, mode]) => [key, Object.freeze({
+    style, variant, mode, hash: `#${style}${variant === 'dark' || variant === 'tokyo' ? '' : `-${variant}`}`,
+})])));
+
+const EXTRA_PAGES = [
+    { page: 'sign-in', label: 'Sign-in', appPath: '/', readyTestId: 'unauth-shell-route-welcome',
+        mockupGap: 'Mockup 12 has no sign-in page.' },
+    { page: 'restore', label: 'Secret-key restore', appPath: '/restore/manual', readyTestId: 'restore-manual-secret-input',
+        mockupGap: 'Mockup 12 has no secret-key restore page.' },
+    { page: 'voice', label: 'Settings > Voice', appPath: '/settings/voice', mockupSection: '#voT',
+        appGap: 'Auth required for /settings/voice. The signed-out fixture cannot render this page.' },
+    { page: 'robots', label: 'Settings > Robots', appPath: '/desk/settings', mockupSection: '#rbT',
+        appGap: 'Auth required for /desk/settings. Leaving the fixture does not authorize the Robots page.' },
+];
+
+export function buildShotMatrix(mode = 'legacy') {
+    if (mode === 'legacy') return [
+        ['1440', 1440, 900, false], ['1440-approvals', 1440, 900, true], ['390', 390, 844, false],
+    ].map(([name, width, height, openApprovals]) => ({
+        name, width, height, openApprovals, page: 'desk', appPath: ROUTE,
+        appImage: `p0-6-desk-fixture-${name}.png`,
+    }));
+    if (mode !== 'sheet') throw new Error(`Unknown shot mode: ${mode}`);
+    return Object.entries(THEME_MAP).flatMap(([theme, mapping]) =>
+        [[1440, 900], [1100, 800], [390, 844]].flatMap(([width, height]) => {
+            const pages = [{ page: 'desk', label: 'Desk fixture', appPath: ROUTE }];
+            if ((theme === 'night' || theme === 'paper') && width !== 1100) pages.push(...EXTRA_PAGES);
+            return pages.map(page => {
+                const name = `${theme}-${width}-${page.page}`;
+                return { ...page, theme, width, height, name, openApprovals: false, mockupHash: mapping.hash,
+                    appImage: `app/${name}.png`, mockupImage: `mockup/${name}.png`,
+                    note: page.page === 'desk' && mapping.style === 'term'
+                        ? 'Terminal palette is seeded through desk prefs. Current app chrome still uses the light/dark profile.' : '',
+                };
+            });
+        }));
+}
+
+/** react-native-mmkv 3.3.3 createMMKV.web.ts prefixes keys with "mmkv.default\\".
+ * persistence.ts reads local-settings; deskPrefs.ts reads the two string preferences below.
+ * Fresh browser contexts have no credentials. Do not seed account/auth state here.
+ */
+export function buildStorageSeed(theme) {
+    const mapping = THEME_MAP[theme];
+    if (!mapping) throw new Error(`Unknown desk theme: ${theme}`);
+    return {
+        'mmkv.default\\local-settings': JSON.stringify({
+            themePreference: mapping.mode,
+            themeProfiles: { profiles: [], activeProfileIds: { light: 'ignorePreviousLight', dark: 'ignorePrevious' } },
+        }),
+        'mmkv.default\\ignorePrevious.chatStyle': mapping.style === 'term' ? 'terminal' : 'mask',
+        'mmkv.default\\ignorePrevious.terminalPalette': mapping.style === 'term' ? theme : 'tokyo',
+    };
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+}
+
+export function renderSheetHtml(shots) {
+    const cell = (shot, side, label) => {
+        const gap = shot[`${side}Error`] || shot[`${side}Gap`];
+        return `<figure><figcaption>${label}</figcaption>${gap
+            ? `<p class="gap">Gap: ${escapeHtml(gap)}</p>`
+            : `<a href="${escapeHtml(shot[`${side}Image`])}"><img src="${escapeHtml(shot[`${side}Image`])}" width="${shot.width}" height="${shot.height}" alt="${escapeHtml(`${label}: ${shot.label}, ${shot.theme}, ${shot.width}x${shot.height}`)}" loading="lazy"></a>`}</figure>`;
+    };
+    return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 1 desk comparisons</title><style>
+body { margin: 24px; font: 16px system-ui, sans-serif; color: #202124; background: #eee; }
+h1 { font-size: 24px; } h2 { font-size: 18px; } section { margin: 32px 0; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+figure { margin: 0; min-width: 0; background: white; } figcaption { padding: 8px; font-weight: bold; }
+img { display: block; width: 100%; height: auto; } .gap { padding: 16px; } .note { max-width: 90ch; }
+a { color: inherit; } </style></head><body>
+<h1>Phase 1 desk comparisons</h1>
+<p>App on the left, mockup 12 on the right. Click an image for its original size. Labels name the requested theme and viewport.</p>
+${shots.map(shot => `<section id="${escapeHtml(shot.name)}"><h2>${escapeHtml(shot.theme)} · ${shot.width}x${shot.height} · ${escapeHtml(shot.label)}</h2>
+${shot.note ? `<p class="note">${escapeHtml(shot.note)}</p>` : ''}
+<div class="pair">${cell(shot, 'app', 'App')}${cell(shot, 'mockup', 'Mockup 12')}</div></section>`).join('\n')}
+</body></html>\n`;
+}
 
 /** True for a request the shot run must not make. Unparseable URLs count as forbidden. */
 export function isForbiddenRequestUrl(raw) {
@@ -92,73 +182,158 @@ function startStatic(dist) {
         res.writeHead(200, { 'content-type': MIME['.html'], 'cache-control': 'no-store' });
         res.end(i >= 0 ? indexHtml.slice(0, i) + boot + indexHtml.slice(i) : boot + indexHtml);
     });
-    return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, served })));
+    return new Promise((ok, fail) => server.once('error', fail).listen(0, '127.0.0.1', () => ok({ server, served })));
+}
+
+export async function waitForAppReady(page, shot) {
+    if (shot.page !== 'desk') {
+        await page.getByTestId(shot.readyTestId).waitFor({ state: 'visible', timeout: 60_000 });
+        return;
+    }
+    // The 390 shot opens on Coordinator. Work stays mounted behind its phone tab.
+    const state = shot.width === 390 ? 'attached' : 'visible';
+    await page.getByTestId('ip-work').waitFor({ state, timeout: 60_000 });
+    await page.getByText('ABC-12', { exact: false }).first().waitFor({ state, timeout: 30_000 });
+    await page.getByTestId('ip-fixture-coordinator-body').waitFor({ state: 'visible', timeout: 30_000 });
+}
+
+async function captureApp(page, shot, origin) {
+    await page.goto(`${origin}${shot.appPath}`, { waitUntil: 'load', timeout: 90_000 });
+    await waitForAppReady(page, shot);
+    if (shot.openApprovals) await page.getByTestId('ip-approvals-open').click();
+    await page.clock.runFor(1000);
+    await page.evaluate(() => document.fonts.ready);
+    const facts = await page.evaluate(() => ({
+        path: location.pathname,
+        sideways: document.documentElement.scrollWidth > innerWidth + 1,
+        restorePrompt: document.body.innerText.includes('Restore with Secret Key'),
+        testIds: [...new Set([...document.querySelectorAll('[data-testid^="ip-"]')].map(e => e.getAttribute('data-testid')))],
+    }));
+    if (facts.path !== shot.appPath) throw new Error(`Redirected from ${shot.appPath} to ${facts.path}`);
+    if (shot.page === 'desk' && facts.restorePrompt) throw new Error('Account prompt shown instead of fixture coordinator');
+    return facts;
+}
+
+async function captureMockup(page, shot, origin) {
+    await page.goto(`${origin}/${shot.mockupHash}`, { waitUntil: 'load', timeout: 90_000 });
+    await page.locator('#app').waitFor({ state: 'visible' });
+    const mapping = THEME_MAP[shot.theme];
+    const theme = await page.evaluate(() => ({ ...document.documentElement.dataset }));
+    if (theme.style !== mapping.style || theme.v !== mapping.variant) {
+        throw new Error(`Mockup theme mismatch: ${JSON.stringify(theme)}`);
+    }
+    if (shot.mockupSection) {
+        await page.locator('#setBtn').click();
+        await page.locator('#settings').waitFor({ state: 'visible' });
+        await page.locator(shot.mockupSection).scrollIntoViewIfNeeded();
+    }
+    await page.clock.runFor(1000);
+    await page.evaluate(() => document.fonts.ready);
+    return { hash: shot.mockupHash, section: shot.mockupSection ?? 'desk' };
 }
 
 async function main() {
-    const [distArg, outArg, chromeArg] = process.argv.slice(2);
-    if (!distArg || !outArg) {
-        console.error('usage: ipFixtureShots.mjs <export-dir> <out-dir> [chrome-path]');
-        process.exit(2);
+    const args = process.argv.slice(2);
+    const sheetIndex = args.indexOf('--sheet');
+    const mockupArg = sheetIndex < 0 ? null : args[sheetIndex + 1];
+    if (sheetIndex >= 0) args.splice(sheetIndex, 2);
+    const [distArg, outArg, chromeArg] = args;
+    if (!distArg || !outArg || args.length > 3 || args.some(arg => arg.startsWith('--')) || (sheetIndex >= 0 && !mockupArg)) {
+        console.error('usage: ipFixtureShots.mjs <export-dir> <out-dir> [chrome-path] [--sheet <mockup-12-dir>]');
+        process.exitCode = 2;
+        return;
     }
     const dist = resolve(distArg);
     const out = resolve(outArg);
     const chromePath = chromeArg ?? process.env.IP_CHROME_PATH ?? '/usr/bin/google-chrome';
-    const { chromium } = createRequire(join(process.cwd(), 'package.json'))('playwright-core');
+    // packages/tests owns the pinned dependency; resolution must not depend on the invoking cwd.
+    const { chromium } = createRequire(new URL('../../../packages/tests/package.json', import.meta.url))('playwright-core');
 
-    const { server, served } = await startStatic(dist);
-    const origin = `http://127.0.0.1:${server.address().port}`;
-    await mkdir(out, { recursive: true });
+    const shots = buildShotMatrix(mockupArg ? 'sheet' : 'legacy');
+    const servers = [];
     const blocked = [];
     const pageErrors = [];
     const consoleErrors = [];
     let browser;
     let failed = false;
     try {
+        await mkdir(out, { recursive: true });
+        const appHost = await startStatic(dist);
+        servers.push(appHost);
+        const origin = `http://127.0.0.1:${appHost.server.address().port}`;
+        let mockupOrigin;
+        if (mockupArg) {
+            const mockupHost = await startStatic(resolve(mockupArg));
+            servers.push(mockupHost);
+            mockupOrigin = `http://127.0.0.1:${mockupHost.server.address().port}`;
+            await mkdir(join(out, 'app'), { recursive: true });
+            await mkdir(join(out, 'mockup'), { recursive: true });
+        }
         browser = await chromium.launch({ executablePath: chromePath, headless: true, args: ['--disable-gpu'] });
         console.log(`chrome ${browser.version()} at ${chromePath}; serving ${dist} on ${origin}`);
-        for (const [name, width, height, openApprovals] of [['1440', 1440, 900, false], ['1440-approvals', 1440, 900, true], ['390', 390, 844, false]]) {
-            const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', serviceWorkers: 'block' });
-            await installNetworkGuard(context, blocked);
-            const page = await context.newPage();
-            page.on('pageerror', (e) => pageErrors.push(`${name}: ${e.message}`));
-            page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(`${name}: ${m.text().slice(0, 300)}`); });
-            await page.clock.install({ time: FIXED_TIME });
-            const t = Date.now();
-            await page.goto(`${origin}${ROUTE}`, { waitUntil: 'load', timeout: 90_000 });
-            // Visible outcomes, not sleeps: the Work column with a fixture issue, and the stub coordinator body.
-            await page.getByTestId('ip-work').waitFor({ state: 'visible', timeout: 60_000 });
-            await page.getByText('ABC-12', { exact: false }).first().waitFor({ timeout: 30_000 });
-            await page.getByTestId('ip-fixture-coordinator-body').waitFor({ state: 'visible', timeout: 30_000 });
-            if (openApprovals) await page.getByTestId('ip-approvals-open').click();
-            await page.clock.runFor(1000);
-            const facts = await page.evaluate(() => ({
-                path: location.pathname,
-                sideways: document.documentElement.scrollWidth > innerWidth + 1,
-                restorePrompt: document.body.innerText.includes('Restore with Secret Key'),
-                testIds: [...new Set([...document.querySelectorAll('[data-testid^="ip-"]')].map((e) => e.getAttribute('data-testid')))],
-            }));
-            const file = join(out, `p0-6-desk-fixture-${name}.png`);
-            await page.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
-            console.log(`${name}: ${Date.now() - t} ms to visible; ${JSON.stringify(facts)} -> ${file}`);
-            if (facts.path !== ROUTE) { failed = true; console.log(`FAIL ${name}: redirected to ${facts.path}`); }
-            if (facts.restorePrompt) { failed = true; console.log(`FAIL ${name}: the account prompt is showing, so the coordinator stub is not in place`); }
-            await context.close();
+        for (const shot of shots) for (const side of mockupArg ? ['app', 'mockup'] : ['app']) {
+            if (shot[`${side}Gap`]) {
+                console.log(`GAP ${shot.name} ${side}: ${shot[`${side}Gap`]}`);
+                continue;
+            }
+            const context = await browser.newContext({ viewport: { width: shot.width, height: shot.height },
+                colorScheme: shot.theme ? THEME_MAP[shot.theme].mode : 'light',
+                reducedMotion: 'reduce', serviceWorkers: 'block' });
+            try {
+                await installNetworkGuard(context, blocked);
+                if (side === 'app' && shot.theme) {
+                    await context.addInitScript(seed => {
+                        for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, value);
+                    }, buildStorageSeed(shot.theme));
+                }
+                const page = await context.newPage();
+                const name = `${shot.name} ${side}`;
+                page.on('pageerror', e => { pageErrors.push(`${name}: ${e.message}`); });
+                page.on('console', m => { if (m.type() === 'error') consoleErrors.push(`${name}: ${m.text().slice(0, 300)}`); });
+                await page.clock.install({ time: FIXED_TIME });
+                await page.clock.setFixedTime(FIXED_TIME);
+                const started = Date.now();
+                const facts = side === 'app' ? await captureApp(page, shot, origin) : await captureMockup(page, shot, mockupOrigin);
+                const file = join(out, shot[`${side}Image`]);
+                await page.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
+                console.log(`${name}: ${Date.now() - started} ms; ${JSON.stringify(facts)} -> ${file}`);
+            } catch (error) {
+                failed = true;
+                shot[`${side}Error`] = error.message;
+                console.log(`FAIL ${shot.name} ${side}: ${error.stack ?? error}`);
+            } finally {
+                await context.close();
+            }
         }
     } catch (e) {
         failed = true;
-        console.log(`FAIL: ${e.message}`);
+        // If setup failed, the sheet must not refer to missing or previous-run images as successes.
+        for (const shot of shots) for (const side of ['app', 'mockup']) {
+            if (!shot[`${side}Gap`]) shot[`${side}Error`] = `Run interrupted: ${e.message}`;
+        }
+        console.log(`FAIL: ${e.stack ?? e}`);
     } finally {
-        await browser?.close();
-        server.close();
-        server.closeAllConnections?.();
+        try {
+            await browser?.close();
+        } finally {
+            for (const { server } of servers) {
+                server.close();
+                server.closeAllConnections?.();
+            }
+        }
+        if (mockupArg) {
+            await writeFile(join(out, 'index.html'), renderSheetHtml(shots));
+            console.log(`sheet: ${join(out, 'index.html')}`);
+        }
     }
+    const served = servers.flatMap(host => host.served);
     console.log(`served ${served.length} requests; local API-ish paths: ${JSON.stringify([...new Set(served.filter((p) => p.startsWith('/v') || p.includes('socket')))].slice(0, 20))}`);
     console.log(`blocked non-local requests: ${blocked.length}${blocked.length ? '\n  ' + [...new Set(blocked)].join('\n  ') : ''}`);
     console.log(`page errors: ${pageErrors.length}${pageErrors.length ? '\n  ' + pageErrors.join('\n  ') : ''}`);
     console.log(`console errors: ${consoleErrors.length}${consoleErrors.length ? '\n  ' + [...new Set(consoleErrors)].slice(0, 15).join('\n  ') : ''}`);
     if (blocked.length) failed = true;
-    process.exit(failed ? 1 : 0);
+    if (pageErrors.length) failed = true;
+    process.exitCode = failed ? 1 : 0;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();
