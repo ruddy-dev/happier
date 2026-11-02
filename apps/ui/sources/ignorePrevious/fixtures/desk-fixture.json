@@ -13,9 +13,7 @@
     "composerPlaceholder": "Message the coordinator",
     "transcript": [
       { "from": "you", "text": "What is waiting on me?" },
-      { "from": "agent", "text": "ABC-14 wants to run npm run build. ABC-12 is still working on the overlay. XYZ-3 finished its docs pass and has stopped." },
-      { "from": "you", "text": "Allow the build, then tell me when ABC-12 is done." },
-      { "from": "agent", "text": "Done. I will tell you as soon as ABC-12 reports back." }
+      { "from": "agent", "text": "ABC-14 wants to run npm run build and is waiting for your answer. ABC-12 is still working on the overlay. XYZ-3 finished its docs pass and has stopped." }
     ]
   }
 }
