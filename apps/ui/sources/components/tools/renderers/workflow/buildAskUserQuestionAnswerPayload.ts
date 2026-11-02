@@ -65,12 +65,12 @@ export function areAskUserQuestionsAnswered(params: Readonly<{
     freeformAnswers: ReadonlyMap<number, string>;
 }>): boolean {
     return params.questions.every((question, index) => {
-        const options = Array.isArray(question.options) ? question.options : [];
+        const options = Array.isArray(question?.options) ? question.options : [];
         const typed = params.freeformAnswers.get(index);
         const hasTyped = typeof typed === 'string' && typed.trim().length > 0;
-        if (options.length === 0) return hasTyped || question.freeform?.allowEmpty === true;
+        if (options.length === 0) return hasTyped || question?.freeform?.allowEmpty === true;
         const hasSelection = (params.selections.get(index)?.size ?? 0) > 0;
-        return question.freeform ? hasSelection || hasTyped : hasSelection;
+        return question?.freeform ? hasSelection || hasTyped : hasSelection;
     });
 }
 

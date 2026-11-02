@@ -2,9 +2,7 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { createPermissionActionDispatchGuard } from '@/components/tools/shell/permissions/permissionActionDispatchGuard';
-import { isClaudeUnifiedTerminalDialogChoiceAgentStateRequest } from '@happier-dev/agents';
-import { normalizeAskUserQuestionRenderQuestions } from '@/components/tools/renderers/workflow/buildAskUserQuestionAnswerPayload';
-import { resolveAgentRequestKind } from '@/utils/sessions/permissions/permissionPromptPolicy';
+import { resolveWaitingQuestions } from '../model/waitingQuestions';
 import { WaitingQuestion } from './WaitingQuestion';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
@@ -99,14 +97,8 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
     const [questionError, setQuestionError] = React.useState<string | null>(null);
     const request = storage(state => state.sessions[item.sessionId]?.agentState?.requests?.[item.requestId]);
     const questions = React.useMemo(() => {
-        if (isCoordinator || item.disabledReason || item.kind !== 'user_action' || request?.tool !== 'AskUserQuestion'
-            || resolveAgentRequestKind({ toolName: request.tool, requestKind: request.kind }) !== 'user_action'
-            || isClaudeUnifiedTerminalDialogChoiceAgentStateRequest(request)) return null;
-        const input: unknown = request.arguments;
-        // Dialog-specific actions belong to Happier's full question UI, including unknown dialogs.
-        if (input && typeof input === 'object' && 'happierDialog' in input) return null;
-        const normalized = normalizeAskUserQuestionRenderQuestions(input);
-        return normalized.ok ? normalized.questions : null;
+        if (isCoordinator || item.disabledReason || item.kind !== 'user_action') return null;
+        return resolveWaitingQuestions(request);
     }, [request, item.disabledReason, item.kind, isCoordinator]);
 
     const send = async (kind: 'allow' | 'deny', call: () => Promise<SessionPermissionResult | void>) => {
@@ -189,7 +181,7 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
                     {t('ignorePrevious.waiting.answeringElsewhere')}
                 </Text>
             ) : null}
-            {questions ? <WaitingQuestion sessionId={item.sessionId} requestId={item.requestId} questions={questions}
+            {questions ? <WaitingQuestion key={JSON.stringify(questions)} sessionId={item.sessionId} requestId={item.requestId} questions={questions}
                 disabled={disabled} busy={busy} sent={phase === 'sent'} error={questionError}
                 onDirtyChange={onDirtyChange} onSend={call => void send('allow', call)} /> : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

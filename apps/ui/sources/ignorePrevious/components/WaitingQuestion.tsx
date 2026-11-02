@@ -13,6 +13,7 @@ import { sessionAllowWithAnswers } from '@/sync/ops';
 import { t } from '@/text';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { DeskText } from '../typography/DeskText';
+import { resolveWaitingQuestions } from '../model/waitingQuestions';
 
 /** A draft only. The enclosing card owns dispatch arbitration, errors and settlement. */
 export function WaitingQuestion({ sessionId, requestId, questions, disabled, busy, sent, error, onSend, onDirtyChange }: {
@@ -47,6 +48,10 @@ export function WaitingQuestion({ sessionId, requestId, questions, disabled, bus
     const canSend = !disabled && complete && prospective?.ok === true && !requiresUpdate;
     const submit = () => {
         if (!canSend) return;
+        // A store update can precede React's next commit. Never apply this draft to new content.
+        const session = storage.getState().sessions[sessionId];
+        const currentQuestions = resolveWaitingQuestions(session?.agentState?.requests?.[requestId]);
+        if (!currentQuestions || JSON.stringify(currentQuestions) !== JSON.stringify(questions)) return;
         onSend(async () => {
             // Capabilities may have changed since the button rendered; build against the live session.
             const session = storage.getState().sessions[sessionId];

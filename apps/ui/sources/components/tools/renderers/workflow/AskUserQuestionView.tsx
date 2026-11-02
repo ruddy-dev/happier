@@ -4,6 +4,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { ToolViewProps } from '../core/_registry';
 import { resolvePermissionRequestId } from '../core/resolvePermissionRequestId';
 import { ToolSectionView } from '../../shell/presentation/ToolSectionView';
+import { createPermissionActionDispatchGuard } from '../../shell/permissions/permissionActionDispatchGuard';
 import { sessionAllowWithAnswers } from '@/sync/ops';
 import { storage, useSession, useSettingMutable } from '@/sync/domains/state/storage';
 import { Modal } from '@/modal';
@@ -293,6 +294,25 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
     const attachedSessionTerminal = useOpenAttachedSessionTerminal(sessionId ?? null);
     const session = useSession(sessionId ?? '');
 
+    const toolCallId = resolvePermissionRequestId(tool);
+    const activeMatchingRequest = toolCallId ? session?.agentState?.requests?.[toolCallId] : null;
+    const hasActiveAskUserQuestionRequest =
+        activeMatchingRequest?.tool === 'AskUserQuestion' &&
+        resolveAgentRequestKind({ toolName: activeMatchingRequest.tool, requestKind: activeMatchingRequest.kind }) === 'user_action';
+    const requestKey = `${sessionId}\u0000${toolCallId}`;
+    const actionDispatchGuardRef = React.useRef<ReturnType<typeof createPermissionActionDispatchGuard> | null>(null);
+    if (actionDispatchGuardRef.current === null) {
+        actionDispatchGuardRef.current = createPermissionActionDispatchGuard(requestKey);
+    } else {
+        actionDispatchGuardRef.current.setRequestKey(requestKey);
+    }
+    const actionDispatchGuard = actionDispatchGuardRef.current;
+    React.useEffect(() => {
+        if (!sessionId || !toolCallId || !hasActiveAskUserQuestionRequest) return;
+        actionDispatchGuard.retainRequest(requestKey);
+        return () => actionDispatchGuard.releaseRequest(requestKey);
+    }, [actionDispatchGuard, hasActiveAskUserQuestionRequest, requestKey, sessionId, toolCallId]);
+
     // Parse input
     const input = tool.input as AskUserQuestionInput | undefined;
     const questions = input
@@ -314,11 +334,6 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
 
     const isRunning = tool.state === 'running';
     const canApprovePermissions = interaction?.canApprovePermissions ?? true;
-    const toolCallId = resolvePermissionRequestId(tool);
-    const activeMatchingRequest = toolCallId ? (session as any)?.agentState?.requests?.[toolCallId] : null;
-    const hasActiveAskUserQuestionRequest =
-        activeMatchingRequest?.tool === 'AskUserQuestion' &&
-        resolveAgentRequestKind({ toolName: activeMatchingRequest.tool, requestKind: activeMatchingRequest.kind }) === 'user_action';
     const canInteract = isRunning && !isSubmitted && canApprovePermissions && hasActiveAskUserQuestionRequest;
     const disabledMessage =
         interaction?.permissionDisabledReason === 'public'
@@ -492,48 +507,54 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                 return;
             }
 
-            setIsSubmitting(true);
-            setSubmissionGuidance(null);
+            await actionDispatchGuard.dispatch(requestKey, async () => {
+                try {
+                    setIsSubmitting(true);
+                    setSubmissionGuidance(null);
 
-            // HACK: Disable the form immediately by switching to the submitted view.
-            // Without this, users could edit their selections while the network calls
-            // are in flight, but those edits would be ignored since we've already
-            // captured the values above. TODO: Revisit this logic.
-            setIsSubmitted(true);
+                    // HACK: Disable the form immediately by switching to the submitted view.
+                    // Without this, users could edit their selections while the network calls
+                    // are in flight, but those edits would be ignored since we've already
+                    // captured the values above. TODO: Revisit this logic.
+                    setIsSubmitted(true);
 
-            await sessionAllowWithAnswers(sessionId, toolCallId, payload.send);
-            const dialog = input?.happierDialog;
-            if (dialog && typeof dialog === 'object' && !Array.isArray(dialog)) {
-                const metadata = dialog as Record<string, unknown>;
-                if (isClaudeUnifiedTerminalDialogChoiceAgentStateRequest(latestRequest) && metadata.kind === 'recognized') {
-                    for (const [questionIndex, selectedIndexes] of selections) {
-                        for (const optionIndex of selectedIndexes) {
-                            const mutation = questions[questionIndex]?.options?.[optionIndex]?.settingMutation;
-                            if (!mutation || typeof mutation !== 'object' || Array.isArray(mutation)) continue;
-                            const candidate = mutation as Record<string, unknown>;
-                            if (
-                                metadata.dialogId === 'trust_folder'
-                                && candidate.settingId === 'claudeUnifiedTerminalWorkspaceTrust'
-                                && (
-                                    candidate.value === 'always_trust_happier_workspaces'
-                                    || candidate.value === 'always_reject_happier_workspaces'
-                                )
-                            ) {
-                                setWorkspaceTrust(candidate.value);
-                            } else if (
-                                metadata.dialogId === 'resume_choice'
-                                && candidate.settingId === 'claudeUnifiedTerminalResumeChoice'
-                                && (
-                                    candidate.value === 'resume_from_summary'
-                                    || candidate.value === 'resume_full_session'
-                                )
-                            ) {
-                                setResumeChoice(candidate.value);
+                    await sessionAllowWithAnswers(sessionId, toolCallId, payload.send);
+                    const dialog = input?.happierDialog;
+                    if (dialog && typeof dialog === 'object' && !Array.isArray(dialog)) {
+                        const metadata = dialog as Record<string, unknown>;
+                        if (isClaudeUnifiedTerminalDialogChoiceAgentStateRequest(latestRequest) && metadata.kind === 'recognized') {
+                            for (const [questionIndex, selectedIndexes] of selections) {
+                                for (const optionIndex of selectedIndexes) {
+                                    const mutation = questions[questionIndex]?.options?.[optionIndex]?.settingMutation;
+                                    if (!mutation || typeof mutation !== 'object' || Array.isArray(mutation)) continue;
+                                    const candidate = mutation as Record<string, unknown>;
+                                    if (
+                                        metadata.dialogId === 'trust_folder'
+                                        && candidate.settingId === 'claudeUnifiedTerminalWorkspaceTrust'
+                                        && (
+                                            candidate.value === 'always_trust_happier_workspaces'
+                                            || candidate.value === 'always_reject_happier_workspaces'
+                                        )
+                                    ) {
+                                        setWorkspaceTrust(candidate.value);
+                                    } else if (
+                                        metadata.dialogId === 'resume_choice'
+                                        && candidate.settingId === 'claudeUnifiedTerminalResumeChoice'
+                                        && (
+                                            candidate.value === 'resume_from_summary'
+                                            || candidate.value === 'resume_full_session'
+                                        )
+                                    ) {
+                                        setResumeChoice(candidate.value);
+                                    }
+                                }
                             }
                         }
                     }
+                } finally {
+                    setIsSubmitting(false);
                 }
-            }
+            });
         } catch (error) {
             setIsSubmitted(false);
             const guidance = resolveSubmissionFailureGuidance(error);
@@ -542,10 +563,8 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
             } else {
                 Modal.alert(t('common.error'), t('errors.failedToSendMessage'));
             }
-        } finally {
-            setIsSubmitting(false);
         }
-    }, [sessionId, questions, selections, effectiveFreeformAnswers, allQuestionsAnswered, input?.happierDialog, isSubmitting, setResumeChoice, setWorkspaceTrust, toolCallId]);
+    }, [actionDispatchGuard, requestKey, sessionId, questions, selections, effectiveFreeformAnswers, allQuestionsAnswered, input?.happierDialog, isSubmitting, setResumeChoice, setWorkspaceTrust, toolCallId]);
 
     // Show submitted state
     if (isSubmitted || tool.state === 'completed') {
