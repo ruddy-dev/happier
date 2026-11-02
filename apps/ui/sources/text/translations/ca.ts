@@ -10701,6 +10701,16 @@ settingsSession: {
         friendAcceptedGeneric: 'Sol·licitud d\'amistat acceptada',
     },
     ignorePrevious: {
+        settings: {
+            title: 'Settings',
+            backToDesk: 'Back to desk',
+            creature: 'Creature',
+            on: 'On',
+            off: 'Off',
+            about: 'About',
+            credit: 'by Ignore Previous',
+            forkNotice: 'A fork of Happier',
+        },
         composer: {
             placeholder: 'Talk to Shog',
             enterHint: 'Enter sends, Shift+Enter for a new line',
