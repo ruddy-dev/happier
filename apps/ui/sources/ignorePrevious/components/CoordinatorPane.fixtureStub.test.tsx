@@ -18,6 +18,9 @@ vi.mock('react-native', async () => {
     return createReactNativeWebMock({ useWindowDimensions: () => ({ width: viewport.width, height: 900, scale: 1, fontScale: 1 }) });
 });
 
+// Navigation focus is supplied by the screen host; keep the desk clock/store real.
+vi.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
+
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
     return createExpoVectorIconsMock();
@@ -153,7 +156,13 @@ describe('CoordinatorPane body', () => {
 
         expect(screen.findByTestId('session-view-c1')).not.toBeNull();
         expect(screen.findByTestId('ip-fixture-coordinator-body')).toBeNull();
+        expect(screen.findByTestId('ip-fresh-start')).toBeNull();
+        expect(screen.findByTestId('ip-fresh-more')).toBeNull();
+        viewport.width = 390;
         await screen.unmount();
+        const phone = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        expect(phone.findByTestId('ip-fresh-more')).toBeNull();
+        await phone.unmount();
     });
 
     it('is Happier\'s session view for a real session even in a fixture build, outside the fixture route', async () => {
@@ -215,6 +224,7 @@ describe('CoordinatorPane body', () => {
             expect(screen.findByTestId('ip-fixture-coordinator-body')).not.toBeNull();
         });
         expect(screen.findByTestId('session-view-c1')).toBeNull();
+        expect(screen.findByTestId('ip-fresh-fixture')).not.toBeNull();
         await screen.unmount();
     });
 });
