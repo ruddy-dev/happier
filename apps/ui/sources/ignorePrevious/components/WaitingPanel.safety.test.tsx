@@ -238,19 +238,29 @@ describe('WaitingPanel safety', () => {
         await expect(footerSend).resolves.toBe(true);
     });
 
-    it('L3: a press refused because another screen is answering says so, and the buttons stay on', async () => {
+    it('F4: refused-press feedback remains truthful after the retained footer finishes', async () => {
         const gate = createDeferred<void>();
         seed([sessionWithRequest('s1', 'r18', { tool: 'Bash', arguments: { command: 'npm test' } })]);
         const screen = await renderPanel();
         const footer = createPermissionActionDispatchGuard('s1\u0000r18');
+        footer.retainRequest('s1\u0000r18');
         const footerSend = footer.dispatch('s1\u0000r18', () => gate.promise);
-        expect(screen.findByTestId('ip-waiting-elsewhere-r18')).toBeNull();
-        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r18'), 'allow');
-        expect(permissionCalls()).toHaveLength(0);
-        expect(screen.findByTestId('ip-waiting-elsewhere-r18')).not.toBeNull();
-        expect(screen.findByTestId('ip-waiting-allow-r18')?.props.accessibilityState).toMatchObject({ disabled: false });
-        gate.resolve();
-        await expect(footerSend).resolves.toBe(true);
+        try {
+            expect(screen.findByTestId('ip-waiting-elsewhere-r18')).toBeNull();
+            await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r18'), 'allow');
+            expect(screen.findByTestId('ip-waiting-elsewhere-r18')).not.toBeNull();
+            await act(async () => { gate.resolve(); await footerSend; });
+            await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r18'), 'allow');
+            expect(permissionCalls()).toHaveLength(0);
+            const note = textUnder(screen.findByTestId('ip-waiting-elsewhere-r18'));
+            expect(note).not.toMatch(/already answering/i);
+            expect(note).toContain('Open the session');
+            expect(screen.findByTestId('ip-waiting-allow-r18')?.props.accessibilityState).toMatchObject({ disabled: false });
+        } finally {
+            gate.resolve();
+            await footerSend;
+            footer.releaseRequest('s1\u0000r18');
+        }
     });
 
     it('C: after a desk answer settles, the session footer can still answer a request that has not left', async () => {

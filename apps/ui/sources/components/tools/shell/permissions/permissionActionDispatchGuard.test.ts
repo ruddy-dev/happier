@@ -99,15 +99,21 @@ describe('permission action dispatch guard', () => {
         const deskGuard = createPermissionActionDispatchGuard('session-1:request-1', { holdAfterSuccess: false });
         const footerGuard = createPermissionActionDispatchGuard('session-1:request-1');
 
-        const deskDispatch = deskGuard.dispatch('session-1:request-1', action);
-        await expect(footerGuard.dispatch('session-1:request-1', action)).resolves.toBe(false);
+        footerGuard.retainRequest('session-1:request-1');
+        try {
+            const deskDispatch = deskGuard.dispatch('session-1:request-1', action);
+            await expect(footerGuard.dispatch('session-1:request-1', action)).resolves.toBe(false);
 
-        pending.resolve();
-        await expect(deskDispatch).resolves.toBe(true);
-        const footerAction = vi.fn().mockResolvedValue(undefined);
-        await expect(footerGuard.dispatch('session-1:request-1', footerAction)).resolves.toBe(true);
-        expect(action).toHaveBeenCalledTimes(1);
-        expect(footerAction).toHaveBeenCalledTimes(1);
+            pending.resolve();
+            await expect(deskDispatch).resolves.toBe(true);
+            const footerAction = vi.fn().mockResolvedValue(undefined);
+            await expect(footerGuard.dispatch('session-1:request-1', footerAction)).resolves.toBe(true);
+            expect(action).toHaveBeenCalledTimes(1);
+            expect(footerAction).toHaveBeenCalledTimes(1);
+        } finally {
+            pending.resolve();
+            footerGuard.releaseRequest('session-1:request-1');
+        }
     });
 
     it('does not serialize unrelated permission requests', async () => {

@@ -215,3 +215,50 @@ describe('toWaitingItems', () => {
         expect(new Set(items.map((i) => i.key)).size).toBe(2);
     });
 });
+
+
+describe('approval display regressions', () => {
+    it('F1: escapes combining floods without changing ordinary accents', () => {
+        const command = 'echo x' + '\u0338'.repeat(200) + '; rm -rf /work/build';
+        const out = describeRequest('Bash', { command });
+        expect(out).not.toContain('\u0338');
+        expect(out.match(/U\+0338/g)).toHaveLength(200);
+        expect(out).toContain('; rm -rf /work/build');
+        expect(describeRequest('Bash', { command: 'cat cafe\u0301/na\u0308me 😀' })).toBe('cat cafe\u0301/na\u0308me 😀');
+        expect(describeRequest('Bash', { command: 'x\u0301\u0338' })).toBe('x⟨U+0301⟩⟨U+0338⟩');
+    });
+
+    it('F1: escapes lone surrogates while preserving paired surrogates', () => {
+        expect(describeRequest('Bash', { command: 'cat x\uD800\uDC00 y\uD800 z\uDC00' }))
+            .toBe('cat x\uD800\uDC00 y⟨U+D800⟩ z⟨U+DC00⟩');
+    });
+
+    it('F2: summarises unsafe argv as one-line JSON, sanitised and bounded', () => {
+        for (const argv of [['sh', '-c', 'rm -rf /work/build'], ['rm', '-rf', 'my dir']]) {
+            expect(summariseRequest('CodexBash', { command: argv })).toBe(JSON.stringify(argv));
+            expect(summariseRequest('CodexBash', { toolCall: { rawInput: { argv } } })).toBe(JSON.stringify(argv));
+        }
+        const summary = summariseRequest('CodexBash', { argv: ['sh', '-c', 'echo \u202Ex\n' + 'x'.repeat(200)] });
+        expect(summary).not.toContain('\n');
+        expect(summary).not.toContain('\u202E');
+        expect(summary).toContain('U+202E');
+        expect(summary).toHaveLength(140);
+        expect(summary.endsWith('…')).toBe(true);
+    });
+
+    it('F3: retains a nested description where the card can read it', () => {
+        const args = { toolCall: { rawInput: { command: 'ls', description: 'nested-visible-marker', cwd: '/work' } } };
+        const [item] = toWaitingItems([{ sessionId: 'probe', sessionTitle: 'Probe', disabledReason: null,
+            requests: [{ id: 'nested', kind: 'permission', tool: 'X', createdAt: 1, arguments: args }] }]);
+        expect(`${item.detail} ${item.agentNote}`).toContain('nested-visible-marker');
+        expect(item.detail).toContain('/work');
+        expect(args.toolCall.rawInput.description).toBe('nested-visible-marker');
+    });
+
+    it('F5: quotes assignment-shaped executable names but permits equals in later arguments', () => {
+        const argv = ['MODE=safe', 'rm', '-rf', '/work/build'];
+        expect(describeRequest('CodexBash', { argv })).toContain('"MODE=safe"');
+        expect(summariseRequest('CodexBash', { argv })).toBe(JSON.stringify(argv));
+        expect(describeRequest('CodexBash', { argv: ['echo', 'MODE=safe', '--x=y'] })).toBe('echo MODE=safe --x=y');
+    });
+});
