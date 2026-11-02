@@ -11,7 +11,7 @@ import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskWaits } from '../model/useDeskWaits';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { useDeskSessions } from '../useDeskSessions';
-import type { WaitingItem } from '../model/waitingItems';
+import { unloadedWaitKey, type WaitingItem } from '../model/waitingItems';
 import { WaitingCard, cardStyles, OpenSessionButton } from './WaitingCard';
 
 /**
@@ -119,7 +119,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
                 }} />
             ))}
             {unloaded.map((wait) => (
-                <View key={`unloaded:${wait.sessionId}`} style={styles.card}>
+                <View key={unloadedWaitKey(wait.sessionId)} style={styles.card}>
                     <Text style={styles.title}>{wait.sessionTitle}</Text>
                     <Text style={styles.secondary}>
                         {wait.reason === 'unreadable' ? t('ignorePrevious.waiting.unreadable') : t('ignorePrevious.needsLook')}

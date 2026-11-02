@@ -30,6 +30,7 @@ import { drawerPlacement, isDeskPhoneWidth } from '../model/drawerPlacement';
 import { DeskTopBar } from '../components/DeskTopBar';
 import { SessionsSheet } from '../components/SessionsSheet';
 import { useDeskSessions } from '../useDeskSessions';
+import { DeskBrowserNotifier } from '../model/useDeskBrowserNotifier';
 
 const WIDE = 1100;
 
@@ -278,6 +279,7 @@ export function DeskScreen() {
 
     return (
         <DeskFontRoot>
+            <DeskBrowserNotifier coordinatorId={coordinatorId} />
             <View style={{ flex: 1, flexDirection: 'row', minWidth: 0, overflow: 'hidden' }}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <DeskTopBar phone={phone} sessionsRef={sessionsRef} onSessions={() => setSessionsOpen(true)} waiting={approvalsButton} settings={settingsButton} />
