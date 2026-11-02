@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { EXTRA_SENTINELS, readFixtureMarker, scanForNeedles } from './ipFixtureShipGuard.mjs';
 
 const GUARD = join(dirname(fileURLToPath(import.meta.url)), 'ipFixtureShipGuard.mjs');
-const ENTRY = '_expo/static/js/web/entry-abc.js';
+const ENTRY = '_expo/static/js/web/index-0123abcd.js';
+const PAGE = `<html><script src="/${ENTRY}" defer></script></html>`;
 
 function exportDir(files) {
     const dir = mkdtempSync(join(tmpdir(), 'ip-ship-guard-'));
@@ -21,7 +22,7 @@ function exportDir(files) {
 }
 
 function cleanExport(extra = {}) {
-    return exportDir({ 'index.html': '<html></html>', [ENTRY]: 'console.log("desk")', ...extra });
+    return exportDir({ 'index.html': PAGE, [ENTRY]: 'console.log("desk")', ...extra });
 }
 
 function runGuard(...args) {
@@ -73,10 +74,12 @@ for (const sentinel of EXTRA_SENTINELS) {
 test('the guard exits 2 with no argument, for a missing folder, and for a folder that is not a finished web export', () => {
     assert.equal(runGuard().code, 2);
     assert.equal(runGuard(join(tmpdir(), 'ip-ship-guard-does-not-exist')).code, 2);
-    // No JavaScript at all, no index.html, no entry bundle: each is a partial export or the wrong folder.
+    // No JavaScript at all, no index.html, an index.html that names no script, or one whose script is missing:
+    // each is a partial export or the wrong folder.
     assert.equal(runGuard(exportDir({ 'index.html': '<html></html>' })).code, 2);
     assert.equal(runGuard(exportDir({ [ENTRY]: 'x' })).code, 2);
-    assert.equal(runGuard(exportDir({ 'index.html': 'x', '_expo/static/js/web/other.js': 'x' })).code, 2);
+    assert.equal(runGuard(exportDir({ 'index.html': '<html></html>', [ENTRY]: 'x' })).code, 2);
+    assert.equal(runGuard(exportDir({ 'index.html': PAGE, '_expo/static/js/web/other.js': 'x' })).code, 2);
     // An empty entry bundle is still a bundle the guard cannot be fooled by, so only a missing one is refused.
-    assert.equal(runGuard(exportDir({ 'index.html': 'x', [ENTRY]: '' })).code, 0);
+    assert.equal(runGuard(exportDir({ 'index.html': PAGE, [ENTRY]: '' })).code, 0);
 });

@@ -2,7 +2,8 @@
 // Ship guard for the desk fixture: a web export made WITHOUT EXPO_PUBLIC_IP_FIXTURES=1 must carry nothing of it.
 // Usage: node scripts/overlay/ipFixtureShipGuard.mjs <export-dir>
 // Exit 0: clean. Exit 1: a fixture string is in the output. Exit 2: bad usage, or the folder is not a usable web
-// export (missing, no index.html, no _expo/static/js/web/entry-*.js), so an empty result would prove nothing.
+// export (missing, no index.html, or index.html names no script under _expo/static/js/web/ that exists), so an
+// empty result would prove nothing.
 //
 // It looks for the fixture marker (which lives only in the fixture's JSON) and for four strings that the
 // non-fixture files carry when the flag is on: the fixtures import path, the stub import path, the route's
@@ -45,11 +46,12 @@ function* walk(dir) {
     }
 }
 
-const ENTRY_BUNDLE = /^_expo\/static\/js\/web\/entry-.*\.js$/;
+// The entry bundle is whatever script index.html loads (Expo names it after the entry file, currently index-<hash>.js).
+const ENTRY_SCRIPT = /_expo\/static\/js\/web\/[^"'\s>?#]+\.js/g;
 
 /**
  * Files under `dir` containing each needle, and how many files were read. Throws unless `dir` looks like a
- * finished web export (an index.html and an entry bundle), so a partial export or the wrong folder cannot pass.
+ * finished web export (an index.html whose script exists), so a partial export or the wrong folder cannot pass.
  */
 export function scanForNeedles(dir, needles) {
     let isDir = false;
@@ -61,18 +63,21 @@ export function scanForNeedles(dir, needles) {
     if (!isDir) throw new Error(`export folder not found: ${dir}`);
     const hits = new Map(needles.map((needle) => [needle, []]));
     let scanned = 0;
-    let hasIndex = false;
-    let hasEntry = false;
+    let indexHtml = null;
+    const present = new Set();
     for (const file of walk(dir)) {
         scanned += 1;
         const relative = file.slice(dir.length + 1).split(sep).join('/');
-        if (relative === 'index.html') hasIndex = true;
-        if (ENTRY_BUNDLE.test(relative)) hasEntry = true;
         const content = readFileSync(file);
+        present.add(relative);
+        if (relative === 'index.html') indexHtml = content.toString('utf8');
         for (const needle of needles) if (content.includes(needle)) hits.get(needle).push(file);
     }
-    if (!hasIndex) throw new Error(`no index.html under ${dir}: not a finished web export, so an empty result proves nothing`);
-    if (!hasEntry) throw new Error(`no _expo/static/js/web/entry-*.js under ${dir}: not a finished web export, so an empty result proves nothing`);
+    if (indexHtml === null) throw new Error(`no index.html under ${dir}: not a finished web export, so an empty result proves nothing`);
+    const scripts = indexHtml.match(ENTRY_SCRIPT) ?? [];
+    if (!scripts.some((script) => present.has(script))) {
+        throw new Error(`index.html under ${dir} names no script under _expo/static/js/web/ that exists: not a finished web export, so an empty result proves nothing`);
+    }
     return { hits, scanned };
 }
 
