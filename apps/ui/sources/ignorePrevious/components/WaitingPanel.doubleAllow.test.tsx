@@ -87,10 +87,7 @@ describe('WaitingPanel double Allow (W2)', () => {
         expect(state.alert).not.toHaveBeenCalled();
     });
 
-    // Fails today twice over: Allow has no `ip-waiting-allow-<requestId>` testID yet, and pressing the
-    // "Allow Bash" button twice sends two answers (WaitingPanel has no in-flight guard).
-    // ATR-25 (P0.4) adds both and flips this.
-    it.fails('W2: a second tap while the first answer is in flight sends nothing', async () => {
+    it('W2: a second tap while the first answer is in flight sends nothing', async () => {
         const inFlight = createDeferred<undefined>();
         state.rpc.mockReturnValue(inFlight.promise);
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
