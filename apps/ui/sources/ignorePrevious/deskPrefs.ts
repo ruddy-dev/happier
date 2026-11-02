@@ -1,6 +1,6 @@
 /** Per-device desk choices. Written only on a user action, never on mount. */
 import * as React from 'react';
-import { terminalPalettes, type TerminalPalette } from './palette';
+import { robotColourDefaults, robotPresets, terminalPalettes, type RobotPreset, type TerminalPalette } from './palette';
 import { MMKV } from 'react-native-mmkv';
 
 const mmkv = new MMKV();
@@ -12,6 +12,13 @@ const keys = {
     terminalPalette: { storageKey: 'ignorePrevious.terminalPalette', defaultValue: 'tokyo' as TerminalPalette, allowedValues: Object.keys(terminalPalettes) },
     // C17 will consume this preference in the transcript pipeline.
     thinkingAndTools: { storageKey: 'ignorePrevious.thinkingAndTools', defaultValue: 'reply-link' as 'reply-link' | 'hidden', allowedValues: ['reply-link', 'hidden'] as readonly string[] },
+    robotDroid: { storageKey: 'ignorePrevious.robotDroid', defaultValue: robotColourDefaults.droid as RobotPreset, allowedValues: Object.keys(robotPresets) },
+    robotIpb: { storageKey: 'ignorePrevious.robotIpb', defaultValue: robotColourDefaults.b as RobotPreset, allowedValues: Object.keys(robotPresets) },
+    robotPrompt: { storageKey: 'ignorePrevious.robotPrompt', defaultValue: robotColourDefaults.prompt as RobotPreset, allowedValues: Object.keys(robotPresets) },
+    robotLoupe: { storageKey: 'ignorePrevious.robotLoupe', defaultValue: robotColourDefaults.loupe as RobotPreset, allowedValues: Object.keys(robotPresets) },
+    robotLab: { storageKey: 'ignorePrevious.robotLab', defaultValue: robotColourDefaults.lab as RobotPreset, allowedValues: Object.keys(robotPresets) },
+    noWorkerRobot: { storageKey: 'ignorePrevious.noWorkerRobot', defaultValue: 'droid' as 'droid' | 'ipb', allowedValues: ['droid', 'ipb'] as readonly string[] },
+    workerFaces: { storageKey: 'ignorePrevious.workerFaces', defaultValue: 'A' as 'A' | 'B', allowedValues: ['A', 'B'] as readonly string[] },
     coordinatorSessionId: { storageKey: 'ignorePrevious.coordinatorSessionId', defaultValue: null as string | null },
     workCollapsed: { storageKey: 'ignorePrevious.deskMinimised', defaultValue: false as boolean },
     approvalsOpen: { storageKey: 'ignorePrevious.approvalsOpen', defaultValue: false as boolean },

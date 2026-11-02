@@ -10797,6 +10797,15 @@ settingsSession: {
             dracula: 'Dracula',
             terminalPaper: 'Paper',
         },
+        robots: {
+            title: 'Robots', faces: 'Worker faces', pixel: 'Pixel', ascii: 'ASCII', noWorker: 'No worker',
+            droid: 'Droid', ipb: 'IPB', prompt: 'Prompt', loupe: 'Loupe', lab: 'Lab',
+            purple: 'Purple', violet: 'Violet', green: 'Green', orange: 'Orange', blue: 'Blue', magenta: 'Magenta', steel: 'Steel',
+            noteViolet: 'Violet can blend with some backgrounds and state rings.',
+            noteOrange: 'Orange can blend with yellow and red state rings.',
+            noteBlue: 'Blue can blend with the working ring in Tokyo.',
+            noteMagenta: 'Magenta can blend with the stuck ring in Kanagawa.',
+        },
         freshStart: {
             title: 'Fresh start', more: '...', moreLabel: 'Shog: Brief me, Compact, New conversation',
             brief: 'Brief me', compact: 'Compact', keepsSummary: 'Keeps a summary',

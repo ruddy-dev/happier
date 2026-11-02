@@ -570,13 +570,13 @@ export function spriteSignalColour(theme: SpriteTheme, bulb: Bulb): string {
     return bulb === 'turn' ? theme.turnSignal : bulb === 'idle' ? theme.idleSignal : theme[spriteStateTokens[bulb]];
 }
 
-export function spritePixelColour(theme: SpriteTheme, kind: SpriteKind, bulb: Bulb, pixel: string): string {
+export function spritePixelColour(theme: SpriteTheme, kind: SpriteKind, bulb: Bulb, pixel: string, preset?: RobotPreset): string {
     if (pixel === 'O' || pixel === 'L') return theme[spriteStateTokens[bulb]];
     if (kind in spriteRobots) {
         const robotKind = kind as keyof typeof spriteRobots;
         const roles: Readonly<Record<string, RobotPaintRole>> = robotPaintMap[robotKind];
         const role = roles[pixel];
-        if (role) return robotPresets[robotColourDefaults[spriteRobots[robotKind]]][role];
+        if (role) return robotPresets[preset ?? robotColourDefaults[spriteRobots[robotKind]]][role];
     } else if (pixel === 'e' || (pixel === 'x' && bulb === 'stuck')) {
         return theme[spriteStateTokens[bulb]];
     }
@@ -584,7 +584,7 @@ export function spritePixelColour(theme: SpriteTheme, kind: SpriteKind, bulb: Bu
     return colours[pixel];
 }
 
-export function spriteAsciiColour(theme: SpriteTheme, kind: SpriteKind): string {
-    if (kind in spriteRobots) return theme.robotInk[robotColourDefaults[spriteRobots[kind as keyof typeof spriteRobots]]];
+export function spriteAsciiColour(theme: SpriteTheme, kind: SpriteKind, preset?: RobotPreset): string {
+    if (kind in spriteRobots) return theme.robotInk[preset ?? robotColourDefaults[spriteRobots[kind as keyof typeof spriteRobots]]];
     return theme.spriteInk[kind as keyof typeof theme.spriteInk];
 }

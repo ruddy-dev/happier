@@ -838,8 +838,8 @@ export type SpriteKind = keyof typeof spriteGrids;
 export const modelSprites = { opus: 'ragdoll', sonnet: 'ginger', haiku: 'tuxedo', codex: 'cxprompt', fable: 'fox', sol: 'cxloupe', terra: 'cxprompt', astra: 'cxlab' } as const satisfies Readonly<Record<string, SpriteKind>>;
 export const noWorkerSprite: SpriteKind = 'ipdroid';
 
-/** Match model identifiers, never the session's agent flavour. Unknown/unloaded models use Droid. */
-export function spriteForModel(model: string | null | undefined): SpriteKind {
+/** Match model identifiers, never the session's agent flavour. Unknown/unloaded models use the selected no-worker face. */
+export function spriteForModel(model: string | null | undefined): SpriteKind | 'no-worker' {
     const id = model?.trim().toLowerCase().replace(/_/g, '-') ?? '';
     const parts = id.split(/[-./:\s]+/);
     if (/^(claude\b|opus\b|sonnet\b|haiku\b|fable\b)/.test(id)) {
@@ -854,7 +854,7 @@ export function spriteForModel(model: string | null | undefined): SpriteKind {
         }
         return modelSprites.codex;
     }
-    return noWorkerSprite;
+    return 'no-worker';
 }
 
 /** Style B from mockup 12, limited to the approved round-8 cast. E marks a stateful eye. */

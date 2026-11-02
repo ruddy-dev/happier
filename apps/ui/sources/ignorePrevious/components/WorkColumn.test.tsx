@@ -145,7 +145,7 @@ describe('WorkColumn', () => {
         seedListOnly([worker]);
         const screen = await renderScreen(<WorkColumn compact={compact} />);
         const face = (issue: string) => screen.findByTestId(`ip-rail-face-${issue}`)!.findByType(WorkerSprite.type);
-        expect(face('none').props).toMatchObject({ kind: 'ipdroid', size: 28 });
+        expect(face('none').props).toMatchObject({ kind: 'no-worker', size: 28 });
         seed([worker]);
         expect(face('ATR-9').props).toMatchObject({ kind: 'cxloupe', size: 28 });
     });

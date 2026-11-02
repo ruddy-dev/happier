@@ -3,13 +3,14 @@ import { Animated, Easing, View } from 'react-native';
 import Svg, { Path, Rect, Text as SvgText, TSpan } from 'react-native-svg';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 
+import { useDeskPref } from '../deskPrefs';
 import type { Bulb } from '../model/bulb';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { spriteAsciiColour, spritePixelColour, spriteSignalColour, spriteStateTokens, useDeskPaint } from '../palette';
-import { spriteAscii, spriteGrids, type SpriteKind } from '../sprites';
+import { noWorkerSprite, spriteAscii, spriteGrids, type SpriteKind } from '../sprites';
 
 export type WorkerSpriteProps = Readonly<{
-    kind: SpriteKind;
+    kind: SpriteKind | 'no-worker';
     bulb: Bulb;
     /** Card 40, rail 28, worker row 24. The grid uses whole-number cell sizes. */
     size: 24 | 28 | 40;
@@ -18,8 +19,18 @@ export type WorkerSpriteProps = Readonly<{
     testID?: string;
 }>;
 
+const robotPreference: Partial<Record<SpriteKind, 'robotDroid' | 'robotIpb' | 'robotPrompt' | 'robotLoupe' | 'robotLab'>> = {
+    ipdroid: 'robotDroid', ipb: 'robotIpb', cxprompt: 'robotPrompt', cxloupe: 'robotLoupe', cxlab: 'robotLab',
+};
+
 /** Approved grids and ASCII, a shared steady state cue, and just one finite IPB entrance. */
-export const WorkerSprite = React.memo(function WorkerSprite({ kind, bulb, size, faceStyle = 'A', calm = false, testID }: WorkerSpriteProps) {
+export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKind, bulb, size, faceStyle: overrideFaceStyle, calm = false, testID }: WorkerSpriteProps) {
+    const [noWorker] = useDeskPref('noWorkerRobot');
+    const [savedFaceStyle] = useDeskPref('workerFaces');
+    const kind = requestedKind === 'no-worker' ? (noWorker === 'ipb' ? 'ipb' : noWorkerSprite) : requestedKind;
+    const robotKey = robotPreference[kind] ?? 'robotDroid';
+    const [preset] = useDeskPref(robotKey);
+    const faceStyle = overrideFaceStyle ?? savedFaceStyle;
     const { paint } = useDeskPaint();
     const reducedMotion = useReducedMotionPreference();
     const [progress] = React.useState(() => new Animated.Value(0));
@@ -46,9 +57,9 @@ export const WorkerSprite = React.memo(function WorkerSprite({ kind, bulb, size,
         const runs: React.ReactNode[] = [];
         for (let x = 0; x < row.length;) {
             if (row[x] === '.') { x++; continue; }
-            const fill = spritePixelColour(paint, kind, bulb, row[x]);
+            const fill = spritePixelColour(paint, kind, bulb, row[x], preset);
             let end = x + 1;
-            while (end < row.length && row[end] !== '.' && spritePixelColour(paint, kind, bulb, row[end]) === fill) end++;
+            while (end < row.length && row[end] !== '.' && spritePixelColour(paint, kind, bulb, row[end], preset) === fill) end++;
             runs.push(<Rect key={`${y}-${x}`} x={inset + x * cell} y={inset + y * cell} width={(end - x) * cell} height={cell} fill={fill} />);
             x = end;
         }
@@ -67,7 +78,7 @@ export const WorkerSprite = React.memo(function WorkerSprite({ kind, bulb, size,
                 <Svg testID={ascii ? 'ip-sprite-ascii' : 'ip-sprite-pixels'} width={size} height={size} viewBox={`0 0 ${size} ${size}`} accessible={false}>
                     {pixels}
                     {ascii?.runs.map((runs, i) => (
-                        <SvgText key={i} x={x0} y={y0 + lh * i + fontSize * 0.82} fontSize={fontSize} fontFamily={DESK_FONT_STACK} fontWeight="700" fontVariantLigatures="none" fill={spriteAsciiColour(paint, kind)}>
+                        <SvgText key={i} x={x0} y={y0 + lh * i + fontSize * 0.82} fontSize={fontSize} fontFamily={DESK_FONT_STACK} fontWeight="700" fontVariantLigatures="none" fill={spriteAsciiColour(paint, kind, preset)}>
                             {runs.map((run, x) => run.eye
                                 ? <TSpan key={x} fill={paint[spriteStateTokens[bulb]]}>{run.text.replace(/ /g, '\u00a0')}</TSpan>
                                 : run.text.replace(/ /g, '\u00a0'))}
