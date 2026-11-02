@@ -22,13 +22,64 @@ describe('groupWorkersByIssue', () => {
         expect(groups[0].workers.map((w) => w.sessionId)).toEqual(['b', 'c']);
     });
 
-    it('puts workers without an issue in one last group, even when urgent', () => {
+    it('N1: puts an urgent No issue group above a quiet issue', () => {
         const groups = groupWorkersByIssue([
             row({ sessionId: 'scratch', issueKey: null, bulb: 'turn', updatedAt: 99 }),
             row({ sessionId: 'a', issueKey: 'HUB-59', bulb: 'idle', updatedAt: 1 }),
         ]);
-        expect(groups.map((g) => g.issueKey)).toEqual(['HUB-59', null]);
-        expect(groups[1].bulb).toBe('turn');
+        expect(groups.map((g) => g.issueKey)).toEqual([null, 'HUB-59']);
+        expect(groups[0].bulb).toBe('turn');
+    });
+
+    it('N1: puts a quiet No issue group below an urgent issue despite its newer worker', () => {
+        const groups = groupWorkersByIssue([
+            row({ sessionId: 'scratch', bulb: 'idle', updatedAt: 99 }),
+            row({ sessionId: 'urgent', issueKey: 'ATR-6', bulb: 'turn', updatedAt: 1 }),
+        ]);
+        expect(groups.map((g) => g.issueKey)).toEqual(['ATR-6', null]);
+    });
+
+    it('S2: ranks a list-only No issue worker by urgency without a loaded permission mode', () => {
+        const groups = groupWorkersByIssue([
+            row({ sessionId: 'quiet', issueKey: 'ATR-6', updatedAt: 99 }),
+            row({ sessionId: 'unloaded', bulb: 'turn', permissionMode: null, updatedAt: 1 }),
+        ]);
+        expect(groups.map((g) => g.issueKey)).toEqual([null, 'ATR-6']);
+    });
+
+    it('S1/S3: sorts many listed workers by urgency and each group by its newest worker', () => {
+        // Only ordering is in scope; this does not promise pagination beyond the supplied rows.
+        const rows = Array.from({ length: 60 }, (_, index) => row({
+            sessionId: `worker-${index}`,
+            issueKey: index % 6 === 0 ? null : `ATR-${index % 6}`,
+            bulb: index === 0 ? 'turn' : index === 1 ? 'stuck' : 'working',
+            updatedAt: index,
+        }));
+        const groups = groupWorkersByIssue(rows);
+        expect(groups.map((g) => g.issueKey)).toEqual([null, 'ATR-1', 'ATR-5', 'ATR-4', 'ATR-3', 'ATR-2']);
+        expect(groups[0].workers.map((w) => w.updatedAt)).toEqual([54, 48, 42, 36, 30, 24, 18, 12, 6, 0]);
+        expect(groups.flatMap((g) => g.workers)).toHaveLength(60);
+    });
+
+    it('S3: uses recency before the final key for equally urgent groups, including No issue', () => {
+        for (const noIssueTime of [9, 11]) {
+            const groups = groupWorkersByIssue([
+                row({ sessionId: 'issue', issueKey: 'ATR-6', bulb: 'turn', updatedAt: 10 }),
+                row({ sessionId: 'scratch', bulb: 'turn', updatedAt: noIssueTime }),
+            ]);
+            expect(groups.map((g) => g.issueKey)).toEqual(noIssueTime > 10 ? [null, 'ATR-6'] : ['ATR-6', null]);
+        }
+    });
+
+    it('S3: breaks equal urgency and timestamp ties by issue key with null last, independent of input order', () => {
+        const rows = [
+            row({ sessionId: 'scratch', updatedAt: 10 }),
+            row({ sessionId: 'b', issueKey: 'ATR-7', updatedAt: 10 }),
+            row({ sessionId: 'a', issueKey: 'ATR-6', updatedAt: 10 }),
+        ];
+        for (const ordered of [rows, [...rows].reverse(), [rows[1], rows[0], rows[2]]]) {
+            expect(groupWorkersByIssue(ordered).map((g) => g.issueKey)).toEqual(['ATR-6', 'ATR-7', null]);
+        }
     });
 
     it('returns no groups for no workers', () => {

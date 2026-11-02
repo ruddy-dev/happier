@@ -57,6 +57,24 @@ describe('DeskScreen issue links', () => {
         scenario = null;
     });
 
+    it('N1/S2/S3: rendered cards follow urgency as a list-only No issue worker starts waiting', async () => {
+        scenario = await startDeskScenario({ script: loadDeskScript({
+            covers: ['N1', 'S2', 'S3'], sessions: [
+                { id: 'quiet', title: 'Quiet issue', path: '/work/atr-6-build', initial: { active: true } },
+                { id: 'busy', title: 'Busy issue', path: '/work/atr-7-build', initial: { active: true, thinking: true } },
+                { id: 'scratch', title: 'Scratch worker', path: '/work/scratch', listOnly: true, initial: { active: true } },
+            ],
+        }) });
+        const cardOrder = () => scenario!.screen.findAll((node) =>
+            typeof node.type === 'string' && typeof node.props.testID === 'string' && node.props.testID.startsWith('ip-issue-'),
+        ).map((node) => node.props.testID);
+        expect(cardOrder()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6', 'ip-issue-none']);
+        await scenario.apply('scratch', { pendingPermissionRequestCount: 1 });
+        expect(cardOrder()).toEqual(['ip-issue-none', 'ip-issue-ATR-7', 'ip-issue-ATR-6']);
+        await scenario.apply('scratch', { pendingPermissionRequestCount: 0 });
+        expect(cardOrder()).toEqual(['ip-issue-ATR-7', 'ip-issue-ATR-6', 'ip-issue-none']);
+    });
+
     it('N2: a list-only tagged worker stays unassigned until its full record arrives', async () => {
         scenario = await startDeskScenario({ script: loadDeskScript({
             covers: ['N2'],
