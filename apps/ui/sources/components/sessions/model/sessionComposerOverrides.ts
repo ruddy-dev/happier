@@ -38,6 +38,8 @@ export type SessionComposerHostControls = Readonly<{
  */
 export type SessionViewComposerOverrides = Readonly<{
     placeholder?: string;
+    /** Host-required cross-provider input intent. Also keeps the stock picker on its current provider. */
+    continuationInputPermissionModes?: Readonly<Partial<Record<AgentId, 'read-only' | 'plan'>>>;
     /** Keep Stop in the Send position while the host's worker is busy, even with a draft. */
     sendIsStop?: boolean;
     /** Appended after Happier's chips. */

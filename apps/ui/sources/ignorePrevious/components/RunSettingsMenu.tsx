@@ -58,7 +58,7 @@ export function RunSettingsMenu({ midTurn = false, live }: { midTurn?: boolean; 
     };
     const effort = live?.effort ?? runEffortControl(settings);
     const menuModels: readonly ShogModel[] = live?.models ?? models.map(modelId => ({ provider: 'claude', modelId, label: modelLabel(modelId) }));
-    const summary = `${live?.model.label ?? modelLabel(settings.model)} · ${settings.ultracode ? t('ignorePrevious.runSettings.ultracode') : effortLabel(settings.effort)} · ${t(settings.permissionMode === 'read-only' ? 'ignorePrevious.shogModels.readOnly' : 'ignorePrevious.runSettings.plansOnly')}`;
+    const summary = `${live?.model.label ?? modelLabel(settings.model)} · ${settings.ultracode ? t('ignorePrevious.runSettings.ultracode') : effortLabel(settings.effort)} · ${t(settings.permissionMode === null ? 'ignorePrevious.shogModels.permissionUnavailable' : settings.permissionMode === 'read-only' ? 'ignorePrevious.shogModels.readOnly' : 'ignorePrevious.runSettings.plansOnly')}`;
     const headingStyle = { color: theme.colors.text.secondary, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 3, fontSize: 12, fontWeight: '600' as const };
     const noteStyle = { color: theme.colors.text.secondary, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12 };
     const choiceStyle = { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6 };
@@ -117,7 +117,7 @@ export function RunSettingsMenu({ midTurn = false, live }: { midTurn?: boolean; 
                                 <DeskText style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{t('ignorePrevious.runSettings.ultracodeDescription')}</DeskText>
                             </Pressable> : <DeskText style={noteStyle}>{t(live ? 'ignorePrevious.shogModels.ultracodeUnavailable' : 'ignorePrevious.runSettings.ultracodeUnavailable')}</DeskText>}
                             <DeskText style={headingStyle}>{t('ignorePrevious.runSettings.permissionMode')}</DeskText>
-                            <DeskText style={noteStyle}>{t(live && settings.permissionMode === 'read-only' ? 'ignorePrevious.shogModels.permissionNoteCodex' : 'ignorePrevious.runSettings.permissionNote')}</DeskText>
+                            <DeskText style={noteStyle}>{t(settings.permissionMode === null ? 'ignorePrevious.shogModels.permissionUnavailable' : live && settings.permissionMode === 'read-only' ? 'ignorePrevious.shogModels.permissionNoteCodex' : 'ignorePrevious.runSettings.permissionNote')}</DeskText>
                         </View>
                     </View>
                     {live?.note ? <DeskText testID="ip-run-switch-note" accessibilityLiveRegion="polite" style={noteStyle}>{live.note}</DeskText> : null}

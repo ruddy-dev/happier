@@ -5700,10 +5700,21 @@ function SessionViewLoaded({
                         },
                     }
                     : transitionSubmission;
+                const requiredIntents = composer?.continuationInputPermissionModes;
+                if (requiredIntents) {
+                    const targetAgentId = resolveAgentIdFromFlavor(destination.intent.selection.agentId);
+                    const requiredIntent = targetAgentId ? requiredIntents[targetAgentId] : undefined;
+                    if (!requiredIntent || inSessionAgentPicker.armedContinuationPermissionMode !== requiredIntent
+                        || transitionInput.meta.permissionMode !== requiredIntent) {
+                        setArmedContinuationOutcome({ kind: 'refusal', scopeKey: activeServerAccountScopeKey,
+                            message: t('session.agentContinuation.transition.rejected.unsupportedOperation') });
+                        return;
+                    }
+                }
                 const isScopeCurrent = () => areServerAccountScopesEqual(activeServerAccountScope, getActiveServerAccountScope());
                 const { disposition, result } = await continueSessionWithArmedAgent(submissionForDispatch, {
                     isCurrent: isScopeCurrent,
-                    requireInputPermissionIntentSupport: inSessionAgentPicker.armedContinuationPermissionMode != null,
+                    requireInputPermissionIntentSupport: composer?.continuationInputPermissionModes != null || inSessionAgentPicker.armedContinuationPermissionMode != null,
                     onBeforeTransitionDispatch: () => inSessionAgentPicker.recordArmedContinuationSubmission({
                         localId: destination.localId,
                         input: transitionInput,
@@ -6493,7 +6504,7 @@ function SessionViewLoaded({
                 inputComposerRestoreTransientStateRef={inputComposerRestoreTransientStateRef}
                 agentType={liveComposerState.agentId}
                 armedContinuationTarget={armedContinuationTarget}
-                composeAgentPickerOptions={inSessionAgentPicker.composeAgentPickerOptions}
+                composeAgentPickerOptions={composer?.continuationInputPermissionModes ? undefined : inSessionAgentPicker.composeAgentPickerOptions}
                 onAgentPickerIntent={inSessionAgentPicker.onAgentPickerIntent}
                 onAgentPickerVisibilityChange={inSessionAgentPicker.onAgentPickerVisibilityChange}
                 agentPickerSelectedOptionId={inSessionAgentPicker.agentPickerSelectedOptionId}

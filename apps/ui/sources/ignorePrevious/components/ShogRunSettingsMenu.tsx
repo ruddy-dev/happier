@@ -49,12 +49,12 @@ export function ShogRunSettingsMenu({ controls }: { controls: SessionComposerHos
     const effort = configControls?.find(control => control.option.id === 'reasoning_effort');
     const ultracode = configControls?.find(control => control.option.id === 'ultracode');
     const offersUltracode = ultracode !== undefined;
-    const settings = { model: modelId, effort: effort?.effectiveValue ?? '', ultracode: ultracode?.effectiveValue === 'true', permissionMode: provider === 'codex' ? 'read-only' as const : 'plan' as const };
+    const settings = { model: modelId, effort: effort?.effectiveValue ?? '', ultracode: ultracode?.effectiveValue === 'true', permissionMode: armed ? controls.agentPicker.armedContinuationPermissionMode ?? null : provider === 'codex' ? 'read-only' as const : 'plan' as const };
     const models = enabledShogModels(catalog.models, preferences.enabled);
     const canPick = (choice: ShogModel) => controls.canSend && (choice.provider === controls.agentId
         || (controls.switchingEnabled && inputPermissionSupported && controls.agentPicker.continuationAvailability.get(buildBackendTargetKey({ kind: 'builtInAgent', agentId: choice.provider })) === 'eligible'));
 
-    // A cross-provider selection is only last USED once the canonical Session
+    // A selection is only last USED once the canonical Session
     // echoes that provider/model. A rejected switch never changes this preference.
     React.useEffect(() => {
         if (pendingModel && controls.agentId === pendingModel.provider && controls.modelId === pendingModel.modelId) {
@@ -78,10 +78,9 @@ export function ShogRunSettingsMenu({ controls }: { controls: SessionComposerHos
         setPickRefused(false);
         if (choice.provider !== controls.agentId) { void arm(choice, {}); return; }
         controls.agentPicker.clearArmedContinuation();
-        setPendingModel(null);
+        setPendingModel(choice);
         controls.setModel(choice.modelId, { preflight: catalog[choice.provider].preflightModels, preflightUpdatedAt: catalog[choice.provider].probe.refreshedAt });
         if (!choice.option?.modelOptions?.some(option => option.id === 'ultracode') && controls.configOverrides.ultracode === 'true') controls.setConfigOption('ultracode', 'false');
-        preferences.remember(choice);
     };
     const change = (action: RunSettingsAction) => {
         if (!controls.canSend || action.type === 'model') return;
@@ -101,10 +100,11 @@ export function ShogRunSettingsMenu({ controls }: { controls: SessionComposerHos
         settings, model, models, offersUltracode, canPick, pick, change,
         effort: { levels: effort?.option.options?.map(option => option.value) ?? [], disabled: !controls.canSend || !effort || effort.disabled === true, effectiveValue: settings.ultracode ? 'xhigh' : settings.effort },
         onOpen: () => { setDemanded(true); controls.agentPicker.onAgentPickerIntent(); }, note,
-        rebriefNote: hasDraft ? t('ignorePrevious.shogModels.rebriefDraft') : null,
-        canRebrief: controls.canSend && !hasDraft,
+        rebriefNote: controls.agentPicker.armedContinuationSubmission ? t('ignorePrevious.shogModels.rebriefSubmission')
+            : hasDraft ? t('ignorePrevious.shogModels.rebriefDraft') : null,
+        canRebrief: controls.canSend && !hasDraft && !controls.agentPicker.armedContinuationSubmission,
         rebrief: () => {
-            if (controls.canSend && !controls.hasNonTextDraft && controls.textStore.getPrompt().length === 0) controls.sendMessage(t('ignorePrevious.shogModels.rebriefMessage'));
+            if (controls.canSend && !controls.agentPicker.armedContinuationSubmission && !controls.hasNonTextDraft && controls.textStore.getPrompt().length === 0) controls.sendMessage(t('ignorePrevious.shogModels.rebriefMessage'));
         },
     }} />;
 }

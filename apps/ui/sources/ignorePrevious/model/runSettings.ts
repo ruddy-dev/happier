@@ -3,7 +3,7 @@ import { computeSessionConfigOptionControlsForProvider } from '@/sync/domains/se
 
 export type DeskModel = string;
 export type DeskEffort = string;
-export type RunSettings = Readonly<{ model: DeskModel; effort: DeskEffort; ultracode: boolean; permissionMode: 'plan' | 'read-only' }>;
+export type RunSettings = Readonly<{ model: DeskModel; effort: DeskEffort; ultracode: boolean; permissionMode: 'plan' | 'read-only' | null }>;
 export type RunSettingsAction = { type: 'model'; model: DeskModel } | { type: 'effort'; effort: DeskEffort } | { type: 'ultracode'; enabled: boolean };
 export const initialRunSettings: RunSettings = { model: 'claude-opus-5-5', effort: 'high', ultracode: false, permissionMode: 'plan' };
 // The desk deliberately offers fewer models than the provider catalog (M10).

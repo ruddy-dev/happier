@@ -11600,6 +11600,8 @@ settingsSession: {
             ultracodeUnavailable: 'This model does not offer Ultracode.',
             rebrief: 'Re-brief Shog',
             codexContextUnavailable: 'Codex has not reported enough context information yet.',
+            permissionUnavailable: 'Permission intent unavailable',
+            rebriefSubmission: 'Finish or resolve the previous switch before Re-briefing.',
             rebriefDraft: 'Send or clear your draft before re-briefing Shog.',
             rebriefMessage: 'Please re-read your coordinator instructions and confirm your role in one line. On Codex they are in AGENTS.md in this folder; on Claude, in your coordinator agent file.',
         },
