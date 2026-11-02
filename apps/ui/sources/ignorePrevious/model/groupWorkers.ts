@@ -8,8 +8,8 @@ export type WorkerRow = {
     /** Null until the session's full record has loaded. */
     permissionMode: string | null;
     updatedAt: number;
-    /** Latest worker observation; metadata edits only supply recency before any signal exists. */
-    lastSignalAt?: number | null;
+    /** Latest activity observation, excluding keep-alives; metadata is a fallback before activity exists. */
+    lastActivityAt?: number | null;
     /** How close to auto-compact, 0–100; absent until the session has reported its context. */
     contextPercent?: number | null;
     /** The worker is busy, including background or resuming work, so Stop is available. */
@@ -27,7 +27,7 @@ export type IssueGroup = {
 };
 
 function recency(row: WorkerRow): number {
-    return row.lastSignalAt ?? row.updatedAt;
+    return row.lastActivityAt ?? row.updatedAt;
 }
 
 /** All Work groups, including No issue: urgency, then recency, then issue key (null last on exact ties). */

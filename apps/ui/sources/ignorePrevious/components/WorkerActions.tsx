@@ -23,7 +23,7 @@ import type { PermissionMode } from '@/sync/domains/permissions/permissionTypes'
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { storage, useSession, useSetting, useSettings } from '@/sync/domains/state/storage';
 import { useSocketStatus } from '@/sync/store/hooks';
-import { sessionAbortResult } from '@/sync/ops';
+import { sessionAbortResult, type SessionAbortResult } from '@/sync/ops';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 
@@ -192,7 +192,7 @@ function StopControl({ sessionId }: { sessionId: string }) {
     const { status } = useSocketStatus();
     const disconnected = status !== 'connected';
     const { theme } = useUnistyles();
-    const [failure, setFailure] = React.useState<'not_listening' | 'encryption_unavailable' | null>(null);
+    const [failure, setFailure] = React.useState<Extract<SessionAbortResult, { ok: false }>['reason'] | null>(null);
     const [stopping, stop] = useHappyAction(async () => {
         if (storage.getState().socketStatus !== 'connected') return;
         setFailure(null);
@@ -210,7 +210,9 @@ function StopControl({ sessionId }: { sessionId: string }) {
             accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
         />
         {failure ? <Text testID={`ip-stop-error-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>
-            {failure === 'not_listening' ? t('ignorePrevious.workerControl.stopNotListening') : t('ignorePrevious.workerControl.stopEncryptionUnavailable')}
+            {failure === 'not_listening' ? t('ignorePrevious.workerControl.stopNotListening')
+                : failure === 'rejected' ? t('ignorePrevious.workerControl.stopRejected')
+                    : t('ignorePrevious.workerControl.stopEncryptionUnavailable')}
         </Text> : null}
         </View>
     );

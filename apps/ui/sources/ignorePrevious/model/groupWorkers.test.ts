@@ -83,9 +83,9 @@ describe('groupWorkersByIssue', () => {
     });
 
     it('ATR-37.3: title and mode edits do not reorder groups or workers with observed signals', () => {
-        const older = { ...row({ sessionId: 'older', issueKey: 'ATR-6', updatedAt: 100 }), lastSignalAt: 10 };
-        const newer = { ...row({ sessionId: 'newer', issueKey: 'ATR-7', updatedAt: 200 }), lastSignalAt: 20 };
-        const newest = { ...row({ sessionId: 'newest', issueKey: 'ATR-6', updatedAt: 300 }), lastSignalAt: 30 };
+        const older = { ...row({ sessionId: 'older', issueKey: 'ATR-6', updatedAt: 100 }), lastActivityAt: 10 };
+        const newer = { ...row({ sessionId: 'newer', issueKey: 'ATR-7', updatedAt: 200 }), lastActivityAt: 20 };
+        const newest = { ...row({ sessionId: 'newest', issueKey: 'ATR-6', updatedAt: 300 }), lastActivityAt: 30 };
         const order = (rows: WorkerRow[]) => groupWorkersByIssue(rows).map((group) => [
             group.issueKey, group.workers.map((worker) => worker.sessionId),
         ]);
@@ -99,7 +99,7 @@ describe('groupWorkersByIssue', () => {
     });
 
     it('ATR-37.3: uses updatedAt only for workers without a signal', () => {
-        const observed = { ...row({ sessionId: 'observed', issueKey: 'ATR-6', updatedAt: 999 }), lastSignalAt: 10 };
+        const observed = { ...row({ sessionId: 'observed', issueKey: 'ATR-6', updatedAt: 999 }), lastActivityAt: 10 };
         const unobserved = row({ sessionId: 'unobserved', issueKey: 'ATR-7', updatedAt: 20 });
         expect(groupWorkersByIssue([observed, unobserved]).map((group) => group.issueKey)).toEqual(['ATR-7', 'ATR-6']);
     });

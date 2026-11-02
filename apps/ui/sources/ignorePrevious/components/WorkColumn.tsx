@@ -12,7 +12,7 @@ import { getSessionName, getSessionStatus } from '@/utils/sessions/sessionUtils'
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { useCoordinatorId } from '../model/useCoordinatorId';
-import { workerLastSignalAt, workerUnheardMinutes } from '../model/workerFreshness';
+import { workerLastActivityAt, workerUnheardMinutes } from '../model/workerFreshness';
 import { isDeskWorkerBusy } from '../model/workerBusy';
 import { useDeskNow } from '../model/useDeskNow';
 import { useIssueKeys } from '../model/useIssueKeys';
@@ -43,7 +43,7 @@ function toWorkerRows(
             bulb: bulbFromSessionState(state),
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
-            lastSignalAt: workerLastSignalAt(row),
+            lastActivityAt: workerLastActivityAt(row),
             contextPercent: meter ? Math.round(meter.ratio * 100) : null,
             canStop: isDeskWorkerBusy(state) && unheardMinutes === null,
             unheardMinutes,

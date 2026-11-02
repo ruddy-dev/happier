@@ -11518,6 +11518,7 @@ settingsSession: {
         workerControl: {
             stopNotListening: "Stop did not reach the worker. The worker is not listening. Its state has not been changed.",
             stopEncryptionUnavailable: "Stop was not sent because session encryption is unavailable. The worker may still be running.",
+            stopRejected: "The worker rejected Stop. Its state has not been changed. Try again.",
             modeUnknown: 'Mode unknown',
             modePublished: ({ mode }: { mode: string }) => `Published mode: ${mode}`,
             modePending: ({ mode }: { mode: string }) => `${mode} pending publication`,

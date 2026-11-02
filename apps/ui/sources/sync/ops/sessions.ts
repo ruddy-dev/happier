@@ -542,17 +542,27 @@ export async function rollbackSessionConversation(options: Readonly<{
 
 export type SessionAbortResult =
     | { ok: true }
-    | { ok: false; reason: 'not_listening' | 'encryption_unavailable' };
+    | { ok: false; reason: 'not_listening' | 'encryption_unavailable' }
+    | { ok: false; reason: 'rejected'; error: string };
 
 export async function sessionAbortResult(sessionId: string): Promise<SessionAbortResult> {
     try {
-        await sessionRpcWithPreferredSessionScope<void, { reason: string }>({
+        const reply = await sessionRpcWithPreferredSessionScope<unknown, { reason: string }>({
             sessionId,
             method: 'abort',
             payload: {
             reason: `The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.`
             },
         });
+        // The RPC manager resolves handler/authorization errors instead of rejecting the transport.
+        if (typeof reply === 'object' && reply !== null) {
+            if ('errorCode' in reply && reply.errorCode === RPC_ERROR_CODES.METHOD_NOT_FOUND) {
+                return { ok: false, reason: 'not_listening' };
+            }
+            if ('error' in reply && typeof reply.error === 'string') {
+                return { ok: false, reason: 'rejected', error: reply.error };
+            }
+        }
     } catch (e) {
         const errorCode = readSessionRpcErrorCode(e);
         if (
