@@ -2,13 +2,12 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
-import { Text } from '@/components/ui/text/Text';
-import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { sync } from '@/sync/sync';
+import { readComposerText, requestComposerText } from '@/components/sessions/model/composerRequests';
 import { t } from '@/text';
 
 import { useDeskWaits, type DeskWaits } from '../model/useDeskWaits';
+import { DeskText } from '../typography/DeskText';
 
 /** The waiting list as the coordinator reads it: what each request runs, not only the agent's description. */
 function waitingList({ items, unloaded }: DeskWaits): string {
@@ -33,35 +32,25 @@ function waitingList({ items, unloaded }: DeskWaits): string {
 }
 
 /**
- * Quick prompts above the coordinator's chat. "Go through what's waiting" hands it the list from
- * Your turn so it can rate each request; you still press Allow or Deny yourself.
+ * Unsent prompt drafts above the coordinator's chat. "Go through what's waiting" hands it the list from
+ * Your turn into the composer; the user sends it and still presses Allow or Deny themselves.
  */
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
     const waits = useDeskWaits(coordinatorId);
     const { count } = waits;
-    const [sending, setSending] = React.useState(false);
-
-    const send = React.useCallback(
-        async (text: string, displayText: string) => {
-            setSending(true);
-            try {
-                await sync.submitMessage(coordinatorId, text, displayText);
-            } catch {
-                Modal.alert(t('ignorePrevious.sendFailedTitle'), t('ignorePrevious.sendFailed'));
-            } finally {
-                setSending(false);
-            }
-        },
-        [coordinatorId],
-    );
+    // A chip never wipes what is already typed: the prompt goes after the draft, a blank line apart.
+    const fill = (text: string) => {
+        const draft = (readComposerText(coordinatorId) ?? '').trimEnd();
+        if (!requestComposerText(coordinatorId, draft.trim() ? `${draft}\n\n${text}` : text, { focus: true })) {
+            Modal.alert(t('ignorePrevious.composer.unavailableTitle'), t('ignorePrevious.composer.unavailable'));
+        }
+    };
 
     const chip = (testID: string, label: string, onPress: () => void) => (
         <Pressable
             testID={testID}
             accessibilityRole="button"
-            accessibilityState={{ disabled: sending }}
-            disabled={sending}
             onPress={onPress}
             style={{
                 paddingHorizontal: 10,
@@ -70,21 +59,22 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
                 borderWidth: 1,
                 borderColor: theme.colors.border.default,
                 backgroundColor: theme.colors.surface.inset,
-                opacity: sending ? 0.6 : 1,
             }}
         >
-            <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.default('semiBold') }}>{label}</Text>
+            <DeskText style={{ color: theme.colors.text.primary, fontSize: 13, fontWeight: '600' }}>{label}</DeskText>
         </Pressable>
     );
 
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
+            {chip('ip-brief-first', t('ignorePrevious.composer.briefFirst'), () => fill(t('ignorePrevious.composer.briefPrompt')))}
+            {chip('ip-start-new', t('ignorePrevious.composer.startNew'), () => fill(t('ignorePrevious.composer.startPrompt')))}
             {count > 0
                 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () =>
-                      void send(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(waits) }), t('ignorePrevious.walkWaitingShown')),
+                      fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(waits) })),
                   )
                 : null}
-            {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => void send(t('ignorePrevious.walkPrsPrompt'), t('ignorePrevious.walkPrs')))}
+            {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}
         </View>
     );
 }
