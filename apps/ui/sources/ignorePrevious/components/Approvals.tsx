@@ -26,8 +26,9 @@ export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { o
         <Pressable
             ref={openerRef}
             testID={phone ? "ip-tab-waiting" : "ip-approvals-open"}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: open }}
+            accessibilityRole={phone ? "tab" : "button"}
+            aria-selected={phone ? open : undefined}
+            accessibilityState={phone ? { selected: open, expanded: open } : { expanded: open }}
             accessibilityLabel={label}
             accessibilityHint={phone ? t('ignorePrevious.topBar.waitingHint') : undefined}
             onPress={onPress}
@@ -74,7 +75,7 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
     const reducedMotion = useReducedMotionPreference();
     const [entrance] = React.useState(() => new Animated.Value(1));
     useDeskPopup({ open, onClose, openerRef, contentRef, hasHalfAnsweredCard,
-        presentation: placement === 'docked' ? 'docked' : 'overlay' });
+        presentation: placement === 'docked' ? 'docked' : 'overlay', useLiveOpenerWhenDetached: true });
     const wasOpen = React.useRef(false);
     React.useEffect(() => {
         const opening = open && !wasOpen.current;

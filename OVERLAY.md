@@ -17,7 +17,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 
 Desk text must use `DeskText` (or `DESK_FONT_STACK` from `ignorePrevious/fonts/deskFont.ts`): Happier `Text` sets Inter/Plex inline, and portaled content (Popover, Modal) does not inherit the root.
 
-Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; The desk route hides the shared stack header via its own `Stack.Screen` option and bypasses the sidebar in `components/navigation/shell/SidebarNavigator.tsx`; the desk supplies its own chrome.
+Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; the desk top bar supplies its Settings button. The desk route hides the shared stack header via its own `Stack.Screen` option and supplies its own chrome.
 
 ## Branches
 
@@ -111,6 +111,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/components/navigation/shell/SidebarNavigator.tsx` | Hides the shared sidebar on the desk route; coverage lives beside it in `SidebarNavigator.collapsed.test.tsx`. |
 | `apps/ui/sources/keyboard/escape.ts` | Exports the existing editable-target predicate so the desk popup hook uses the keyboard owner's rule instead of duplicating it. |
 | `apps/ui/sources/components/sessions/usageLimitRecovery/sessionUsageLimitRecoveryPresentation.ts` | Exports the existing issue predicate, visibility decision and reset reader so Work cards reuse SessionView's rules without a second parser. Recovery predicate bodies are unchanged; the desk's armed claim excludes paused recovery. |
 | `apps/ui/sources/modal/components/BaseModal.tsx` | Registers a modal-priority Escape blocker while visible on web so desk popups yield keyboard and outside clicks to real dialogs, including the command palette. Side effect: `MultiPaneHost` skips its own Esc handling while a blocker above pane priority is registered, so while a modal is visible, Esc no longer closes an overlay pane or details view; the modal's own handler still gets the key. |

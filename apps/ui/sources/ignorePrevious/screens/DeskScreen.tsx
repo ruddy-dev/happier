@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/ui/icons/Icon';
 import { Text } from '@/components/ui/text/Text';
@@ -100,6 +101,21 @@ function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: I
     );
 }
 
+function PhoneTabBar({ children }: React.PropsWithChildren) {
+    if (Platform.OS !== 'web') return <NativePhoneTabBar>{children}</NativePhoneTabBar>;
+    return <PhoneTabBarContent bottom={0}>{children}</PhoneTabBarContent>;
+}
+
+function NativePhoneTabBar({ children }: React.PropsWithChildren) {
+    const insets = useSafeAreaInsets();
+    return <PhoneTabBarContent bottom={insets.bottom}>{children}</PhoneTabBarContent>;
+}
+
+function PhoneTabBarContent({ children, bottom }: React.PropsWithChildren<{ bottom: number }>) {
+    const { theme } = useUnistyles();
+    return <View accessibilityRole="tablist" style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', minWidth: 0, borderTopWidth: 1, borderTopColor: theme.colors.border.default, paddingBottom: bottom }}>{children}</View>;
+}
+
 /** One open state across all placements, persisted only on explicit dismissal or opening. */
 function useApprovalsDrawer(width: number) {
     const [{ open, focusOnOpen }, setState] = React.useState(() => ({
@@ -134,6 +150,11 @@ export function DeskScreen() {
     const [phonePane, setPhonePane] = React.useState<'work' | 'shog'>('shog');
     const [sessionsOpen, setSessionsOpen] = React.useState(false);
     const sessionsRef = React.useRef<View>(null);
+    const previousPhone = React.useRef(phone);
+    React.useEffect(() => {
+        if (previousPhone.current !== phone) setSessionsOpen(false);
+        previousPhone.current = phone;
+    }, [phone]);
 
     const approvalsOpenerRef = React.useRef<View>(null);
 
@@ -227,7 +248,7 @@ export function DeskScreen() {
             </ScrollView>
         );
     } else {
-        work = workCollapsed ? (
+        work = workCollapsed && !phone ? (
             <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...divider }}>
                 <ScrollView horizontal={false} showsHorizontalScrollIndicator={false} style={{ flex: 1, minWidth: 0, maxHeight: Math.max(0, Math.round(height * 0.45) - 16), overflow: 'hidden' }} contentContainerStyle={{ minWidth: 0 }}>
                     <WorkColumn compact="row" />
@@ -242,7 +263,7 @@ export function DeskScreen() {
                 style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...divider }}
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
-                <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
+                {!phone && <View style={{ alignItems: 'flex-end' }}>{collapse}</View>}
                 <WorkColumn />
             </ScrollView>
         );
@@ -250,8 +271,8 @@ export function DeskScreen() {
 
     const main = (
         <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
-            {(!phone || phonePane === 'work') && work}
-            {(!phone || phonePane === 'shog') && <View style={{ flex: 1, minWidth: 0 }}>{coordinator}</View>}
+            <View style={[wide ? undefined : { minWidth: 0 }, phone ? { flex: 1, display: phonePane === 'work' ? 'flex' : 'none' } : undefined]}>{work}</View>
+            <View testID="ip-coordinator-pane-wrapper" style={{ flex: 1, minWidth: 0, display: phone && phonePane !== 'shog' ? 'none' : 'flex' }}>{coordinator}</View>
         </View>
     );
 
@@ -262,12 +283,12 @@ export function DeskScreen() {
                     <DeskTopBar phone={phone} sessionsRef={sessionsRef} onSessions={() => setSessionsOpen(true)} waiting={approvalsButton} settings={settingsButton} />
                     <DeskConnectionBanner />
                     {main}
-                    {phone && <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', minWidth: 0, borderTopWidth: 1, borderTopColor: theme.colors.border.default }}>
-                        <Pressable testID="ip-tab-work" accessibilityRole="tab" accessibilityState={{ selected: phonePane === 'work' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('work'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.work')}</DeskText></Pressable>
-                        <Pressable testID="ip-tab-shog" accessibilityRole="tab" accessibilityState={{ selected: phonePane === 'shog' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('shog'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.topBar.shog')}</DeskText></Pressable>
+                    {phone && <PhoneTabBar>
+                        <Pressable testID="ip-tab-work" accessibilityRole="tab" aria-selected={phonePane === 'work' && !approvals.open} accessibilityState={{ selected: phonePane === 'work' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('work'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.work')}</DeskText></Pressable>
+                        <Pressable testID="ip-tab-shog" accessibilityRole="tab" aria-selected={phonePane === 'shog' && !approvals.open} accessibilityState={{ selected: phonePane === 'shog' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('shog'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.topBar.shog')}</DeskText></Pressable>
                         {approvalsButton}
-                    </View>}
-                    {sessionsOpen && !phone && <SessionsSheet openerRef={sessionsRef} onClose={() => setSessionsOpen(false)} />}
+                    </PhoneTabBar>}
+                    {sessionsOpen && <SessionsSheet openerRef={sessionsRef} onClose={() => setSessionsOpen(false)} />}
                 </View>
                 <ApprovalsDrawer open={approvals.open} width={width} openerRef={approvalsOpenerRef} focusOnOpen={approvals.focusOnOpen}
                     hasHalfAnsweredCard={hasHalfAnsweredCard} onDirtyChange={setHasHalfAnsweredCard}
