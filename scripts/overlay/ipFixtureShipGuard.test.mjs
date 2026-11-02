@@ -96,6 +96,10 @@ test('the guard exits 2 with no argument, for a missing folder, and for a folder
 });
 
 const SECOND = '_expo/static/js/web/another-bundle.js';
+// A real `expo export -p web` page loads Metro's runtime and the shared chunk before the entry.
+const RUNTIME = '_expo/static/js/web/__expo-metro-runtime-42ac0f1b.js';
+const COMMON = '_expo/static/js/web/__common-f82d2224.js';
+const REAL_PAGE = `<html><script src="/${RUNTIME}" defer></script><script src="/${COMMON}" defer></script><script src="/${ENTRY}" defer></script></html>`;
 for (const [name, files, expected] of [
     ['empty directory', {}, 2],
     ['renamed entry absent from HTML', { 'index.html': PAGE, [SECOND]: 'clean' }, 2],
@@ -111,6 +115,10 @@ for (const [name, files, expected] of [
     ['existing local supporting script', { 'index.html': PAGE + '<script src="/support.js"></script>', [ENTRY]: 'clean', 'support.js': 'clean' }, 0],
     ['arbitrary entry filename', { 'index.html': `<script defer src='/${SECOND}'></script>`, [SECOND]: 'clean' }, 0],
     ['comment ignored beside real entry', { 'index.html': PAGE + `<!-- <script src="/${SECOND}"></script> -->`, [ENTRY]: 'clean' }, 0],
+    ['real export shape: runtime and common beside the entry', { 'index.html': REAL_PAGE, [RUNTIME]: 'clean', [COMMON]: 'clean', [ENTRY]: 'clean' }, 0],
+    ['real export shape with a marked common chunk', { 'index.html': REAL_PAGE, [RUNTIME]: 'clean', [COMMON]: readFixtureMarker(), [ENTRY]: 'clean' }, 1],
+    ['only Expo support bundles, no entry', { 'index.html': `<script src="/${RUNTIME}"></script><script src="/${COMMON}"></script>`, [RUNTIME]: 'clean', [COMMON]: 'clean' }, 2],
+    ['real export shape with a missing common chunk', { 'index.html': REAL_PAGE, [RUNTIME]: 'clean', [ENTRY]: 'clean' }, 2],
     ['unreferenced marked split chunk', { 'index.html': PAGE, [ENTRY]: 'clean', 'chunks/split.js': readFixtureMarker() }, 1],
 ]) {
     test(`the guard validates export shape: ${name}`, () => {
