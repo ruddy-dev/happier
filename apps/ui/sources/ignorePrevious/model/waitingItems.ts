@@ -147,6 +147,11 @@ function optionalDisplayText(text: string | null): string | null {
     return text === null ? null : displayText(text);
 }
 
+/** Shared identity for a Waiting card and its browser alert, without building display details. */
+export function waitingItemKey(sessionId: string, requestId: string): string {
+    return JSON.stringify([sessionId, requestId]);
+}
+
 export function toWaitingItems(
     input: readonly {
         sessionId: string;
@@ -158,7 +163,7 @@ export function toWaitingItems(
     const items = input.flatMap(({ sessionId, sessionTitle, requests, disabledReason }) =>
         requests.map((request) => ({
             // Encoded as a pair, so no choice of ids makes two requests share a key.
-            key: JSON.stringify([sessionId, request.id]),
+            key: waitingItemKey(sessionId, request.id),
             sessionId,
             requestId: request.id,
             sessionTitle,

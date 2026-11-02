@@ -21,6 +21,12 @@ The development desk build also opts the web sign-in branch at `/`, `/restore/ma
 
 Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; the desk top bar supplies its Settings button. The desk route hides the shared stack header via its own `Stack.Screen` option and supplies its own chrome.
 
+### Browser alerts (development)
+
+The desk's Notifications section stores `deskNotify` as `every` or `blocked` in the existing device preference store (`ignorePrevious.deskNotify`). It defaults to `blocked`; invalid stored values read as that default without a repair write. Only a radio press writes the choice. Browser permission is requested only by **Allow browser alerts**. Native apps can save the choice but show that alerts are browser-only.
+
+While the desk tab is open, its isolated notifier follows the existing Waiting on you request classification and stable item keys. The first ready snapshot is a baseline. `every` alerts for newly appearing requests; `blocked` alerts when requests are present and no worker is working, once per transition into that state. The coordinator is excluded from worker activity. Missing request records cannot supply an alert identity until their requests load. Alerts require granted browser permission and a hidden or unfocused page. They contain only **Waiting on you**, use the replacement tag `ip-waiting`, and focus the window when clicked. Happier's own notifications and phone push are unchanged.
+
 ## Branches
 
 - `stable-base`: the upstream stable tag in use. It only ever moves forward to a newer stable tag.
@@ -143,7 +149,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/ui/popover/Popover.tsx` | Marks portaled web content with `data-happy-popover-content` so desk popups leave menu interactions to Popover. |
 | `apps/ui/public/ignore-previous/fonts/jetbrains-mono-latin.woff2`, `apps/ui/public/ignore-previous/fonts/OFL.txt` | Local JetBrains Mono web asset and its standalone SIL OFL licence. Expo serves public assets; the desk-owned installer applies weights 500–700 only while a listed route is mounted. |
 | `README.md` | Overlay notice, licence and AI disclosure at the top. |
-| `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | The `ignorePrevious` string block (see Strings). ATR-63 adds worker PR state labels and the accessible snapshot time under `ignorePrevious.pullRequest`. ATR-67 adds unavailable usage popover copy under `ignorePrevious.usage` and labels its top-bar button Usage; `zh-Hant` inherits `zh-Hans`. |
+| `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | The `ignorePrevious` string block (see Strings). ATR-63 adds worker PR state labels and the accessible snapshot time under `ignorePrevious.pullRequest`. ATR-67 adds unavailable usage popover copy under `ignorePrevious.usage` and labels its top-bar button Usage. ATR-69 adds browser notification settings, permission states and the private alert title under `ignorePrevious.notifications`; `zh-Hant` inherits `zh-Hans`. |
 | `apps/ui/sources/text/i18n.integrity.test.ts` | Allows the English-only `ignorePrevious.` prefix. |
 | `apps/ui/sources/theme/profiles/themeProfileTypes.ts` | Adds `ignorePrevious` and `ignorePreviousLight` to the preset id union. |
 | `apps/ui/sources/theme/profiles/builtInThemeProfiles.ts` | Registers the two presets (one per mode, as upstream's pickers only offer a preset in its own mode's slot): the dark one after the dark community presets, the light one at the end. |

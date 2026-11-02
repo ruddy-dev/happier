@@ -16,7 +16,7 @@ import {
 } from '@/utils/sessions/sessionUtils';
 
 import { selectDeskSessions } from '../useDeskSessions';
-import { toWaitingItems, type WaitingDisabledReason, type WaitingItem } from './waitingItems';
+import { toWaitingItems, waitingItemKey, type WaitingDisabledReason, type WaitingItem } from './waitingItems';
 
 /**
  * A session that says it is waiting on you, but whose requests the desk can't show. `notLoaded`:
@@ -76,6 +76,7 @@ function collectSessionWait(row: SessionListRenderableSession, session: Session 
 }
 
 export type DeskWaitsSummary = Readonly<{ count: number; ready: boolean }>;
+type NotificationWaits = Readonly<{ waitIds: readonly string[]; ready: boolean }>;
 type Projection = {
     summary: DeskWaitsSummary;
     sourceInputs: readonly WaitInput[];
@@ -84,6 +85,7 @@ type Projection = {
     unloaded: UnloadedInput[];
     details?: DeskWaits;
     previousDetails?: DeskWaits;
+    notificationWaits?: NotificationWaits;
 };
 type WaitSnapshot = {
     inputs: readonly WaitInput[];
@@ -205,6 +207,18 @@ export function useDeskWaitsSummary(excludeSessionId?: string): DeskWaitsSummary
         };
     }, [excludeSessionId]);
     return storage(selector);
+}
+
+/** Alert identity shares request classification with the drawer, without labels or card details. */
+export function selectDeskNotificationWaits(state: State): NotificationWaits {
+    const { projection } = selectProjection(state);
+    if (!projection.notificationWaits) {
+        projection.notificationWaits = {
+            ready: projection.summary.ready,
+            waitIds: projection.inputs.flatMap(({ row, requests }) => requests.map(request => waitingItemKey(row.id, request.id))).sort(),
+        };
+    }
+    return projection.notificationWaits;
 }
 
 /** Detailed subscriptions belong only to an open drawer or panel. */
