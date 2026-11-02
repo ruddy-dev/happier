@@ -5,6 +5,7 @@ import type { NativeStackHeaderProps, NativeStackNavigationOptions } from '@reac
 import { Platform, StyleSheet, type PressableProps } from 'react-native';
 import { renderScreen } from '@/dev/testkit/render/renderScreen';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
+import { DeskPageScope } from './DeskPageScope';
 
 const route = vi.hoisted(() => ({ pathname: '/', dark: false, capture: null as import('@/dev/testkit/mocks/router').StackOptionsCapture | null }));
 vi.mock('expo-router', async () => {
@@ -122,13 +123,21 @@ describe.each([false, true])('desk page appearance, dark=%s', (dark) => {
                 headerTitleStyle: { fontFamily: DESK_FONT_STACK },
             });
         }
-        if (path === '/settings/voice') {
+        if (path !== '/') {
             const options = route.capture?.getResolved() as NativeStackNavigationOptions;
-            const Header = options.header as React.ComponentType<NativeStackHeaderProps>;
+            const renderHeader = options.header!;
+            const titleText = path === '/settings/voice' ? 'Voice' : 'Restore';
             // Navigation is the external boundary; no back action is requested in this fixture.
             const navigation = {} as NativeStackHeaderProps['navigation'];
-            const header = await renderScreen(<Header options={{ ...options, title: 'Voice' }} route={{ key: 'voice', name: 'voice' }} navigation={navigation} />);
-            const title = header.findAll((node) => String(node.type) === 'Text').find((node) => node.children.includes('Voice'));
+            // NativeStackView calls this as a plain function, outside the header's render.
+            // The Unistyles boundary uses a real useContext, so calling a hook here throws.
+            const element = renderHeader({ options: { ...options, title: titleText }, route: { key: path, name: path }, navigation });
+            expect(React.isValidElement(element)).toBe(true);
+            if (!React.isValidElement(element)) throw new Error('Expected a header element');
+            const header = await renderScreen(element);
+            const scope = header.findByType(DeskPageScope);
+            expect(scope.props.name).toBe(dark ? 'deskPageDark' : 'deskPageLight');
+            const title = scope.findAll((node) => String(node.type) === 'Text').find((node) => node.children.includes(titleText));
             expect(StyleSheet.flatten(title?.props.style)).toMatchObject({
                 fontFamily: DESK_FONT_STACK, color: dark ? '#f3ecd8' : '#14161c',
             });
