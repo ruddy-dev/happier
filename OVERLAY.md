@@ -58,7 +58,7 @@ Upstream marks stable releases with immutable tags such as `ui-web-v0.2.19`, plu
    node scripts/overlay/syncOverlayStrings.mjs
    node --test scripts/overlay/*.test.mjs
    cd apps/ui && yarn typecheck
-   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/dev/vitestOriginGuard.test.ts sources/dev/testkit/mocks/mockFactories.test.ts sources/sync/ops/sessions.permissionDeny.test.ts sources/sync/ops/__tests__/sessionAbort.test.ts sources/sync/ops/sessions.permissionResult.test.ts sources/components/sessions/model/sessionComposerOverrides.test.tsx sources/components/sessions/model/composerRequests.test.tsx sources/components/sessions/shell/SessionView.composerSeam.test.tsx sources/auth/routing/authRouting.test.ts sources/dev/metro.config.ipFixtures.spec.ts "sources/app/(app)/dev"
+   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/dev/vitestOriginGuard.test.ts sources/dev/testkit/mocks/mockFactories.test.ts sources/sync/ops/sessions.permissionDeny.test.ts sources/sync/ops/__tests__/sessionAbort.test.ts sources/sync/ops/sessions.permissionResult.test.ts sources/components/sessions/model/sessionComposerOverrides.test.tsx sources/components/sessions/model/composerRequests.test.tsx sources/components/sessions/shell/SessionView.composerSeam.test.tsx sources/auth/routing/authRouting.test.ts sources/dev/metro.config.ipFixtures.spec.ts sources/dev/ipFixtureImports.spec.ts "sources/app/(app)/dev"
    node --test scripts/ipFixtureShots.test.mjs
    cd ../../packages/tests && yarn typecheck
    node --test src/testkit/deskTest/originGuard.test.mjs
@@ -94,6 +94,8 @@ Without an auto-compact value, the bars measure against the model's context wind
 |---|---|
 | `EXPO_PUBLIC_IP_FIXTURES` | `1` builds in the fixture route and stub. Anything else leaves it out. |
 | `HAPPIER_METRO_EXTRA_WATCH_FOLDERS` | Folders Metro should also watch, separated by the path delimiter (`:`). Off unless set. A git worktree that links another checkout's `node_modules` needs it, or `expo export` fails with "Failed to get the SHA-1". |
+
+Fixture imports stay optional. A dev bundle (`expo start`, `expo export --dev`) does not fold the flag check away, so with the fixtures folder blocked it would fail to resolve the fixture imports. Both dynamic imports (`desk-fixture.tsx`, `CoordinatorPane.tsx`) therefore sit inside a `try` block, which Metro treats as an optional dependency; `sources/dev/ipFixtureImports.spec.ts` keeps it that way. Don't hoist them out of the `try`.
 
 Ship guard. A normal build must carry no fixture. After a **cold** export without the flag, run `node scripts/overlay/ipFixtureShipGuard.mjs <export-dir>`; it exits 1 if any file holds the fixture marker. Cold means a fresh Metro cache: Metro's transform cache ignores `EXPO_PUBLIC_*` values, so a warm cache that last saw the flag on gives a bundle that still carries the fixture. Give each set of `EXPO_PUBLIC_*` values its own `TMPDIR` for Metro's cache and delete `metro-file-map-*` before each run (`~/dev/tools/happier-wt/export.sh` does both). To shoot the flag-on build: `cd apps/ui && node scripts/ipFixtureShots.mjs <flag-on-export-dir> <out-dir>`.
 
