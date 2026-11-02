@@ -3,6 +3,8 @@ import { act } from 'react';
 
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { createDeferred } from '@/dev/testkit/hooks/createDeferred';
+import { createPermissionActionDispatchGuard } from '@/components/tools/shell/permissions/permissionActionDispatchGuard';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync } from '@/dev/testkit/render/renderScreen';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
@@ -114,5 +116,76 @@ describe('WaitingPanel safety', () => {
             payload: expect.objectContaining({ id: 'r1', approved: false, decision: 'denied' }),
         });
         expect(calls[0]!.payload.decision).not.toBe('abort');
+    });
+
+    // Each W2 test uses its own request id: the dispatch guard's registry is module-wide, and every
+    // deferred is resolved before the test ends so no entry outlives its card.
+    it('W2: pressing Allow twice sends one permission answer', async () => {
+        const gate = createDeferred<{ ok: true }>();
+        state.rpc.mockImplementation(async (call: RpcCall) => (call.method === 'permission' ? gate.promise : { ok: true }));
+        seed([sessionWithRequest('s1', 'r2', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r2'), 'allow');
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r2'), 'allow');
+        expect(permissionCalls()).toHaveLength(1);
+        expect(screen.findByTestId('ip-waiting-allow-r2')?.props.accessibilityState).toMatchObject({ disabled: true, busy: true });
+        expect(screen.findByTestId('ip-waiting-deny-r2')?.props.accessibilityState).toMatchObject({ disabled: true, busy: true });
+        // A refused second press is silent: nothing failed.
+        expect(state.alert).not.toHaveBeenCalled();
+        await act(async () => {
+            gate.resolve({ ok: true });
+        });
+        expect(state.alert).not.toHaveBeenCalled();
+    });
+
+    it('W2: Deny while Allow is in flight does nothing', async () => {
+        const gate = createDeferred<{ ok: true }>();
+        state.rpc.mockImplementation(async (call: RpcCall) => (call.method === 'permission' ? gate.promise : { ok: true }));
+        seed([sessionWithRequest('s1', 'r3', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r3'), 'allow');
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-deny-r3'), 'deny');
+        const calls = permissionCalls();
+        expect(calls).toHaveLength(1);
+        expect(calls[0]!.payload).toMatchObject({ id: 'r3', approved: true });
+        await act(async () => {
+            gate.resolve({ ok: true });
+        });
+    });
+
+    it('W2: once an answer is sent the card cannot send a second, different one', async () => {
+        seed([sessionWithRequest('s1', 'r7', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r7'), 'allow');
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-deny-r7'), 'deny');
+        expect(permissionCalls()).toHaveLength(1);
+        // The card stays until the session drops the request; its buttons say they won't act.
+        expect(screen.findByTestId('ip-waiting-deny-r7')?.props.accessibilityState).toMatchObject({ disabled: true });
+    });
+
+    it('W2: a failed send can be retried', async () => {
+        state.rpc.mockImplementationOnce(async () => {
+            throw new Error('network down');
+        });
+        seed([sessionWithRequest('s1', 'r4', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r4'), 'allow');
+        expect(screen.findByTestId('ip-waiting-allow-r4')?.props.accessibilityState).toMatchObject({ disabled: false, busy: false });
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r4'), 'allow');
+        expect(permissionCalls()).toHaveLength(2);
+    });
+
+    it('W2: a request already in flight from the transcript footer is not re-sent', async () => {
+        const gate = createDeferred<void>();
+        seed([sessionWithRequest('s1', 'r5', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        // The session's own footer arbitrates the same request through the same key.
+        const footer = createPermissionActionDispatchGuard('s1\u0000r5');
+        const footerSend = footer.dispatch('s1\u0000r5', () => gate.promise);
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r5'), 'allow');
+        expect(permissionCalls()).toHaveLength(0);
+        expect(state.alert).not.toHaveBeenCalled();
+        gate.resolve();
+        await expect(footerSend).resolves.toBe(true);
     });
 });
