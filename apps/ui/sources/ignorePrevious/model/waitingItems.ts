@@ -61,17 +61,18 @@ function parseArguments(args: unknown): unknown {
 
 /**
  * An argument list as shell text, only where that text reads exactly as what runs: the script of a
- * `bash -lc` wrapper, or arguments that are all plain. Null otherwise, so the caller shows the list itself.
+ * `bash -lc` wrapper, or arguments that are all plain. JSON otherwise, so argument boundaries remain visible.
  * A wrapper's arguments after the script become `$0`, `$1`, …, which the script can run: each is
  * listed under it, quoted.
  */
-function argvText(argv: readonly string[]): string | null {
+function argvText(argv: readonly string[]): string {
     const wrapped = argv.length >= 3 && SHELL_WRAPPERS.has(argv[0]!) && argv[1] === '-lc';
     if (wrapped) {
         const positional = argv.slice(3).map((value, index) => `$${index} = ${JSON.stringify(value)}`);
         return [argv[2]!, ...positional].join('\n');
     }
-    return argv.every((part) => PLAIN_ARGUMENT.test(part)) ? argv.join(' ') : null;
+    const assignmentCommand = /^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[0]!);
+    return !assignmentCommand && argv.every((part) => PLAIN_ARGUMENT.test(part)) ? argv.join(' ') : JSON.stringify(argv);
 }
 
 /** The fields a shell command arrives in, across the agents' shapes (the same ones `extractShellCommand` reads). */
@@ -80,13 +81,11 @@ const COMMAND_FIELDS = ['command', 'cmd', 'argv', 'items'] as const;
 /**
  * A shell-shaped request: its command as text, and every other field beside it (a working
  * directory, a sandbox or escalation flag), which changes what runs as much as the command does.
- * Null when the request isn't shell-shaped, has more than one command, or its argument list
- * can't be shown as text without changing its meaning.
+ * Null when the request isn't shell-shaped or has more than one command. Unsafe argv stays JSON.
  */
-function readShellRequest(value: unknown): { command: string; rest: Record<string, unknown> } | null {
+function readShellRequest(value: unknown, topLevel = true): { command: string; rest: Record<string, unknown> } | null {
     if (isStringArray(value)) {
-        const command = argvText(value);
-        return command === null ? null : { command, rest: {} };
+        return { command: argvText(value), rest: {} };
     }
     if (!isRecord(value)) return null;
     const present = COMMAND_FIELDS.filter((field) => value[field] !== undefined);
@@ -94,7 +93,7 @@ function readShellRequest(value: unknown): { command: string; rest: Record<strin
         // ACP nests the input as { toolCall: { rawInput } }; anything else beside it goes to the JSON form.
         const toolCall = value.toolCall;
         const onlyRawInput = isRecord(toolCall) && Object.keys(value).length === 1 && Object.keys(toolCall).length === 1;
-        return onlyRawInput ? readShellRequest(toolCall.rawInput) : null;
+        return onlyRawInput ? readShellRequest(toolCall.rawInput, false) : null;
     }
     if (present.length > 1) return null;
     const field = present[0]!;
@@ -102,8 +101,8 @@ function readShellRequest(value: unknown): { command: string; rest: Record<strin
     const command = typeof raw === 'string' ? (raw.trim().length > 0 ? raw : null) : isStringArray(raw) ? argvText(raw) : null;
     if (command === null) return null;
     const { [field]: _command, ...rest } = value;
-    // Shown on the card as the agent's note.
-    if (typeof rest.description === 'string') delete rest.description;
+    // Only the outer description is shown separately as the agent's note.
+    if (topLevel && typeof rest.description === 'string') delete rest.description;
     return { command, rest };
 }
 

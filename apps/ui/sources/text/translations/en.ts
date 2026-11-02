@@ -10842,7 +10842,7 @@ settingsSession: {
             unreadable: "The desk can't read this session's request. Open the session to look.",
             blankLines: ({ count }: { count: number }) => `${count} blank lines`,
             blankCharacters: ({ count }: { count: number }) => `${count} blank characters`,
-            answeringElsewhere: 'Another screen is already answering this.',
+            answeringElsewhere: 'This press was blocked by the session screen. Open the session to answer there.',
         },
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',

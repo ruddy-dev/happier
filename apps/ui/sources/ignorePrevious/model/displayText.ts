@@ -5,9 +5,13 @@ import { t } from '@/text';
  * format characters (bidi overrides and isolates, zero-width spaces and joiners, BOM, soft hyphen,
  * tags), line and paragraph separators, every space but U+0020, and the few letters and marks that
  * render blank (Hangul fillers, braille blank, grapheme joiner, variation selectors).
+ * With the Unicode flag, Cs matches lone surrogate code units, not valid surrogate pairs.
  */
 const INVISIBLE =
-    /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Zs}\u034F\u115F\u1160\u17B4\u17B5\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]/gu;
+    /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Zs}\u034F\u115F\u1160\u17B4\u17B5\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]/gu;
+
+/** Escape every mark in a consecutive run; isolated accents remain readable. */
+const COMBINING_RUN = /\p{M}{2,}/gu;
 
 /** Three or more blank lines in a row (spaces and tabs count as blank). */
 const BLANK_LINE_RUN = /\n(?:[ \t]*\n){3,}/g;
@@ -31,6 +35,7 @@ function escapeInvisible(char: string): string {
  */
 export function displayText(text: string): string {
     return text
+        .replace(COMBINING_RUN, (run) => Array.from(run, escapeInvisible).join(''))
         .replace(INVISIBLE, escapeInvisible)
         .replace(BLANK_LINE_RUN, (run) => {
             const count = run.split('\n').length - 2;
