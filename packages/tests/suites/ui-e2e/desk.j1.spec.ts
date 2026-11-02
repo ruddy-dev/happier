@@ -33,11 +33,11 @@ test('the desk says who is waiting, working and idle, from a cold load', async (
 
         await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('1', { timeout: 10_000 });
         const issues = page.getByTestId('ip-work');
-        await expect(issues.getByTestId('ip-issue-ATR-101'), 'the ATR-101 card').toBeVisible({ timeout: 10_000 });
-        await expect(issues.getByTestId('ip-issue-ATR-102'), 'the ATR-102 card').toBeVisible({ timeout: 10_000 });
+        await expect(issues.getByTestId('ip-rail-issue-ATR-101'), 'the ATR-101 card').toBeVisible({ timeout: 10_000 });
+        await expect(issues.getByTestId('ip-rail-issue-ATR-102'), 'the ATR-102 card').toBeVisible({ timeout: 10_000 });
 
-        await expect(page.getByTestId('ip-issue-ATR-101').getByTestId('ip-bulb-dot-working'), "ATR-101's bulb").toBeVisible();
-        await expect(page.getByTestId('ip-issue-ATR-102').getByTestId('ip-bulb-dot-turn'), "ATR-102's bulb").toBeVisible();
+        await expect(page.getByTestId('ip-rail-issue-ATR-101').getByTestId('ip-bulb-dot-working'), "ATR-101's bulb").toBeVisible();
+        await expect(page.getByTestId('ip-rail-issue-ATR-102').getByTestId('ip-bulb-dot-turn'), "ATR-102's bulb").toBeVisible();
         await expect(page.getByTestId('ip-count-working'), 'Working tile').toHaveText('1');
         await expect(page.getByTestId('ip-count-turn'), 'Your-turn tile').toHaveText('1');
         await expect(page.getByTestId('ip-count-idle'), 'Idle tile').toHaveText('1');
@@ -45,7 +45,7 @@ test('the desk says who is waiting, working and idle, from a cold load', async (
         // Must nots: the coordinator is the chat, not a worker; everything has an issue; no false zero.
         await expect(page.getByTestId('ip-count-all'), 'Agents tile, without the coordinator').toHaveText('3');
         await expect(issues.getByText('Coordinator chat')).toHaveCount(0);
-        await expect(page.getByTestId('ip-issue-none'), 'a No issue card').toHaveCount(0);
+        await expect(page.getByTestId('ip-rail-issue-none'), 'a No issue card').toHaveCount(0);
         await expect(issues.getByText('No issue', { exact: true })).toHaveCount(0);
         const tile = await page.evaluate(() => (window as unknown as { __deskAgentTile: string[] }).__deskAgentTile);
         expect(tile, 'what the Agents tile showed on the way').not.toContain('0');
@@ -58,11 +58,11 @@ test.fixme('issue cards are ordered by urgency (item 2.3)', async ({ page, desk 
     const seed = await seedMorning(desk);
     try {
         await openDesk(page, desk);
-        await expect(page.getByTestId('ip-work').locator('[data-testid^="ip-issue-"]')).toHaveCount(2, { timeout: 10_000 });
+        await expect(page.getByTestId('ip-work').locator('[data-testid^="ip-rail-issue-"]')).toHaveCount(2, { timeout: 10_000 });
         const order = await page
-            .locator('[data-testid^="ip-issue-"]')
+            .locator('[data-testid^="ip-rail-issue-"]')
             .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-testid')));
-        expect(order, 'waiting issue first, then the working one').toEqual(['ip-issue-ATR-102', 'ip-issue-ATR-101']);
+        expect(order, 'waiting issue first, then the working one').toEqual(['ip-rail-issue-ATR-102', 'ip-rail-issue-ATR-101']);
     } finally {
         await seed.stopAll();
     }
