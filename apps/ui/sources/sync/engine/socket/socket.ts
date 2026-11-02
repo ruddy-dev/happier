@@ -1629,7 +1629,9 @@ export async function handleUpdateContainer(params: {
     } else if (updateData.body.t === 'update-session') {
         const session = getSocketSessionApplyBase(updateData.body.id);
         const cachedRenderable = storage.getState().sessionListRenderables[updateData.body.id];
-        const fullContentConsumerActive = isSessionFullContentConsumerActiveForRealtime(updateData.body.id, sourceServerId);
+        const liveConsumption = resolveSessionLiveConsumption(updateData.body.id, sourceServerId);
+        const fullContentConsumerActive = liveConsumption.isFullContentConsumer;
+        const recordConsumerActive = liveConsumption.isRecordConsumer;
         const hiddenSessionNeedsDetailedAgentState =
             Boolean(session)
             && !fullContentConsumerActive
@@ -1645,10 +1647,10 @@ export async function handleUpdateContainer(params: {
             );
         // A retained Session object is only a memory/fast-reopen detail. It must not opt a hidden
         // session back into detailed realtime hydration. Route by the canonical live-consumption
-        // decision and keep the retained object stale until onSessionVisible performs the existing
-        // deferred-state force refresh.
+        // decision, including explicit record demand, and otherwise keep the retained object stale
+        // until onSessionVisible performs the existing deferred-state force refresh.
         if (
-            (!session || (!fullContentConsumerActive && !hiddenSessionNeedsDetailedAgentState))
+            (!session || (!fullContentConsumerActive && !recordConsumerActive && !hiddenSessionNeedsDetailedAgentState))
             && canPatchRenderableWithoutDetailedSession
         ) {
             const previousRenderable = cachedRenderable as SessionListRenderableSession;
@@ -1800,6 +1802,7 @@ export async function handleUpdateContainer(params: {
             clientAllowsSessionContent
             && (
             fullContentConsumerActive
+            || recordConsumerActive
             || shouldHydrateAgentStateForHiddenSession({
                 session,
                 updateBody: updateData.body,
@@ -1850,7 +1853,7 @@ export async function handleUpdateContainer(params: {
         const currentSession = getSocketSessionApplyBase(updateData.body.id) ?? session;
         let nextSession = reconcileSessionSnapshot(currentSession, resolvedUpdate.nextSession);
         let currentRenderable = storage.getState().sessionListRenderables[session.id];
-        if ((!fullContentConsumerActive || missingEncryptionForState) && updateData.body.agentState && currentRenderable
+        if (((!fullContentConsumerActive && !recordConsumerActive) || missingEncryptionForState) && updateData.body.agentState && currentRenderable
             && (typeof updateData.body.pendingPermissionRequestCount === 'number'
                 || typeof updateData.body.pendingUserActionRequestCount === 'number')) {
             applyCacheOnlySessionUpdateProjectionPatch({
@@ -1932,7 +1935,8 @@ export async function handleUpdateContainer(params: {
             // This catches up on any messages that were exchanged while desktop had control
             const wasControlledByUser = currentSession.agentState?.controlledByUser;
             const isNowControlledByUser = agentState?.controlledByUser;
-            if (didControlReturnToMobile(wasControlledByUser, isNowControlledByUser)) {
+            if ((!recordConsumerActive || fullContentConsumerActive)
+                && didControlReturnToMobile(wasControlledByUser, isNowControlledByUser)) {
                 writeSyncDebugLog(log, `🔄 Control returned to mobile for session ${updateData.body.id}, re-fetching messages`);
                 onSessionVisible(updateData.body.id);
             }

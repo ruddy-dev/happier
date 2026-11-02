@@ -22,6 +22,7 @@ import {
     setStoredCoordinatorId,
     useDeskPref,
 } from '../deskPrefs';
+import { useDeskWorkerRecordConsumers } from '../model/useDeskWorkerRecordConsumers';
 import { DeskText } from '../typography/DeskText';
 import { useCoordinatorId } from '../model/useCoordinatorId';
 import { drawerPlacement, isDeskPhoneWidth } from '../model/drawerPlacement';
@@ -137,6 +138,7 @@ export function DeskScreen() {
     const approvalsOpenerRef = React.useRef<View>(null);
 
     const coordinatorId = useCoordinatorId(sessions);
+    useDeskWorkerRecordConsumers(sessions, coordinatorId);
 
     // Not persisted: a reload while choosing shows the stored coordinator again.
     const [changing, setChanging] = React.useState(false);

@@ -443,6 +443,18 @@ describe('SessionView composer seam', () => {
     expect(hidden.alwaysShowContextSize).toBe(false);
   });
 
+  it('keeps the existing abort path for Send-as-Stop while hiding the secondary Stop', async () => {
+    const props = (await renderSessionView({ sendIsStop: true, hide: { stop: true }, mic: null })).agentInput().props;
+    expect(props.sendIsStop).toBe(true);
+    expect(props.hideAbortButton).toBe(true);
+    expect(props.onMicPress).toBeUndefined();
+    await props.onAbort();
+    expect(sessionAbortMock).toHaveBeenCalledExactlyOnceWith('s1');
+    const plain = (await renderSessionView()).agentInput().props;
+    expect(plain.sendIsStop).toBe(false);
+    expect(plain.hideAbortButton).toBe(false);
+  });
+
   it('replaces or removes the mic', async () => {
     const onPress = vi.fn();
     const replaced = (await renderSessionView({ mic: { onPress, isActive: true } })).agentInput().props;

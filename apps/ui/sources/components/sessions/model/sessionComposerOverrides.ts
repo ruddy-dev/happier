@@ -13,6 +13,8 @@ import type { ConnectedServiceQuotaGaugeViewModel } from '@/sync/domains/connect
  */
 export type SessionViewComposerOverrides = Readonly<{
     placeholder?: string;
+    /** Keep Stop in the Send position while the host's worker is busy, even with a draft. */
+    sendIsStop?: boolean;
     /** Appended after Happier's chips. */
     extraActionChips?: ReadonlyArray<AgentInputExtraActionChip>;
     /** Appended after Happier's badges. */
@@ -44,6 +46,8 @@ export type ResolvedComposer = Omit<ComposerBase, 'isReadOnly'> & Readonly<{
     statusTrailingActions: React.ReactNode;
     footerLeadingActions: React.ReactNode;
     hideContextUsage: boolean;
+    sendIsStop: boolean;
+    hideAbortButton: boolean;
 }>;
 
 function useAppended<Base extends ReadonlyArray<unknown> | undefined>(
@@ -65,6 +69,7 @@ export function useSessionComposerOverrides(
 
     const mic = overrides?.mic;
     const hideContextUsage = overrides?.hide?.contextUsage === true;
+    const sendIsStop = !base.isReadOnly && overrides?.sendIsStop === true;
 
     return {
         // A view-only session keeps its own placeholder so the reader knows why typing is off.
@@ -76,7 +81,10 @@ export function useSessionComposerOverrides(
         providerUsageGauge: overrides?.providerUsageGauge !== undefined ? overrides.providerUsageGauge : base.providerUsageGauge,
         onMicPress: mic === undefined ? base.onMicPress : mic?.onPress,
         isMicActive: mic === undefined ? base.isMicActive : mic?.isActive,
-        onAbort: overrides?.hide?.stop === true ? undefined : base.onAbort,
+        // Hiding the secondary Stop must not remove the Send-position Stop's abort path.
+        onAbort: overrides?.hide?.stop === true && !sendIsStop ? undefined : base.onAbort,
+        sendIsStop,
+        hideAbortButton: overrides?.hide?.stop === true,
         alwaysShowContextSize: hideContextUsage ? false : base.alwaysShowContextSize,
         hideContextUsage,
     };

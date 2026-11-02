@@ -9,12 +9,14 @@ import {
 } from '@/sync/runtime/sessionRealtimeScmConsumers';
 import { isSessionRealtimeTranscriptSuppressed } from '@/sync/runtime/sessionRealtimeTranscriptSuppression';
 import { readMountedSessionRealtimeTranscriptConsumerSessionIds } from '@/sync/runtime/sessionRealtimeTranscriptConsumers';
+import { hasSessionRealtimeRecordConsumer } from '@/sync/runtime/sessionRealtimeRecordConsumers';
 import { storage } from '@/sync/domains/state/storage';
 import { useVoiceTargetStore } from '@/voice/runtime/voiceTargetStore';
 import { voiceSessionBindingStore } from '@/voice/sessionBinding/voiceSessionBindingStore';
 
 export type SessionLiveConsumption = Readonly<{
     isVisible: boolean;
+    isRecordConsumer: boolean;
     isFullContentConsumer: boolean;
 }>;
 
@@ -44,7 +46,7 @@ export function resolveSessionLiveConsumption(
     sourceServerId?: string | null,
 ): SessionLiveConsumption {
     if (isSessionRealtimeTranscriptSuppressed(sessionId, sourceServerId)) {
-        return { isVisible: false, isFullContentConsumer: false };
+        return { isVisible: false, isFullContentConsumer: false, isRecordConsumer: false };
     }
     const visible = isSessionVisible(sessionId, sourceServerId);
     const voiceTarget = useVoiceTargetStore.getState();
@@ -62,7 +64,11 @@ export function resolveSessionLiveConsumption(
             : null,
         scmMountedScopes,
     });
-    return { isVisible: visible, isFullContentConsumer };
+    return {
+        isVisible: visible,
+        isFullContentConsumer,
+        isRecordConsumer: hasSessionRealtimeRecordConsumer(sessionId, sourceServerId),
+    };
 }
 
 /**

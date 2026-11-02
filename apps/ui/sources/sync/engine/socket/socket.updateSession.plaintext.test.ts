@@ -13,6 +13,7 @@ import { buildSessionListIndexFromViewData } from '@/sync/domains/session/listin
 import { computeVisibleSessionListIndex } from '@/sync/domains/session/listing/computeVisibleSessionListIndex';
 import { fetchAndApplySessionById } from '@/sync/engine/sessions/sessionById';
 import { createDeferred } from '@/dev/testkit';
+import { registerSessionRealtimeRecordConsumer } from '@/sync/runtime/sessionRealtimeRecordConsumers';
 import { SessionEncryption } from '@/sync/encryption/sessionEncryption';
 import { EncryptionCache } from '@/sync/encryption/encryptionCache';
 import { SecretBoxEncryption, type Decryptor, type Encryptor } from '@/sync/encryption/encryptor';
@@ -663,6 +664,49 @@ describe('socket update handling: plaintext update-session', () => {
         }));
         expect(markSessionStateHydrationDeferred).toHaveBeenCalledWith(sessionId);
         expect((params.applySessions as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    });
+
+    it('keeps record-only details live without activating transcript work or other retained sessions', async () => {
+        vi.useFakeTimers();
+        const release = registerSessionRealtimeRecordConsumer('record-worker');
+        storage.getState().applySessions([buildSession('record-worker'), buildSession('other-hidden')]);
+        const hydrateSessionById = vi.fn();
+        const params = buildBaseParams({
+            applySessions: rows => storage.getState().applySessions(rows),
+            hydrateSessionById,
+        });
+        try {
+            for (const sessionId of ['record-worker', 'other-hidden']) {
+                await handleUpdateContainer({ ...params, updateData: {
+                    id: `update-${sessionId}`, seq: 2, createdAt: 200,
+                    body: { t: 'update-session', id: sessionId,
+                        metadata: { version: 2, value: JSON.stringify({ path: '/work', tag: 'ATR-202-new' }) },
+                        agentState: { version: 2, value: JSON.stringify({ controlledByUser: true, requests: {} }) },
+                        pendingPermissionRequestCount: 0, pendingUserActionRequestCount: 0,
+                    },
+                } });
+            }
+            await vi.runAllTimersAsync();
+            expect(storage.getState().sessions['record-worker'].metadata?.tag).toBe('ATR-202-new');
+            expect(storage.getState().sessions['other-hidden'].metadataVersion).toBe(1);
+            // A record-only control transition must not invoke the transcript catch-up entrypoint.
+            await handleUpdateContainer({ ...params, updateData: {
+                id: 'control-return', seq: 3, createdAt: 300,
+                body: { t: 'update-session', id: 'record-worker',
+                    agentState: { version: 3, value: JSON.stringify({ controlledByUser: false, requests: {} }) },
+                    pendingPermissionRequestCount: 0, pendingUserActionRequestCount: 0,
+                },
+            } });
+            await vi.runAllTimersAsync();
+            expect(storage.getState().sessions['record-worker'].agentStateVersion).toBe(3);
+            expect(params.onSessionVisible).not.toHaveBeenCalled();
+            expect(hydrateSessionById).not.toHaveBeenCalled();
+            expect(params.applyMessages).not.toHaveBeenCalled();
+            expect(params.fetchSessions).not.toHaveBeenCalled();
+        } finally {
+            release();
+            vi.useRealTimers();
+        }
     });
 
     it('does not overwrite a newer title when a lower-version metadata payload arrives (hydrated path)', async () => {
