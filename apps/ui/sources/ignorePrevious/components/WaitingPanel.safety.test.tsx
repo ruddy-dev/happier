@@ -130,7 +130,7 @@ async function renderPanelWithCount() {
     );
 }
 
-const UNREADABLE = "The desk can't read this session's request. Open the session to answer it.";
+const UNREADABLE = "The desk can't read this session's request. Open the session to look.";
 
 async function renderPanel() {
     const { WaitingPanel } = await import('./WaitingPanel');
