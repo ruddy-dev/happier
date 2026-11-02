@@ -19,12 +19,16 @@ function DeskPageHeader(props: NativeStackHeaderProps) {
     );
 }
 
+function renderDeskPageHeader(props: NativeStackHeaderProps) {
+    return <DeskPageHeader {...props} />;
+}
+
 function DeskPageContent({ children, withHeader }: React.PropsWithChildren<{ withHeader: boolean }>) {
     const { theme } = useUnistyles();
     return (
         <>
             {withHeader && <Stack.Screen options={{
-                header: DeskPageHeader,
+                header: renderDeskPageHeader,
                 headerStyle: { backgroundColor: theme.colors.chrome.header.background },
                 headerTintColor: theme.colors.chrome.header.foreground,
                 headerTitleStyle: { color: theme.colors.chrome.header.foreground, ...deskPageFontStyle },
