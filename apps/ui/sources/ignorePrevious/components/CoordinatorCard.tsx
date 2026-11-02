@@ -22,10 +22,11 @@ export function CoordinatorCard({ sessionId, form, onOpen }: {
     const session = useSession(sessionId);
     const now = useDeskNow();
     const waits = useDeskWaitsSummary();
-    const waitingCount = waits.ready ? waits.count : null;
+    const ownWaits = useDeskWaitsSummary({ onlySessionId: sessionId });
+    const waitingCount = ownWaits.ready ? ownWaits.count : null;
     const status = session ? getSessionStatus(session, now, { workingTextMode: 'static' }) : null;
-    // Item 1.8 owns state precedence, including unknown waits. The card only presents it.
-    const state = coordinatorStateLine(status, waitingCount);
+    // Item 1.8's state line remains desk-wide; the separate question count is coordinator-only.
+    const state = coordinatorStateLine(status, waits.ready ? waits.count : null);
     const stateText = !state ? null : state.kind === 'waiting'
         ? t('ignorePrevious.coordinatorHeader.waiting', { count: state.count })
         : t(`ignorePrevious.coordinatorHeader.${state.kind}`);
