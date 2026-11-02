@@ -22,7 +22,7 @@ export type IssueGroup = {
     workers: WorkerRow[];
 };
 
-/** Issue groups for the Work column: most urgent first, then most recent; workers without an issue last. */
+/** All Work groups, including No issue: urgency, then recency, then issue key (null last on exact ties). */
 export function groupWorkersByIssue(rows: readonly WorkerRow[]): IssueGroup[] {
     const byKey = new Map<string | null, WorkerRow[]>();
     for (const row of rows) {
@@ -35,7 +35,11 @@ export function groupWorkersByIssue(rows: readonly WorkerRow[]): IssueGroup[] {
         return { issueKey, bulb: issueBulb(workers.map((w) => w.bulb)), workers };
     });
     return groups.sort((a, b) => {
+        const priority = BULB_RANK[a.bulb] - BULB_RANK[b.bulb] || b.workers[0].updatedAt - a.workers[0].updatedAt;
+        if (priority !== 0) return priority;
         if ((a.issueKey === null) !== (b.issueKey === null)) return a.issueKey === null ? 1 : -1;
-        return BULB_RANK[a.bulb] - BULB_RANK[b.bulb] || b.workers[0].updatedAt - a.workers[0].updatedAt;
+        const aKey = a.issueKey ?? '';
+        const bKey = b.issueKey ?? '';
+        return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
     });
 }
