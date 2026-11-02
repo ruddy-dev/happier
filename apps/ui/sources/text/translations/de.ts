@@ -10797,6 +10797,16 @@ settingsSession: {
         },
     },
     ignorePrevious: {
+        composer: {
+            placeholder: 'Talk to Shog',
+            enterHint: 'Enter sends, Shift+Enter for a new line',
+            briefFirst: 'Brief me first',
+            briefPrompt: 'The six questions: aim, agreed, checked, happening, your turn, left.',
+            startNew: 'Start something new',
+            startPrompt: 'Plan a new issue together before anyone starts.',
+            unavailableTitle: 'Composer unavailable',
+            unavailable: "Shog's composer isn't ready for text. Open a writable chat and try again. Nothing was sent.",
+        },
         connection: {
             lastSeen: ({ time }: { time: string }) => `Not connected. Last connected at ${time}.`,
             noData: 'Not connected. Waiting for the first update.',
