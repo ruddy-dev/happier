@@ -2,7 +2,8 @@
 // Serve a flag-on web export and shoot the dev-only desk fixture route in system Chrome.
 // Usage: node scripts/ipFixtureShots.mjs <export-dir> <out-dir> [chrome-path]   (run from apps/ui)
 // Sheet: append --sheet <mockup-12-dir>. All captures and index.html go under out-dir.
-// - Static server on a random 127.0.0.1 port, SPA fallback to index.html. The runtime config points the app's
+// - Static server on a random 127.0.0.1 port, offline /v1/features and JSON API 404s, SPA fallback for pages.
+//   The runtime config points the app's
 //   server at that same origin, so nothing defaults to a hosted server.
 // - Network guard (installNetworkGuard): any http(s) request to a host other than 127.0.0.1, localhost or [::1]
 //   is aborted before it leaves the browser (context.route); any ws(s) connection to such a host is closed
@@ -29,7 +30,7 @@ export const THEME_MAP = Object.freeze(Object.fromEntries([
 })])));
 
 const EXTRA_PAGES = [
-    { page: 'sign-in', label: 'Sign-in', appPath: '/', readyTestId: 'unauth-shell-route-welcome',
+    { page: 'sign-in', label: 'Sign-in', appPath: '/', readyTestId: 'welcome-secondary-login',
         mockupGap: 'Mockup 12 has no sign-in page.' },
     { page: 'restore', label: 'Secret-key restore', appPath: '/restore/manual', readyTestId: 'restore-manual-secret-input',
         mockupGap: 'Mockup 12 has no secret-key restore page.' },
@@ -85,9 +86,11 @@ function escapeHtml(value) {
 
 export function renderSheetHtml(shots) {
     const cell = (shot, side, label) => {
-        const gap = shot[`${side}Error`] || shot[`${side}Gap`];
+        const error = shot[`${side}Error`];
+        const gap = error || shot[`${side}Gap`];
+        const failureImage = error && shot[`${side}FailureImage`];
         return `<figure><figcaption>${label}</figcaption>${gap
-            ? `<p class="gap">Gap: ${escapeHtml(gap)}</p>`
+            ? `<p class="gap">${error ? 'FAIL' : 'Gap'}: ${escapeHtml(gap)}${failureImage ? `<br><a href="${escapeHtml(failureImage)}">Failure screenshot</a>` : ''}</p>`
             : `<a href="${escapeHtml(shot[`${side}Image`])}"><img src="${escapeHtml(shot[`${side}Image`])}" width="${shot.width}" height="${shot.height}" alt="${escapeHtml(`${label}: ${shot.label}, ${shot.theme}, ${shot.width}x${shot.height}`)}" loading="lazy"></a>`}</figure>`;
     };
     return `<!doctype html>
@@ -150,11 +153,31 @@ export function decodeRequestPath(pathname) {
 
 const FIXED_TIME = new Date('2026-11-01T14:02:00Z');
 const ROUTE = '/dev/desk-fixture';
+// Key-only subset of createWelcomeFeaturesResponse, validated against FeaturesResponseSchema in the tests.
+// This advertises signed-out controls only. All authentication writes still receive a JSON 404.
+const OFFLINE_FEATURES = {
+    features: { auth: { login: { keyChallenge: { enabled: true } } } },
+    capabilities: {
+        auth: {
+            methods: [{
+                id: 'key_challenge',
+                actions: [{ id: 'login', enabled: true, mode: 'keyed' }, { id: 'provision', enabled: true, mode: 'keyed' }],
+                ui: { displayName: 'Device key', iconHint: null },
+            }],
+            signup: { methods: [{ id: 'anonymous', enabled: true }] },
+            login: { methods: [{ id: 'key_challenge', enabled: true }], requiredProviders: [] },
+            recovery: { providerReset: { providers: [] } },
+            ui: { autoRedirect: { enabled: false, providerId: null } },
+            providers: {},
+            misconfig: [],
+        },
+    },
+};
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
     '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf', '.woff': 'font/woff',
     '.woff2': 'font/woff2', '.wasm': 'application/wasm', '.map': 'application/json' };
 
-function startStatic(dist) {
+export function createStaticServer(dist) {
     const indexHtml = readFileSync(join(dist, 'index.html'), 'utf8');
     const served = [];
     const server = createServer((req, res) => {
@@ -163,6 +186,12 @@ function startStatic(dist) {
         const decoded = url.pathname === '/' ? '/index.html' : decodeRequestPath(url.pathname);
         if (decoded === null) {
             res.writeHead(400).end('Bad Request');
+            return;
+        }
+        if (decoded === '/v1' || decoded.startsWith('/v1/')) {
+            const features = req.method === 'GET' && decoded === '/v1/features';
+            res.writeHead(features ? 200 : 404, { 'content-type': MIME['.json'], 'cache-control': 'no-store' });
+            res.end(JSON.stringify(features ? OFFLINE_FEATURES : { error: 'not_found' }));
             return;
         }
         const file = resolve(dist, `.${decoded}`);
@@ -182,19 +211,39 @@ function startStatic(dist) {
         res.writeHead(200, { 'content-type': MIME['.html'], 'cache-control': 'no-store' });
         res.end(i >= 0 ? indexHtml.slice(0, i) + boot + indexHtml.slice(i) : boot + indexHtml);
     });
-    return new Promise((ok, fail) => server.once('error', fail).listen(0, '127.0.0.1', () => ok({ server, served })));
+    return { server, served };
+}
+
+function startStatic(dist) {
+    const host = createStaticServer(dist);
+    return new Promise((ok, fail) => host.server.once('error', fail).listen(0, '127.0.0.1', () => ok(host)));
 }
 
 export async function waitForAppReady(page, shot) {
-    if (shot.page !== 'desk') {
-        await page.getByTestId(shot.readyTestId).waitFor({ state: 'visible', timeout: 60_000 });
-        return;
+    const relayError = page.getByText('Relay not supported', { exact: false }).first();
+    const unsupported = () => new Error(`Relay not supported on ${shot.appPath ?? shot.page}; the requested page did not load`);
+    const ready = async () => {
+        if (shot.page !== 'desk') {
+            await page.getByTestId(shot.readyTestId).waitFor({ state: 'visible', timeout: 60_000 });
+            return;
+        }
+        // The 390 shot opens on Coordinator. Work stays mounted behind its phone tab.
+        const state = shot.width === 390 ? 'attached' : 'visible';
+        await page.getByTestId('ip-work').waitFor({ state, timeout: 60_000 });
+        await page.getByText('ABC-12', { exact: false }).first().waitFor({ state, timeout: 30_000 });
+        await page.getByTestId('ip-fixture-coordinator-body').waitFor({ state: 'visible', timeout: 30_000 });
+    };
+    try {
+        await Promise.race([
+            ready(),
+            // Observe until this row's context closes; only the existing readiness waits own its deadline.
+            relayError.waitFor({ state: 'visible', timeout: 0 }).then(() => { throw unsupported(); }),
+        ]);
+    } catch (error) {
+        if (await relayError.isVisible()) throw unsupported();
+        throw error;
     }
-    // The 390 shot opens on Coordinator. Work stays mounted behind its phone tab.
-    const state = shot.width === 390 ? 'attached' : 'visible';
-    await page.getByTestId('ip-work').waitFor({ state, timeout: 60_000 });
-    await page.getByText('ABC-12', { exact: false }).first().waitFor({ state, timeout: 30_000 });
-    await page.getByTestId('ip-fixture-coordinator-body').waitFor({ state: 'visible', timeout: 30_000 });
+    if (await relayError.isVisible()) throw unsupported();
 }
 
 async function captureApp(page, shot, origin) {
@@ -207,9 +256,11 @@ async function captureApp(page, shot, origin) {
         path: location.pathname,
         sideways: document.documentElement.scrollWidth > innerWidth + 1,
         restorePrompt: document.body.innerText.includes('Restore with Secret Key'),
+        relayUnsupported: document.body.innerText.includes('Relay not supported'),
         testIds: [...new Set([...document.querySelectorAll('[data-testid^="ip-"]')].map(e => e.getAttribute('data-testid')))],
     }));
     if (facts.path !== shot.appPath) throw new Error(`Redirected from ${shot.appPath} to ${facts.path}`);
+    if (facts.relayUnsupported) throw new Error(`Relay not supported on ${shot.appPath}`);
     if (shot.page === 'desk' && facts.restorePrompt) throw new Error('Account prompt shown instead of fixture coordinator');
     return facts;
 }
@@ -230,6 +281,24 @@ async function captureMockup(page, shot, origin) {
     await page.clock.runFor(1000);
     await page.evaluate(() => document.fonts.ready);
     return { hash: shot.mockupHash, section: shot.mockupSection ?? 'desk' };
+}
+
+export async function captureShot(page, shot, side, origin, out) {
+    try {
+        const facts = side === 'app' ? await captureApp(page, shot, origin) : await captureMockup(page, shot, origin);
+        await page.screenshot({ path: join(out, shot[`${side}Image`]), animations: 'disabled', caret: 'hide' });
+        return facts;
+    } catch (error) {
+        shot[`${side}Error`] = error.message;
+        const failureImage = shot[`${side}Image`].replace(/\.png$/, '-FAIL.png');
+        try {
+            await page.screenshot({ path: join(out, failureImage), animations: 'disabled', caret: 'hide' });
+            shot[`${side}FailureImage`] = failureImage;
+        } catch (screenshotError) {
+            shot[`${side}Error`] += `; failure screenshot unavailable: ${screenshotError.message}`;
+        }
+        throw error;
+    }
 }
 
 async function main() {
@@ -293,13 +362,12 @@ async function main() {
                 await page.clock.install({ time: FIXED_TIME });
                 await page.clock.setFixedTime(FIXED_TIME);
                 const started = Date.now();
-                const facts = side === 'app' ? await captureApp(page, shot, origin) : await captureMockup(page, shot, mockupOrigin);
+                const facts = await captureShot(page, shot, side, side === 'app' ? origin : mockupOrigin, out);
                 const file = join(out, shot[`${side}Image`]);
-                await page.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
                 console.log(`${name}: ${Date.now() - started} ms; ${JSON.stringify(facts)} -> ${file}`);
             } catch (error) {
                 failed = true;
-                shot[`${side}Error`] = error.message;
+                shot[`${side}Error`] ??= error.message;
                 console.log(`FAIL ${shot.name} ${side}: ${error.stack ?? error}`);
             } finally {
                 await context.close();
