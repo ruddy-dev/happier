@@ -93,6 +93,29 @@ describe('permission action dispatch guard', () => {
         expect(settledAction).toHaveBeenCalledTimes(1);
     });
 
+    it('holds a request only while its action is in flight when told not to hold after success', async () => {
+        const pending = deferred();
+        const action = vi.fn(() => pending.promise);
+        const deskGuard = createPermissionActionDispatchGuard('session-1:request-1', { holdAfterSuccess: false });
+        const footerGuard = createPermissionActionDispatchGuard('session-1:request-1');
+
+        footerGuard.retainRequest('session-1:request-1');
+        try {
+            const deskDispatch = deskGuard.dispatch('session-1:request-1', action);
+            await expect(footerGuard.dispatch('session-1:request-1', action)).resolves.toBe(false);
+
+            pending.resolve();
+            await expect(deskDispatch).resolves.toBe(true);
+            const footerAction = vi.fn().mockResolvedValue(undefined);
+            await expect(footerGuard.dispatch('session-1:request-1', footerAction)).resolves.toBe(true);
+            expect(action).toHaveBeenCalledTimes(1);
+            expect(footerAction).toHaveBeenCalledTimes(1);
+        } finally {
+            pending.resolve();
+            footerGuard.releaseRequest('session-1:request-1');
+        }
+    });
+
     it('does not serialize unrelated permission requests', async () => {
         const firstPending = deferred();
         const firstAction = vi.fn(() => firstPending.promise);
