@@ -1,10 +1,12 @@
 import { BULB_RANK, issueBulb, type Bulb } from './bulb';
+import type { WorkerUsageLimit } from './workerUsageLimit';
 
 export type WorkerRow = {
     sessionId: string;
     title: string;
     issueKey: string | null;
     bulb: Bulb;
+    usageLimit?: WorkerUsageLimit | null;
     /** Null until the session's full record has loaded. */
     permissionMode: string | null;
     updatedAt: number;

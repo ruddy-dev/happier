@@ -9,6 +9,7 @@ import type { IssueGroup } from '../model/groupWorkers';
 import { bulbColour, useDeskPaint } from '../palette';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { WorkerActions } from './WorkerActions';
+import { WorkerUsageLimitLine } from './WorkerUsageLimitLine';
 
 export type IssueCardProps = Readonly<{
     group: IssueGroup;
@@ -103,6 +104,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                               </Pressable>
                           </View>
                           <BulbLabel bulb={worker.bulb} />
+                          {worker.usageLimit ? <WorkerUsageLimitLine status={worker.usageLimit} sessionId={worker.sessionId} /> : null}
                           {worker.unheardMinutes != null ? (
                               <Text testID={`ip-worker-stale-${worker.sessionId}`} style={secondary}>
                                   {t('ignorePrevious.connection.unheard', { minutes: worker.unheardMinutes })}
