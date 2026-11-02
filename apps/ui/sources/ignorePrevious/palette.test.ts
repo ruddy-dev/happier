@@ -145,3 +145,17 @@ describe('round-8 robot contrast in all seven themes', () => {
         expect(contrast(green, teal)).toBeGreaterThanOrEqual(2);
     });
 });
+
+
+describe('C16: Terminal text contrast on every message surface', () => {
+    for (const name of ['tokyo', 'kanagawa', 'gruvbox', 'dracula', 'terminalPaper'] as const) {
+        const theme = palette.deskThemes[name];
+        for (const text of ['ink', 'mute', 'user', 'bot', 'hl', 'warn', 'bad', 'info', 'ok'] as const) {
+            for (const surface of surfaces) {
+                it(`${name}/${text}/${surface} is at least 4.5:1`, () => {
+                    expect(contrast(theme[text], theme[surface])).toBeGreaterThanOrEqual(4.5);
+                });
+            }
+        }
+    }
+});

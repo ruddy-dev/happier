@@ -78,6 +78,19 @@ All overlay text lives in the `ignorePrevious` block of `en.ts`. Happier's integ
 
 The overlay is English-only by design. `apps/ui/sources/text/i18n.integrity.test.ts` lists `ignorePrevious.` among its allowed untranslated prefixes, so the English copies don't fail the untranslated-strings check.
 
+## Coordinator transcript appearance (development)
+
+`/desk/settings` stores this device's chat style and Terminal palette in the desk preference store.
+Mask slips is the default: Happier message layout, the desk font, and the existing mask on agent replies.
+Terminal uses Tokyo Midnight by default, with Kanagawa Dragon, Gruvbox Hard, Dracula and Paper as choices.
+The five palettes reuse `ignorePrevious/palette.ts`; only the coordinator transcript receives their styles.
+The nullable upstream `TranscriptAppearanceContext` leaves ordinary sessions unchanged. Its optional
+markdown colours keep text and inline surfaces together, including Paper on a dark Happier theme.
+Tool containers accept the style, while tool-row text retains its existing fonts and colours.
+
+The stored `thinkingAndTools` preference defaults to `reply-link` (one quiet link per reply), with `hidden`
+as the other value. It has no settings row or runtime reader in this slice; C17 owns the transcript filter.
+
 ## Build settings
 
 Optional, in `apps/ui/.env.local` (gitignored), except `EXPO_PUBLIC_IP_FIXTURES`, which belongs in a one-off shell environment, never in `.env.local` (see "The desk fixture"). Restart `yarn web` after changing any of them, `EXPO_PUBLIC_IP_FIXTURES` included: `metro.config.js` reads that flag once at start-up, and a running server that sees it change at runtime would load a fixture its block list has hidden.
@@ -111,6 +124,11 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/components/sessions/transcript/TranscriptAppearanceContext.tsx` (new) | Nullable data/slot contract for user, agent and tool containers, optional markdown font/colours and an agent-leading node; imports no overlay code. |
+| `apps/ui/sources/components/sessions/transcript/MessageView.tsx` | Applies opt-in container styles after built-ins and the agent-leading slot; styles the streaming plain-text fallback. Resets the appearance beneath tool chrome to preserve tool-row typography. |
+| `apps/ui/sources/components/sessions/pending/PendingMessagesTranscriptBlock.tsx` | Resets transcript appearance for queued-message markdown on the stock Happier bubble. |
+| `apps/ui/sources/components/markdown/enriched/useEnrichedMarkdownStyle.ts` | Opt-in font and coordinated markdown colours, including emphasis and inline/code/table surfaces. The default builder inputs remain unchanged. |
+| `apps/ui/sources/components/markdown/MarkdownBlockView.tsx` | Applies typed optional font/colour overrides to the block renderer, including nested spans, lists, options and tables; retains the upstream static stylesheet without a provider. |
 | `apps/ui/sources/keyboard/escape.ts` | Exports the existing editable-target predicate so the desk popup hook uses the keyboard owner's rule instead of duplicating it. |
 | `apps/ui/sources/components/sessions/usageLimitRecovery/sessionUsageLimitRecoveryPresentation.ts` | Exports the existing issue predicate, visibility decision and reset reader so Work cards reuse SessionView's rules without a second parser. Recovery predicate bodies are unchanged; the desk's armed claim excludes paused recovery. |
 | `apps/ui/sources/modal/components/BaseModal.tsx` | Registers a modal-priority Escape blocker while visible on web so desk popups yield keyboard and outside clicks to real dialogs, including the command palette. Side effect: `MultiPaneHost` skips its own Esc handling while a blocker above pane priority is registered, so while a modal is visible, Esc no longer closes an overlay pane or details view; the modal's own handler still gets the key. |

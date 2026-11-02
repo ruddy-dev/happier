@@ -11093,6 +11093,18 @@ settingsSession: {
     friendAcceptedGeneric: "好友请求已接受",
   },
     ignorePrevious: {
+        chatStyle: {
+            appearance: 'Appearance',
+            title: 'Chat style',
+            mask: 'The mask slips',
+            terminal: 'Terminal',
+            palette: 'Terminal palette',
+            tokyo: 'Tokyo Midnight',
+            kanagawa: 'Kanagawa Dragon',
+            gruvbox: 'Gruvbox Hard',
+            dracula: 'Dracula',
+            terminalPaper: 'Paper',
+        },
         freshStart: {
             title: 'Fresh start', more: '...', moreLabel: 'Shog: Brief me, Compact, New conversation',
             brief: 'Brief me', compact: 'Compact', keepsSummary: 'Keeps a summary',
