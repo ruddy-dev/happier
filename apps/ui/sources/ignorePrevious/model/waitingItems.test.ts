@@ -57,6 +57,36 @@ describe('describeRequest', () => {
         );
     });
 
+    it('shows every field beside the command, since each can change what runs', () => {
+        const cwd = describeRequest('CodexBash', { command: 'rm -rf *', cwd: '/work/home' });
+        expect(cwd).toContain('rm -rf *');
+        expect(cwd).toContain('"cwd": "/work/home"');
+        expect(describeRequest('Bash', { command: 'ls', dangerouslyDisableSandbox: true })).toContain('"dangerouslyDisableSandbox": true');
+        const codex = describeRequest('CodexBash', {
+            command: ['git', 'status'],
+            workdir: '/work/repo',
+            with_escalated_permissions: true,
+            justification: 'needs network',
+        });
+        expect(codex).toContain('git status');
+        expect(codex).toContain('"with_escalated_permissions": true');
+        expect(codex).toContain('"workdir": "/work/repo"');
+        const mcp = describeRequest('mcp__deploy__run', { command: 'git status', target: 'prod', force: true });
+        expect(mcp).toContain('git status');
+        expect(mcp).toContain('"target": "prod"');
+        // Two commands: both are shown, not just the first one found.
+        const two = describeRequest('X', { command: 'ls', cmd: ['rm', '-rf', '/'] });
+        expect(two).toContain('ls');
+        expect(two).toContain('"rm"');
+        // A JSON-encoded argument string is read the same way as the object it encodes.
+        const encoded = describeRequest('CodexBash', JSON.stringify({ command: ['rm', '-rf', 'my dir'] }));
+        expect(encoded).not.toContain('rm -rf my dir');
+        expect(encoded).toContain('"my dir"');
+        expect(describeRequest('CodexBash', JSON.stringify(['rm', '-rf', 'my dir']))).toContain('"my dir"');
+        // The agent's description is shown on the card as its note, so it isn't repeated here.
+        expect(describeRequest('Bash', { command: 'ls', description: 'List files' })).toBe('ls');
+    });
+
     it('shows the file for edits', () => {
         expect(describeRequest('Edit', { file_path: 'src/a.ts', old_string: 'x' })).toBe('src/a.ts');
     });
