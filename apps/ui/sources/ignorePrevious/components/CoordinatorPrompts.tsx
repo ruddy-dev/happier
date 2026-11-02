@@ -6,7 +6,7 @@ import { Modal } from '@/modal';
 import { readComposerText, requestComposerText } from '@/components/sessions/model/composerRequests';
 import { t } from '@/text';
 
-import { useDeskWaits, type DeskWaits } from '../model/useDeskWaits';
+import { readDeskWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
 
 /** The waiting list as the coordinator reads it: what each request runs, not only the agent's description. */
@@ -37,8 +37,7 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  */
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
-    const waits = useDeskWaits(coordinatorId);
-    const { count } = waits;
+    const { count } = useDeskWaitsSummary(coordinatorId);
     // A chip never wipes what is already typed: the prompt goes after the draft, a blank line apart.
     const fill = (text: string) => {
         const draft = (readComposerText(coordinatorId) ?? '').trimEnd();
@@ -71,7 +70,8 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
             {chip('ip-start-new', t('ignorePrevious.composer.startNew'), () => fill(t('ignorePrevious.composer.startPrompt')))}
             {count > 0
                 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () =>
-                      fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(waits) })),
+                      // Read the details only on press, so the closed chip keeps only the count subscription.
+                      fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskWaits(coordinatorId)) })),
                   )
                 : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}

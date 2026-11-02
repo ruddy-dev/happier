@@ -9,13 +9,13 @@ import { type CustomModalInjectedProps } from '@/modal';
 import { useModalCardChrome } from '@/modal/components/card/useModalCardChrome';
 import { t } from '@/text';
 
-import { useDeskWaits } from '../model/useDeskWaits';
+import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { WaitingPanel } from './WaitingPanel';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress }: { open: boolean; onPress: () => void }) {
     const { theme } = useUnistyles();
-    const { count, ready } = useDeskWaits();
+    const { count, ready } = useDeskWaitsSummary();
     const waiting = ready && count > 0;
     // Before the first sync the count is not known yet; 0 would say nothing waits (F4).
     const label = open
