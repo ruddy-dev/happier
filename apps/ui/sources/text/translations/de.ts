@@ -10811,8 +10811,14 @@ settingsSession: {
         deny: 'Deny',
         openSession: 'Open session',
         agentSays: ({ name }: { name: string }) => `${name} says:`,
-        allowFailed: 'That request was already answered or has expired.',
-        allowFailedTitle: 'Answer not sent',
+        waiting: {
+            answerFailedTitle: 'Answer not sent',
+            answerFailed: "Your answer didn't go through. Check the connection and try again.",
+            unreadable: "The desk can't read this session's request. Open the session to look.",
+            blankLines: ({ count }: { count: number }) => `${count} blank lines`,
+            blankCharacters: ({ count }: { count: number }) => `${count} blank characters`,
+            answeringElsewhere: 'This press was blocked by the session screen. Open the session to answer there.',
+        },
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
         work: 'Work',
@@ -10864,6 +10870,8 @@ settingsSession: {
             `${n}. ${session} (session ${id}) has a question waiting in its session.`,
         walkItemUnloaded: ({ n, session, id }: { n: number; session: string; id: string }) =>
             `${n}. ${session} (session ${id}) is waiting on me; its details aren't loaded on the desk.`,
+        walkItemUnreadable: ({ n, session, id }: { n: number; session: string; id: string }) =>
+            `${n}. ${session} (session ${id}) is waiting on me, but the desk can't read its request. Don't guess what it wants; tell me to open the session.`,
         walkPrs: 'Go through PRs',
         walkPrsPrompt:
             "Go through my open PRs one at a time: what each one changes, what its review found, and whether it's ready. Recommend merge, wait or close for each. Don't merge anything yourself.",
