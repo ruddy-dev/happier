@@ -4,18 +4,20 @@
  * Loaded only by CoordinatorPane when EXPO_PUBLIC_IP_FIXTURES=1; never import it anywhere else.
  */
 import * as React from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
 
 import scenario from './desk-fixture.json';
+import { CreatureFixture } from './CreatureFixture';
 
 export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingActions }: { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
     const { transcript, composerPlaceholder } = scenario.coordinatorBody;
     return (
-        <View testID="ip-fixture-coordinator-body" style={{ flex: 1, justifyContent: 'space-between' }}>
+        <ScrollView testID="ip-fixture-coordinator-body" style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }}>
+            <CreatureFixture />
             <View style={{ gap: 10, padding: 16 }}>
                 {transcript.map((line, index) => {
                     const mine = line.from === 'you';
@@ -49,6 +51,6 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 14 }}>{composerPlaceholder}</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingTop: 8 }}>{footerLeadingActions}{statusTrailingActions}</View>
             </View>
-        </View>
+        </ScrollView>
     );
 }

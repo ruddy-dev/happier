@@ -4,13 +4,14 @@ import { Pressable, View } from 'react-native';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
-import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState } from '@/utils/sessions/sessionUtils';
+import { getSessionName, getSessionStatus } from '@/utils/sessions/sessionUtils';
 
 import { DeskText as Text } from '../typography/DeskText';
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { useCoordinatorId } from '../model/useCoordinatorId';
-import { workerUnheardMinutes } from '../model/workerFreshness';
+import { workerLastActivityAt, workerUnheardMinutes } from '../model/workerFreshness';
+import { isDeskWorkerBusy } from '../model/workerBusy';
 import { useDeskNow } from '../model/useDeskNow';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { bulbColour, useDeskPaint } from '../palette';
@@ -40,8 +41,9 @@ function toWorkerRows(
             bulb: bulbFromSessionState(state),
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
+            lastActivityAt: workerLastActivityAt(row),
             contextPercent: meter ? meter.percent : null,
-            canStop: shouldShowAbortButtonForSessionState(state) && unheardMinutes === null,
+            canStop: isDeskWorkerBusy(state) && unheardMinutes === null,
             unheardMinutes,
             inactive: row.active !== true,
         };
