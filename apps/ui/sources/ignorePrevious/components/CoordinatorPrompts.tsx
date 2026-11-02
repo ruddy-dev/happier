@@ -1,11 +1,14 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import { shallow } from 'zustand/shallow';
 
 import { Modal } from '@/modal';
 import { readComposerText, requestComposerText } from '@/components/sessions/model/composerRequests';
 import { t } from '@/text';
+import { storage } from '@/sync/domains/state/storage';
 
+import { resolveCoordinatorReplyChips } from '../model/coordinatorReplyChips';
 import { readDeskWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
 
@@ -38,6 +41,20 @@ function waitingList({ items, unloaded }: DeskWaits): string {
 export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
     const { theme } = useUnistyles();
     const { count } = useDeskWaitsSummary(coordinatorId);
+    const selectReplies = React.useMemo(() => {
+        let requests: NonNullable<ReturnType<typeof storage.getState>['sessions'][string]['agentState']>['requests'];
+        let labels: readonly string[] = [];
+        return (state: ReturnType<typeof storage.getState>) => {
+            const next = state.sessions[coordinatorId]?.agentState?.requests;
+            if (requests !== next) {
+                const nextLabels = resolveCoordinatorReplyChips(next);
+                if (!shallow(labels, nextLabels)) labels = nextLabels;
+            }
+            requests = next;
+            return labels;
+        };
+    }, [coordinatorId]);
+    const replies = storage(selectReplies);
     // A chip never wipes what is already typed: the prompt goes after the draft, a blank line apart.
     const fill = (text: string) => {
         const draft = (readComposerText(coordinatorId) ?? '').trimEnd();
@@ -46,10 +63,12 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
         }
     };
 
-    const chip = (testID: string, label: string, onPress: () => void) => (
+    const chip = (testID: string, label: string, onPress: () => void, accessibilityLabel?: string) => (
         <Pressable
+            key={testID}
             testID={testID}
             accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
             onPress={onPress}
             style={{
                 paddingHorizontal: 10,
@@ -75,6 +94,8 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
                   )
                 : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}
+            {replies.map((label, index) => chip(`ip-coordinator-reply-${index}`, label, () => fill(label),
+                t('ignorePrevious.composer.questionReply', { label })))}
         </View>
     );
 }

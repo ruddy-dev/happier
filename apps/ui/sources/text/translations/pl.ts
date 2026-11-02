@@ -11628,6 +11628,7 @@ settingsSession: {
             placeholder: 'Talk to Shog',
             enterHint: 'Enter sends, Shift+Enter for a new line',
             briefFirst: 'Brief me first',
+            questionReply: ({ label }: { label: string }) => `Answer to the coordinator's question: ${label}`,
             briefPrompt: 'The six questions: aim, agreed, checked, happening, your turn, left.',
             startNew: 'Start something new',
             startPrompt: 'Plan a new issue together before anyone starts.',
