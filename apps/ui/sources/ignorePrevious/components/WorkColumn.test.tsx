@@ -13,6 +13,7 @@ import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 import { DESK_TICK_MS } from '../model/useDeskNow';
+import { resetWorkCardCacheForTests } from '../model/useWorkCardData';
 import type { SessionReadFileResponse } from '@/sync/ops/sessionFileSystem/fileReadWrite';
 import { encodeBase64 } from '@/encryption/base64';
 import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
@@ -618,6 +619,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
             storage.setState(previous, true);
             setStoredCoordinatorId(coordinator);
         });
+        resetWorkCardCacheForTests();
         vi.unstubAllEnvs();
         vi.unstubAllGlobals();
         vi.useRealTimers();
@@ -647,6 +649,117 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         await act(async () => deferred.resolve(response(projects)));
         await flushHookEffects();
         expect(screen.getTextContent()).toContain('Demo card title');
+    });
+
+    it('C N1 remount keeps the warm card without repeating either read', async () => {
+        const first = await renderColumn();
+        await flushHookEffects();
+        expect(reads()).toHaveLength(2);
+        await first.unmount();
+        const remounted = await renderColumn();
+        expect(remounted.getTextContent()).toContain('Demo card title');
+        await flushHookEffects();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+    });
+
+    it('C N1 remount shares a pending item read and receives its result', async () => {
+        const pending = createDeferred<SessionReadFileResponse>();
+        readWqFile.mockImplementation(async (_id, path) => path.endsWith('projects.json') ? response(projects) : pending.promise);
+        const first = await renderColumn();
+        await flushHookEffects();
+        expect(reads()).toHaveLength(2);
+        await first.unmount();
+        const remounted = await renderColumn();
+        try {
+            await flushHookEffects();
+            expect(reads()).toHaveLength(2);
+            expect(remounted.getTextContent()).not.toContain('Demo card title');
+        } finally {
+            await act(async () => pending.resolve(response(item())));
+        }
+        await flushHookEffects();
+        expect(reads()).toHaveLength(2);
+        expect(remounted.getTextContent()).toContain('Demo card title');
+    });
+
+    it('C N1 inventory settling with no mounted hooks is retained without starting another read', async () => {
+        const pending = createDeferred<SessionReadFileResponse>();
+        readWqFile.mockReturnValueOnce(pending.promise);
+        const first = await renderColumn();
+        await first.unmount();
+        await act(async () => pending.resolve(response(projects)));
+        await flushHookEffects();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json']]);
+        const remounted = await renderColumn();
+        await flushHookEffects();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+        expect(remounted.getTextContent()).toContain('Demo card title');
+    });
+
+    it('C F4 remount preserves the five-minute failed-item attempt window', async () => {
+        vi.useFakeTimers();
+        readWqFile.mockImplementation(async (_id, path) => path.endsWith('projects.json') ? response(projects) : { success: false, error: 'Missing file' });
+        const first = await renderColumn();
+        await flushHookEffects();
+        expect(reads()).toHaveLength(2);
+        await first.unmount();
+        const remounted = await renderColumn();
+        await flushHookEffects({ advanceTimersMs: 295_000, cycles: 1 });
+        expect(reads()).toHaveLength(2);
+        expect(remounted.getTextContent()).toContain('Title worker');
+        await flushHookEffects({ advanceTimersMs: 5_000, cycles: 1 });
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+    });
+
+    it('C N1 two mounted hooks share the inventory, item attempts and result', async () => {
+        const pending = createDeferred<SessionReadFileResponse>();
+        readWqFile.mockReturnValueOnce(pending.promise);
+        const first = await renderColumn();
+        const second = await renderColumn();
+        try {
+            expect(reads()).toEqual([['coord', '/fixture/wq/projects.json']]);
+        } finally {
+            await act(async () => pending.resolve(response(projects)));
+        }
+        await flushHookEffects();
+        expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+        expect(first.getTextContent()).toContain('Demo card title');
+        expect(second.getTextContent()).toContain('Demo card title');
+        await first.unmount();
+        expect(second.getTextContent()).toContain('Demo card title');
+    });
+
+    it.each(['coordinator', 'directory'])('C F4 remount discards a pending old %s result and waits for its call to settle', async change => {
+        const oldItem = createDeferred<SessionReadFileResponse>();
+        const newInventory = createDeferred<SessionReadFileResponse>();
+        readWqFile.mockResolvedValueOnce(response(projects)).mockReturnValueOnce(oldItem.promise).mockReturnValueOnce(newInventory.promise);
+        const first = await renderColumn();
+        await flushHookEffects();
+        expect(reads()).toHaveLength(2);
+        await first.unmount();
+        if (change === 'coordinator') {
+            seed([session('new-coord', '/fixture/another-coordinator', { active: true })]);
+            act(() => setStoredCoordinatorId('new-coord'));
+        } else vi.stubEnv('EXPO_PUBLIC_IP_WQ_DIR', '/fixture/other-wq');
+        const remounted = await renderColumn();
+        try {
+            await flushHookEffects();
+            expect(reads()).toHaveLength(2);
+        } finally {
+            await act(async () => oldItem.resolve(response(item().replace('Demo card title', 'Old card title'))));
+            await flushHookEffects();
+            expect(remounted.getTextContent()).not.toContain('Old card title');
+            await act(async () => newInventory.resolve(response(projects)));
+        }
+        await flushHookEffects();
+        const id = change === 'coordinator' ? 'new-coord' : 'coord';
+        const dir = change === 'directory' ? '/fixture/other-wq' : '/fixture/wq';
+        expect(reads()).toEqual([
+            ['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md'],
+            [id, `${dir}/projects.json`], [id, `${dir}/items/ATR-18.md`],
+        ]);
+        expect(remounted.getTextContent()).toContain('Demo card title');
+        expect(remounted.getTextContent()).not.toContain('Old card title');
     });
 
     it.each(['missing', 'size', 'parse', 'mismatch', 'throw'])('F4 a %s item failure leaves today’s card and waits five minutes', async failure => {

@@ -15,12 +15,49 @@ import { parseWqItem, parseWqProjects, wqDirectory, wqItemPath, type WqItem, typ
 const REFRESH_MS = 5 * 60_000;
 
 type CardCache = {
+    coordinatorId: string | null;
+    dir: string | null;
     alive: boolean;
     projects: WqProjects | null;
     projectsAttemptAt: number | null;
     items: Map<string, WqItem | null>;
     attempts: Map<string, number>;
 };
+
+// One selection survives Work panel remounts. A replaced entry cannot publish a late result.
+let currentCache: CardCache | null = null;
+let revision = 0;
+let busy = false;
+const listeners = new Set<() => void>();
+const pumps = new Set<() => void>();
+const emptyItems: ReadonlyMap<string, WqItem | null> = new Map();
+const getRevision = () => revision;
+function subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+}
+function changed(): void {
+    revision++;
+    for (const listener of listeners) listener();
+}
+function matches(cache: CardCache | null, coordinatorId: string | null, dir: string | null): boolean {
+    return cache !== null && cache.coordinatorId === coordinatorId && cache.dir === dir;
+}
+function selectCache(coordinatorId: string | null, dir: string | null): CardCache {
+    if (currentCache && matches(currentCache, coordinatorId, dir)) return currentCache;
+    if (currentCache) currentCache.alive = false;
+    currentCache = {
+        coordinatorId, dir, alive: true, projects: null, projectsAttemptAt: null, items: new Map(), attempts: new Map(),
+    };
+    changed();
+    return currentCache;
+}
+
+/** Test isolation only. Any outstanding boundary call still owns the global read lock. */
+export function resetWorkCardCacheForTests(): void {
+    if (currentCache) currentCache.alive = false;
+    currentCache = null;
+}
 
 export type WorkCardData = Readonly<{
     issueKeys: ReadonlyMap<string, string | null>;
@@ -46,32 +83,22 @@ export function useWorkCardData(coordinatorId: string | null, workers: DeskSessi
     const dir = wqDirectory(process.env.EXPO_PUBLIC_IP_WQ_DIR, COORDINATOR_PATH);
     const focused = useIsFocused();
     const connected = useSocketStatus().status === 'connected';
-    const [revision, changed] = React.useReducer((n: number) => n + 1, 0);
-    const cache = React.useMemo<CardCache>(() => ({
-        alive: false, projects: null, projectsAttemptAt: null, items: new Map(), attempts: new Map(),
-    }), [coordinatorId, dir]);
-    const knownProjectCodes = cache.projects?.knownProjectCodes;
+    const revision = React.useSyncExternalStore(subscribe, getRevision, getRevision);
+    const cache = matches(currentCache, coordinatorId, dir) ? currentCache : null;
+    const knownProjectCodes = cache?.projects?.knownProjectCodes;
     const issueKeys = useIssueKeys(workers, knownProjectCodes);
     const visibleKeys = React.useMemo(() => [...new Set([...issueKeys.values()].filter((key): key is string => key !== null))].sort(), [issueKeys]);
-    // One outstanding boundary call across key changes AND coordinator/directory changes.
-    const busy = React.useRef(false);
-    const pumpCurrent = React.useRef<() => void>(() => {});
-
     React.useEffect(() => {
-        cache.alive = true;
-        return () => { cache.alive = false; };
-    }, [cache]);
-
-    React.useEffect(() => {
+        const cache = selectCache(coordinatorId, dir);
         let active = true;
         const pump = () => {
-            if (busy.current || !active || !cache.alive || !coordinatorId || !dir || !focused || !connected || !isRuntimeActive() || !isHostVisible()) return;
+            if (busy || !active || !cache.alive || !coordinatorId || !dir || !focused || !connected || !isRuntimeActive() || !isHostVisible()) return;
             const now = Date.now();
             let read: Promise<unknown>;
             if (!cache.projects) {
                 if (cache.projectsAttemptAt !== null && now - cache.projectsAttemptAt < REFRESH_MS) return;
                 cache.projectsAttemptAt = now;
-                busy.current = true;
+                busy = true;
                 read = readProjection(coordinatorId, `${dir.replace(/\/$/, '')}/projects.json`, parseWqProjects).then(projects => {
                     if (cache.alive) { cache.projects = projects; changed(); }
                 });
@@ -82,7 +109,7 @@ export function useWorkCardData(coordinatorId: string | null, workers: DeskSessi
                 if (!key) return;
                 const path = wqItemPath(dir, key, codes)!;
                 cache.attempts.set(key, now);
-                busy.current = true;
+                busy = true;
                 read = readProjection(coordinatorId, path, text => parseWqItem(text, key)).then(item => {
                     if (!cache.alive) return;
                     const previous = cache.items.get(key);
@@ -92,14 +119,15 @@ export function useWorkCardData(coordinatorId: string | null, workers: DeskSessi
                 });
             }
             void read.finally(() => {
-                busy.current = false;
-                pumpCurrent.current();
+                busy = false;
+                // Only mounted hooks can start more work, using their current keys and gates.
+                for (const pump of pumps) pump();
             });
         };
-        pumpCurrent.current = pump;
+        pumps.add(pump);
         pump();
-        return () => { active = false; };
-    }, [cache, coordinatorId, dir, focused, connected, visibleKeys, nowMs, revision]);
+        return () => { active = false; pumps.delete(pump); };
+    }, [coordinatorId, dir, focused, connected, visibleKeys, nowMs, revision]);
 
-    return { issueKeys, knownProjectCodes, items: cache.items, projectNames: cache.projects?.names };
+    return { issueKeys, knownProjectCodes, items: cache?.items ?? emptyItems, projectNames: cache?.projects?.names };
 }
