@@ -100,13 +100,15 @@ describe('describeRequest', () => {
         expect(describeRequest('Edit', { file_path: 'src/a.ts', old_string: 'x' })).toBe('src/a.ts');
     });
 
-    it('shows the arguments of any other tool, capped at 2000 characters', () => {
+    it('shows the arguments of any other tool, to the last character', () => {
         const out = describeRequest('WebFetch', { url: 'https://example.invalid/x' });
         expect(out).toContain('WebFetch');
         expect(out).toContain('https://example.invalid/x');
-        const long = describeRequest('mcp__notes__write', { body: 'y'.repeat(5000) });
-        expect(long).toHaveLength(2000);
-        expect(long.endsWith('…')).toBe(true);
+        const long = describeRequest('mcp__notes__write', { body: 'y'.repeat(5000) + 'TAIL' });
+        expect(long).toContain('TAIL');
+        // A long script in an argument list the card can't join: its end is what runs last.
+        const codex = describeRequest('CodexBash', { command: ['sh', '-c', `echo ${'a'.repeat(3000)}; rm -rf ~`] });
+        expect(codex).toContain('rm -rf ~');
         expect(describeRequest('ExitPlanMode', undefined)).toBe('ExitPlanMode');
     });
 });

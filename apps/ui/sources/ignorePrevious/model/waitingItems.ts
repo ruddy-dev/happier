@@ -37,7 +37,6 @@ export function summariseRequest(tool: string, args: unknown): string {
     return raw.length > MAX_SUMMARY ? `${raw.slice(0, MAX_SUMMARY - 1)}…` : raw;
 }
 
-const MAX_ARGUMENTS_DETAIL = 2000;
 const SHELL_WRAPPERS = new Set(['bash', '/bin/bash', 'zsh', '/bin/zsh']);
 /**
  * An argument that reads the same joined into shell text as it does in the argument list. An
@@ -114,9 +113,8 @@ function readShellRequest(value: unknown): { command: string; rest: Record<strin
 
 function describeArguments(tool: string, args: unknown): string {
     if (args === undefined || args === null) return tool;
-    const json = JSON.stringify(args, null, 2) ?? '';
-    const out = `${tool} ${json}`;
-    return out.length > MAX_ARGUMENTS_DETAIL ? `${out.slice(0, MAX_ARGUMENTS_DETAIL - 1)}…` : out;
+    // Uncut: no measured cost justifies a cap, and a cap hides the end of what Allow approves.
+    return `${tool} ${JSON.stringify(args, null, 2) ?? ''}`;
 }
 
 /**
