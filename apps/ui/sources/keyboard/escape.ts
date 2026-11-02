@@ -64,7 +64,7 @@ function isEscapeKeyEvent(event: unknown): boolean {
     return Boolean(event && typeof event === 'object' && (event as { key?: unknown }).key === 'Escape');
 }
 
-function isEditableEscapeTarget(target: unknown): boolean {
+export function isEditableEscapeTarget(target: unknown): boolean {
     if (!target || typeof target !== 'object') return false;
     const element = target as {
         tagName?: unknown;
