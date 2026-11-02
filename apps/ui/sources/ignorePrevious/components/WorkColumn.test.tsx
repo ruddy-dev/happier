@@ -150,6 +150,28 @@ describe('WorkColumn', () => {
         expect(face('ATR-9').props).toMatchObject({ kind: 'cxloupe', size: 28 });
     });
 
+    it.each([undefined, 'column', 'row'] as const)('keeps the %s grouped face with its state owner and breaks ties by recency', async (compact) => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const now = Date.now();
+        const request = { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: now };
+        const newer = session('newer', '/work/atr-9-sprites', {
+            modelMode: 'claude-sonnet-5.5', updatedAt: now, meaningfulActivityAt: now,
+            active: true, activeAt: now,
+        });
+        const older = session('older', '/work/atr-9-sprites', {
+            modelMode: 'gpt-6.1-sol', updatedAt: now - 1000, meaningfulActivityAt: now - 1000,
+            active: true, activeAt: now,
+            agentState: { requests: { request } },
+        });
+        seed([newer, older]);
+        const screen = await renderScreen(<WorkColumn compact={compact} />);
+        const face = () => screen.findByTestId(compact ? 'ip-rail-face-ATR-9' : 'ip-work-card-face-ATR-9')!.findByType(WorkerSprite.type);
+        expect(face().props).toMatchObject({ kind: 'cxloupe', bulb: 'turn', size: compact ? 28 : 40 });
+        seed([{ ...newer, seq: newer.seq + 1, agentState: { requests: { request } } }]);
+        expect(face().props).toMatchObject({ kind: 'ginger', bulb: 'turn' });
+    });
+
     it('finding 6: disabling recovery removes the armed claim but keeps the limit line', async () => {
         const now = Date.now();
         const issue = usageLimitIssue(now);

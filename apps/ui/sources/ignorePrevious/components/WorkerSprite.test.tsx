@@ -1,8 +1,8 @@
 import { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderScreen } from '@/dev/testkit';
-import { deskThemes, robotColourDefaults, robotPresets, spriteSignalColour } from '../palette';
-import { spriteGrids, type SpriteKind } from '../sprites';
+import { deskThemes, robotColourDefaults, robotPresets, spriteAsciiColour, spriteSignalColour, spriteStateTokens } from '../palette';
+import { asciiSprites, spriteGrids, type SpriteKind } from '../sprites';
 import type { Bulb } from '../model/bulb';
 
 const motion = vi.hoisted(() => ({ reduced: false, active: new Set<object>(), durations: [] as number[] }));
@@ -77,9 +77,25 @@ describe('WorkerSprite', () => {
         const { WorkerSprite } = await import('./WorkerSprite');
         const screen = await renderScreen(<WorkerSprite kind="ipb" bulb="working" size={40} faceStyle="B" calm />);
         expect(screen.findByTestId('ip-sprite-pixels')).toBeNull();
-        expect(screen.getTextContent().replace(/\u00a0/g, ' ')).toContain('d|- -|b');
+        const face = screen.findByTestId('ip-sprite-ascii')!.findAllByType('SvgText')[2];
+        // The general text helper inserts spaces between nodes; SVG spans share one text line.
+        expect(face.children.map(child => typeof child === 'string' ? child : child.props.children).join('').replace(/\u00a0/g, ' ')).toBe('d|- -|b');
         expect(screen.findByTestId('ip-sprite-cursor')!.props.fill).toBe(deskThemes.night.work);
         expect(motion.active.size).toBe(0);
+    });
+
+    it.each(Object.keys(asciiSprites) as SpriteKind[])('colours only %s style B eyes by state, including stuck X glyphs', async (kind) => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        for (const bulb of ['idle', 'turn', 'stuck'] as const) {
+            const screen = await renderScreen(<WorkerSprite kind={kind} bulb={bulb} size={28} faceStyle="B" calm />);
+            const ascii = screen.findByTestId('ip-sprite-ascii')!;
+            const eyes = ascii.findAllByType('TSpan');
+            expect(eyes).toHaveLength(asciiSprites[kind].full.join('').match(/E/g)!.length);
+            expect(eyes.map(eye => eye.props.fill)).toEqual(eyes.map(() => deskThemes.night[spriteStateTokens[bulb]]));
+            const glyph = bulb === 'stuck' ? 'x' : kind === 'cxprompt' ? (bulb === 'turn' ? '_' : '\u00a0') : bulb === 'turn' ? 'o' : '-';
+            expect(eyes.map(eye => eye.props.children)).toEqual(eyes.map(() => glyph));
+            expect(ascii.findAllByType('SvgText').every(line => line.props.fill === spriteAsciiColour(deskThemes.night, kind))).toBe(true);
+        }
     });
 
     it('bobs IPB four times over 1.6 s, then stays still until the next start', async () => {

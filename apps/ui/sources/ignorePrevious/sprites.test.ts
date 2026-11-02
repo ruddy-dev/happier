@@ -11,6 +11,9 @@ describe('M16: one face per model', () => {
         ['gpt-6.1-sol', 'cxloupe'], ['GPT-6-TERRA', 'cxprompt'],
         ['gpt-6-astra', 'cxlab'], ['gpt-99-unknown', 'cxprompt'],
         ['gpt-6-solstice', 'cxprompt'], ['claude-sonnetish', 'ragdoll'],
+        ['gpt_6_sol', 'cxloupe'], ['claude_sonnet', 'ginger'],
+        ['gpt_6_solstice', 'cxprompt'], ['gpt_6_terrain', 'cxprompt'],
+        ['gpt-6-terrain-astra', 'cxlab'], ['gptish_6_sol', 'ipdroid'],
         ['gemini-3', 'ipdroid'], ['unknown', 'ipdroid'], ['default', 'ipdroid'],
         ['', 'ipdroid'], ['   ', 'ipdroid'], [null, 'ipdroid'], [undefined, 'ipdroid'],
     ] as const)('resolves model id %s to %s', (model, kind) => expect(spriteForModel(model)).toBe(kind));
