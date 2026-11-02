@@ -8,6 +8,12 @@ import { storage } from '@/sync/domains/state/storage';
 
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { CoordinatorPane } from './CoordinatorPane';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
+import { DeskSettingsScreen } from '../screens/DeskSettingsScreen';
+import { deskPrefs } from '../deskPrefs';
+import { DESK_FONT_STACK } from '../fonts/deskFont';
+import { deskThemes } from '../palette';
+import { MaskFace } from './MaskFace';
 import { SessionView } from '@/components/sessions/shell/SessionView';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -39,7 +45,8 @@ vi.mock('@/components/sessions/shell/SessionView', async () => {
                 statusBadges: [], providerUsageGauge: undefined, onMicPress: undefined,
                 isMicActive: undefined, onAbort: undefined, alwaysShowContextSize: false,
             }, composer);
-            return <View testID={`session-view-${id}`}>
+            const appearance = React.useContext(TranscriptAppearanceContext);
+            return <View testID={`session-view-${id}`} data-appearance={appearance}>
                 <TextInput testID={`composer-${id}`} placeholder={resolved.placeholder} />
                 {resolved.statusTrailingActions}
                 {resolved.footerLeadingActions}
@@ -60,6 +67,31 @@ describe('CoordinatorPane body', () => {
         viewport.width = 1200;
         vi.unstubAllEnvs();
         storage.setState(before, true);
+    });
+
+    it('C15/C16: settings update the coordinator appearance while a plain SessionView stays null', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        const screen = await renderScreen(<><DeskSettingsScreen /><CoordinatorPane sessionId="c1" /><SessionView id="worker" /></>);
+        const read = () => screen.findByTestId('session-view-c1')!.props['data-appearance'];
+        expect(read().fontFamily).toBe(DESK_FONT_STACK);
+        expect(read().agentLeading.type).toBe(MaskFace);
+        expect(read().userBubbleStyle).toBeUndefined();
+        expect(screen.findByTestId('session-view-worker')!.props['data-appearance']).toBeNull();
+        await screen.pressByTestIdAsync('ip-chat-style-terminal');
+        expect(deskPrefs.get('chatStyle')).toBe('terminal');
+        expect(read().agentLeading).toBeUndefined();
+        expect(read().agentContainerStyle.borderLeftColor).toBe(deskThemes.tokyo.bot);
+        for (const palette of ['kanagawa', 'gruvbox', 'dracula', 'terminalPaper', 'tokyo'] as const) {
+            await screen.pressByTestIdAsync(`ip-chat-palette-${palette}`);
+            expect(deskPrefs.get('terminalPalette')).toBe(palette);
+            expect(read().userBubbleStyle.backgroundColor).toBe(deskThemes[palette].panel);
+            expect(read().markdownColors.text.primary).toBe(deskThemes[palette].ink);
+        }
+        await screen.pressByTestIdAsync('ip-chat-style-mask');
+        expect(read().agentLeading.type).toBe(MaskFace);
+        expect(read().agentContainerStyle).toBeUndefined();
+        expect(screen.findByTestId('session-view-worker')!.props['data-appearance']).toBeNull();
+        await screen.unmount();
     });
 
     it('J1: only the coordinator gets Talk to Shog through the composer seam', async () => {

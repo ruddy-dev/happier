@@ -19,7 +19,19 @@ describe('device-local desk prefs', () => {
         expect(deskPrefs.get('coordinatorSessionId')).toBeNull();
         expect(deskPrefs.get('workCollapsed')).toBe(false);
         expect(deskPrefs.get('approvalsOpen')).toBe(false);
+        expect(deskPrefs.get('chatStyle')).toBe('mask');
+        expect(deskPrefs.get('terminalPalette')).toBe('tokyo');
+        expect(deskPrefs.get('thinkingAndTools')).toBe('reply-link');
         expect(readReactNativeMmkvStubEntries()).toEqual([]);
+    });
+
+    it('persists chat choices without changing the deferred thinking/tool preference', () => {
+        deskPrefs.set('chatStyle', 'terminal');
+        deskPrefs.set('terminalPalette', 'terminalPaper');
+        expect(deskPrefs.get('chatStyle')).toBe('terminal');
+        expect(deskPrefs.get('terminalPalette')).toBe('terminalPaper');
+        expect(new MMKV().getString('ignorePrevious.chatStyle')).toBe('terminal');
+        expect(deskPrefs.get('thinkingAndTools')).toBe('reply-link');
     });
 
     it('reads the existing keys and writes their unchanged string representation', () => {
