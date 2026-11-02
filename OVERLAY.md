@@ -17,6 +17,8 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 
 Desk text must use `DeskText` (or `DESK_FONT_STACK` from `ignorePrevious/fonts/deskFont.ts`): Happier `Text` sets Inter/Plex inline, and portaled content (Popover, Modal) does not inherit the root.
 
+The development desk build also opts the web sign-in branch at `/`, `/restore/manual` (secret-key restore), and `/settings/voice` into `ignorePrevious/appearance/DeskPageAppearance.tsx`. Its exact route list extends the existing font installer; named Unistyles scopes reuse the Ignore Previous light/dark profiles without writing the user's global theme preference. The app's Text/TextInput owner reads the local scope so explicit Inter/Plex styles cannot override JetBrains Mono. Restore/Voice navigation headers, the shared modal host, and web popover/dialog portals carry the same scope. Sign-in keeps its appearance inside its page so navigation options cannot leak into authenticated Home. Authenticated Home, general Settings, sessions, other restore routes, and native screens keep their existing appearance. The onboarding planet artwork retains its existing art palette. Terminal transcript palettes remain transcript-only. The secret-key backup banner's behavior is unchanged.
+
 Desk preferences live in `ignorePrevious/deskPrefs.ts`, per device in MMKV (browser storage on web), with no account sync. The typed owner retains the existing coordinator and panel storage keys; `creatureEnabled` defaults to on without writing on mount. The fixture coordinator override remains in memory. `/desk/settings` uses the desk font and provides the settings shell and About notice; the desk top bar supplies its Settings button. The desk route hides the shared stack header via its own `Stack.Screen` option and supplies its own chrome.
 
 ## Branches
@@ -170,5 +172,16 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/sessions/shell/SessionView.composerSeam.test.tsx` | Verifies the footer-leading override reaches AgentInput alongside the existing status actions, and Send-as-Stop retains SessionView's existing abort path while hiding the secondary Stop and mic. |
 | `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing status actions, leading footer actions, gauge and mic replacement, Send-as-Stop, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
 | `apps/ui/sources/sync/ops/__tests__/sessionAbortResult.test.ts` | Covers result-bearing abort failures, success recovery, error propagation and legacy compatibility at the RPC boundary. |
+| `apps/ui/sources/app/(app)/index.tsx` | ATR-56 wraps only the unauthenticated sign-in branch in `DeskPageAppearance`; authenticated Home is unchanged. |
+| `apps/ui/sources/app/(app)/restore/manual.tsx` | ATR-56 wraps the existing secret-key restore content in the opt-in appearance scope; recovery, reveal and authentication behavior remain upstream-owned. |
+| `apps/ui/sources/app/(app)/settings/voice.tsx` | ATR-56 adds the opt-in appearance wrapper around the existing Voice settings content. |
+| `apps/ui/sources/components/ui/text/Text.tsx` | ATR-56 appends the existing desk font stack to Text and TextInput only inside the local appearance context; scaling, selection and unrelated fonts remain unchanged. |
+| `apps/ui/sources/unistyles.web.ts` | ATR-56 registers two named scopes derived from the existing Ignore Previous profiles; leaves the global light/dark preference and startup selection unchanged. |
+| `apps/ui/sources/unistyles.ts` | ATR-56 registers the same names for consistent Unistyles types, but no native page opts in; native startup selection is unchanged. |
+| `apps/ui/sources/unistyles.startup.test.ts` | ATR-56 includes the named desk scopes in startup registration coverage while retaining exact canonical base-theme fallback and checking that the selected startup theme stays light. |
+| `apps/ui/sources/components/ui/popover/portal.tsx` | ATR-56 re-establishes the active desk page's CSS theme scope inside web portals; without a desk context the wrapper is inert. Native portal behavior is unchanged. |
+| `apps/ui/sources/components/appShell/providers/AppPaneModalProvider.tsx` | ATR-56 supplies the desk page appearance wrapper for modal content; pane and modal ownership remain unchanged. |
+| `apps/ui/sources/modal/ModalProvider.tsx` | ATR-56 adds an optional content wrapper around mounted dialogs, defaulting to a fragment. Registration, focus return, visibility and dismissal stay with the existing provider. |
+| `apps/ui/sources/modal/components/BaseModal.tsx` | ATR-56 re-establishes the active desk scope inside the Radix web portal; native dialogs and unscoped pages are unchanged. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.
