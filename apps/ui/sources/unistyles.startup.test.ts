@@ -64,12 +64,15 @@ const installStartupMocks = async (mocks: StartupMocks): Promise<void> => {
 
 const expectConfiguredWithCanonicalBaseThemes = async (configure: ReturnType<typeof vi.fn>) => {
     const { darkTheme, lightTheme } = await import('./theme');
+    const { deskPageThemes } = await import('./ignorePrevious/appearance/deskPageThemes');
 
     expect(configure).toHaveBeenCalledWith(expect.objectContaining({
         themes: {
             light: lightTheme,
             dark: darkTheme,
+            ...deskPageThemes,
         },
+        settings: expect.objectContaining({ initialTheme: 'light' }),
     }));
 
     return { darkTheme, lightTheme };

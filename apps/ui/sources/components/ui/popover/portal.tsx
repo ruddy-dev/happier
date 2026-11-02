@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
 
+import { DeskPagePortalScope } from '@/ignorePrevious/appearance/DeskPageScope';
+
 import { requireReactDOM } from '@/utils/web/reactDomCjs';
 
 export const POPOVER_PORTAL_Z_INDEX = 200000;
@@ -127,7 +129,7 @@ export function tryRenderWebPortal(params: Readonly<{
                 ? document.body
                 : null);
         if (target && ReactDOM?.createPortal) {
-            return ReactDOM.createPortal(params.content, target);
+            return ReactDOM.createPortal(<DeskPagePortalScope>{params.content}</DeskPagePortalScope>, target);
         }
     } catch {
         // fall back to inline render

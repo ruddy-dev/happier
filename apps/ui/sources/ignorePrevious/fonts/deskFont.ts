@@ -1,6 +1,7 @@
 export const DESK_FONT_STACK = '"JetBrains Mono", ui-monospace, monospace';
-// Exact pathnames only. Later pass-through pages opt in here and mount DeskFontRoot.
-export const DESK_FONT_ROUTES: readonly string[] = ['/desk', '/desk/settings'];
+// Exact pathnames only; the root entry opts in only while signed out.
+export const DESK_HAPPIER_PAGE_ROUTES: readonly string[] = ['/', '/restore/manual', '/settings/voice'];
+export const DESK_FONT_ROUTES: readonly string[] = ['/desk', '/desk/settings', ...DESK_HAPPIER_PAGE_ROUTES];
 
 const installations = new WeakMap<Document, { style: HTMLStyleElement; mounts: number }>();
 

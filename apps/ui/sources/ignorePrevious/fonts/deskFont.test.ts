@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, expect, it } from 'vitest';
-import { mountDeskFont } from './deskFont';
+import { DESK_FONT_ROUTES, mountDeskFont } from './deskFont';
 
 // Each document is a browser boundary; no internal font logic is mocked.
 describe('desk font installation', () => {
@@ -35,5 +35,15 @@ describe('desk font installation', () => {
         unmount();
         expect(doc.head.children).toHaveLength(1);
         expect(upstream.textContent).toBe(original);
+    });
+});
+
+// ATR-56 / 1.22: exact route membership must not style neighboring Happier pages.
+describe('desk look route scoping', () => {
+    it.each(['/', '/restore/manual', '/settings/voice'])('includes %s', (route) => {
+        expect(DESK_FONT_ROUTES.includes(route)).toBe(true);
+    });
+    it.each(['/session/example', '/settings', '/settings/voice/extra', '/restore', '/restore/lost-access', '/restore/show-qr', '/setup'])('excludes %s', (route) => {
+        expect(DESK_FONT_ROUTES.includes(route)).toBe(false);
     });
 });

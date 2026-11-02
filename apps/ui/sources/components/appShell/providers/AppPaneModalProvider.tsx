@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import { ModalProvider } from '@/modal/ModalProvider';
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
+import { DeskPageModalAppearance } from '@/ignorePrevious/appearance/DeskPageModalAppearance';
 
 export function AppPaneModalProvider(props: Readonly<{ children: React.ReactNode }>) {
     // ModalProvider uses an overlay-portal host to render popovers/modals on native. If AppPaneProvider
@@ -9,7 +10,7 @@ export function AppPaneModalProvider(props: Readonly<{ children: React.ReactNode
     // pane context. Keep AppPaneProvider outside to preserve pane context across overlay portals.
     return (
         <AppPaneProvider>
-            <ModalProvider>{props.children}</ModalProvider>
+            <ModalProvider modalContentWrapper={DeskPageModalAppearance}>{props.children}</ModalProvider>
         </AppPaneProvider>
     );
 }
