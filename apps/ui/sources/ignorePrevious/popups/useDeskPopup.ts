@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Platform, type View } from 'react-native';
 
-import { ESCAPE_LAYER_PRIORITIES, getMaxEscapeKeyBlockerPriority, useEscapeLayer } from '@/keyboard/escape';
+import { ESCAPE_LAYER_PRIORITIES, getMaxEscapeKeyBlockerPriority, isEditableEscapeTarget, useEscapeLayer } from '@/keyboard/escape';
 import { restoreFocusToBestTarget, useFocusReturnFallbackRef } from '@/keyboard/focusReturn';
 import { shouldCloseOnOutsideClick, type OutsideClickPolicy } from './outsideClickPolicy';
 
@@ -35,6 +35,9 @@ function topOutsideClickLayer() {
  * L3: Nested layers mounted open together register child-under-parent.
  * L4: A text drag ending outside can close an overlay via the browser's click.
  * L6: A toggling opener explicitly closes even a half-answered overlay.
+ * A docked drawer is a standing Escape layer, like RunSettingsMenu: Escape from
+ * a non-editable target closes it and returns focus to Waiting (mockup 12).
+ * An editable target outside the docked drawer keeps its own Escape behavior.
  * Desk popups inside a modal do not dismiss while that modal is visible.
  */
 export function useDeskPopup(options: DeskPopupOptions): void {
@@ -45,18 +48,19 @@ export function useDeskPopup(options: DeskPopupOptions): void {
     if (options.open) returnFocusOnClose.current = options.returnFocusOnClose === true;
     const close = useCallback(() => current.current.onClose(), []);
     const focusFallbackRef = useFocusReturnFallbackRef();
+    const escapeFocusReturnRef = useRef<HTMLElement | null>(null);
     const webOpen = Platform.OS === 'web' && options.open;
 
     useEscapeLayer({
         enabled: webOpen,
         priority: ESCAPE_LAYER_PRIORITIES.popover,
         allowEditableTarget: true,
+        focusReturnRef: escapeFocusReturnRef,
         onEscape: (event) => {
             if (getMaxEscapeKeyBlockerPriority() > ESCAPE_LAYER_PRIORITIES.popover) return false;
             const { presentation, contentRef } = current.current;
             const target = event instanceof KeyboardEvent ? event.target : null;
-            if (presentation === 'docked' && target instanceof HTMLElement
-                && (target.isContentEditable || target.closest('input, textarea, select, [contenteditable="true"], [data-keyboard-shortcuts-owned="true"]'))
+            if (presentation === 'docked' && target instanceof HTMLElement && isEditableEscapeTarget(target)
                 && !(contentRef.current instanceof HTMLElement && contentRef.current.contains(target))) return false;
             close();
         },
@@ -69,6 +73,7 @@ export function useDeskPopup(options: DeskPopupOptions): void {
         const opener = current.current.openerRef.current;
         // Capture the actual opener so ref replacement cannot redirect focus to a new element.
         const focusReturnRef = { current: opener instanceof HTMLElement ? opener : null };
+        escapeFocusReturnRef.current = focusReturnRef.current;
         let closedByOutsideClick = false;
         const onClick = (event: MouseEvent) => {
             if (topOutsideClickLayer() !== layer) return;

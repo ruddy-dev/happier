@@ -16,6 +16,8 @@ export function bulbWord(bulb: Bulb): string {
             return t('ignorePrevious.countStuck');
         case 'working':
             return t('ignorePrevious.countWorking');
+        case 'waiting':
+            return t('ignorePrevious.usageLimit.waiting');
         case 'idle':
             return t('ignorePrevious.countIdle');
     }

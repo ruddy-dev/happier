@@ -7,6 +7,15 @@ function row(partial: Partial<WorkerRow> & Pick<WorkerRow, 'sessionId'>): Worker
 }
 
 describe('groupWorkersByIssue', () => {
+    it('finding 2: a Working issue precedes a newer Waiting issue', () => {
+        const groups = groupWorkersByIssue([
+            row({ sessionId: 'limited', issueKey: 'ATR-7', bulb: 'waiting', updatedAt: 100 }),
+            row({ sessionId: 'busy', issueKey: 'ATR-6', bulb: 'working', updatedAt: 1 }),
+        ]);
+        expect(groups.map((group) => [group.issueKey, group.bulb])).toEqual([
+            ['ATR-6', 'working'], ['ATR-7', 'waiting'],
+        ]);
+    });
     it('groups by issue, most urgent first, then most recent', () => {
         const groups = groupWorkersByIssue([
             row({ sessionId: 'a', issueKey: 'HUB-59', bulb: 'working', updatedAt: 50 }),

@@ -111,6 +111,8 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/keyboard/escape.ts` | Exports the existing editable-target predicate so the desk popup hook uses the keyboard owner's rule instead of duplicating it. |
+| `apps/ui/sources/components/sessions/usageLimitRecovery/sessionUsageLimitRecoveryPresentation.ts` | Exports the existing issue predicate, visibility decision and reset reader so Work cards reuse SessionView's rules without a second parser. Recovery predicate bodies are unchanged; the desk's armed claim excludes paused recovery. |
 | `apps/ui/sources/modal/components/BaseModal.tsx` | Registers a modal-priority Escape blocker while visible on web so desk popups yield keyboard and outside clicks to real dialogs, including the command palette. Side effect: `MultiPaneHost` skips its own Esc handling while a blocker above pane priority is registered, so while a modal is visible, Esc no longer closes an overlay pane or details view; the modal's own handler still gets the key. |
 | `apps/ui/sources/components/ui/popover/Popover.tsx` | Marks portaled web content with `data-happy-popover-content` so desk popups leave menu interactions to Popover. |
 | `apps/ui/public/ignore-previous/fonts/jetbrains-mono-latin.woff2`, `apps/ui/public/ignore-previous/fonts/OFL.txt` | Local JetBrains Mono web asset and its standalone SIL OFL licence. Expo serves public assets; the desk-owned installer applies weights 500–700 only while a listed route is mounted. |

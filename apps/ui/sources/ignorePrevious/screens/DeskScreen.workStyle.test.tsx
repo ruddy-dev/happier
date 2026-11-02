@@ -119,9 +119,10 @@ describe('Work presentation (N1, S1, W-series)', () => {
     it.each(([
         ['turn', 'turnSignal', 'countTurn'],
         ['working', 'work', 'countWorking'],
+        ['waiting', 'work', 'usageLimit.waiting'],
         ['stuck', 'red', 'countStuck'],
         ['idle', 'idleSignal', 'countIdle'],
-    ] as const).flatMap(([bulb, token, word]) => (['light', 'dark'] as const).map(scheme => ({ bulb, token, word, scheme }))))('W1/W6: $bulb uses its signal token and a word in $scheme cards and rail', async ({ bulb, token, word, scheme }) => {
+    ] as const).flatMap(([bulb, token, word]) => (['light', 'dark'] as const).map(scheme => ({ bulb, token, word, scheme }))))('W1/W6/F5: $bulb uses its signal token and a word in $scheme cards and rail', async ({ bulb, token, word, scheme }) => {
         useUnistyles().theme.dark = scheme === 'dark';
         scenario = await startDeskScenario({ script });
         act(() => {
@@ -131,9 +132,13 @@ describe('Work presentation (N1, S1, W-series)', () => {
                 thinking: bulb === 'working',
                 pendingPermissionRequestCount: bulb === 'turn' ? 1 : 0,
                 pendingRequestObservedAt: Date.now(),
-                latestTurnStatus: bulb === 'stuck' ? 'failed' : null,
+                latestTurnStatus: bulb === 'stuck' || bulb === 'waiting' ? 'failed' : null,
                 latestTurnStatusObservedAt: Date.now(),
-                lastRuntimeIssue: bulb === 'stuck' ? { v: 1, scope: 'primary_session', status: 'failed', code: 'usage_limit', source: 'usage_limit', occurredAt: Date.now() } : null,
+                lastRuntimeIssue: bulb === 'waiting'
+                    ? { v: 1, scope: 'primary_session', status: 'failed', code: 'usage_limit', source: 'usage_limit', occurredAt: Date.now() }
+                    : bulb === 'stuck'
+                        ? { v: 1, scope: 'primary_session', status: 'failed', code: 'provider_exit', source: 'provider_process_exit', occurredAt: Date.now() }
+                        : null,
             }]);
         });
         const check = (id: string) => {

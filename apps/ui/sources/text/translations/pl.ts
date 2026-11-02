@@ -11660,6 +11660,13 @@ settingsSession: {
         countStuck: 'Stuck',
         countWorking: 'Working',
         countIdle: 'Idle',
+        usageLimit: {
+            waiting: 'Waiting',
+            waitsForReset: 'Usage limit: waits for reset',
+            resetDue: 'Usage limit: reset due',
+            waitsForResetAt: ({ time }: { time: string }) => `Usage limit: waits for reset, ${time}`,
+            autoResumeArmed: ({ line }: { line: string }) => `${line}; auto-resume armed`,
+        },
         screenTitle: 'Sleeper Agents',
         coordinator: 'Coordinator',
         coordinatorNickname: 'Shog',
