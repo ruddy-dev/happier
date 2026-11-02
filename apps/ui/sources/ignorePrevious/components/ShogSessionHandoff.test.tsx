@@ -9,6 +9,7 @@ import { renderScreen, standardCleanup } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import { t } from '@/text';
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { AgentInput } from '@/components/sessions/agentInput/AgentInput';
 import type { AgentInputChipPickerOption } from '@/components/sessions/agentInput/components/AgentInputChipPickerTypes';
@@ -172,16 +173,49 @@ it.each(['claude', 'codex'] as const)('refuses a restored %s arm carrying the wr
     expect(controls.continuationNotice).toBeTruthy();
 });
 
-it('preserves and refuses an older wire input whose permission contradicts the desk arm', async () => {
-    await setup('claude');
-    await act(async () => {
-        const localId = controls.agentPicker.armedContinuationLocalId!;
-        expect(controls.agentPicker.recordArmedContinuationSubmission({ localId,
-            input: { localId, text: 'Original input', meta: { permissionMode: 'default' } },
-        })).toBe(true);
+it.each(['claude', 'codex'] as const)('refuses a settled %s retry whose retained wire input contradicts the target permission', async source => {
+    const { screen, target } = await setup(source);
+    const sourceSend = vi.spyOn(apiSocket, 'send');
+    const sourceAck = vi.spyOn(apiSocket, 'emitWithAck');
+    const localId = controls.agentPicker.armedContinuationLocalId!;
+    const originalInput = { localId, text: 'Original input', meta: { permissionMode: permissionModes[source] } };
+    const machineRpc = rpc.getMockImplementation()!;
+    let restored = false;
+    rpc.mockImplementation(async request => {
+        if (!restored && request.method === 'session.agentTransition') {
+            // Restore an older wire snapshot while the real send is pending.
+            // A live rejected result must settle before the retry, otherwise
+            // remount reconciliation can hold the composer before its guard.
+            restored = true;
+            expect(controls.agentPicker.recordArmedContinuationSubmission({ localId, input: originalInput })).toBe(true);
+        }
+        return machineRpc(request);
     });
     await act(async () => { controls.sendMessage(draft); });
-    expect(rpc.mock.calls.some(([request]) => request.method === 'session.agentTransition')).toBe(false);
-    expect(controls.agentPicker.armedContinuationSubmission?.input).toMatchObject({ text: 'Original input', meta: { permissionMode: 'default' } });
+    const transitions = () => rpc.mock.calls.map(([request]) => request).filter(request => request.method === 'session.agentTransition');
+    expect(restored).toBe(true);
+    expect(transitions()).toHaveLength(1);
+    expect(transitions()[0].payload.input.meta.permissionMode).toBe(permissionModes[target]);
+    expect(controls.continuationNotice).toBe(t('session.agentContinuation.transition.rejected.targetUnavailable', {
+        agent: target === 'claude' ? 'Claude' : 'Codex',
+    }));
+    expect(screen.findByType(AgentInput).props.isSending).toBe(false);
+    expect(controls.canSend).toBe(true);
+    expect(controls.agentPicker.armedContinuationPermissionMode).toBe(permissionModes[target]);
+    const submission = controls.agentPicker.armedContinuationSubmission;
+    expect(submission?.input).toEqual(originalInput);
+
+    await act(async () => { controls.sendMessage(draft); });
+    expect(controls.continuationNotice, 'settled retry must refuse the retained source-permission input').toBe(
+        t('session.agentContinuation.transition.rejected.unsupportedOperation'),
+    );
     expect(controls.textStore.getPrompt()).toBe(draft);
+    expect(controls.agentPicker.armedContinuationSubmission).toEqual(submission);
+    expect(existingSessionDraftSemanticValues.read(getActiveServerAccountScope()!, sessionId, 'routing.agentContinuation')?.submission).toEqual(submission);
+    expect(controls.agentPicker.armedContinuationPermissionMode).toBe(permissionModes[target]);
+    expect(controls.agentId).toBe(source);
+    expect(transitions()).toHaveLength(1);
+    expect(vi.mocked(apiSocket.request).mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+    expect(sourceSend.mock.calls.filter(([event]) => event === 'message')).toHaveLength(0);
+    expect(sourceAck.mock.calls.filter(([event]) => event === 'message')).toHaveLength(0);
 });
