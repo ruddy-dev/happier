@@ -13,13 +13,13 @@ import type { DeskCreatureProps } from './DeskCreature.types';
 export const CREATURE_RUN_CAP_MS = 5000;
 let liveOwner: symbol | null = null;
 
-export function DeskCreature({ style, redEyes, mode, width = '100%', height = 128, anchor, scale }: DeskCreatureProps) {
+export function DeskCreature({ style, redEyes, mode, playback, width = '100%', height = 128, anchor, scale }: DeskCreatureProps) {
     const { theme } = useUnistyles();
     const reducedMotion = useReducedMotionPreference();
     const container = React.useRef<HTMLDivElement>(null);
     const sync = React.useRef<(() => void) | null>(null);
-    const current = React.useRef({ style, redEyes, mode, reducedMotion, light: !theme.dark, anchor, scale });
-    current.current = { style, redEyes, mode, reducedMotion, light: !theme.dark, anchor, scale };
+    const current = React.useRef({ style, redEyes, mode, playback, reducedMotion, light: !theme.dark, anchor, scale });
+    current.current = { style, redEyes, mode, playback, reducedMotion, light: !theme.dark, anchor, scale };
     const [running, setRunning] = React.useState(false);
     const [loadFailed, setLoadFailed] = React.useState(false);
 
@@ -69,14 +69,15 @@ export function DeskCreature({ style, redEyes, mode, width = '100%', height = 12
                 }
             }
             const canRun = onscreen && !document.hidden && !value.reducedMotion
-                && (value.mode === 'working' || value.mode === 'burst') && remaining > 0;
+                && value.playback !== 'paused' && (value.mode === 'working' || value.mode === 'burst')
+                && (value.playback === 'playing' || remaining > 0);
             if (!creature || !canRun || (liveOwner !== null && liveOwner !== owner)) { stop(); return; }
             if (startedAt !== null) { creature.resume(); return; }
             liveOwner = owner;
             startedAt = performance.now();
             creature.resume();
             setRunning(true);
-            timer = setTimeout(() => { stop(); remaining = 0; }, remaining);
+            if (value.playback !== 'playing') timer = setTimeout(() => { stop(); remaining = 0; }, remaining);
         };
         sync.current = update;
         const visibility = () => update();
@@ -112,7 +113,7 @@ export function DeskCreature({ style, redEyes, mode, width = '100%', height = 12
         };
     }, []);
 
-    React.useEffect(() => { sync.current?.(); }, [style, redEyes, mode, reducedMotion, theme.dark, anchor?.x, anchor?.y, scale]);
+    React.useEffect(() => { sync.current?.(); }, [style, redEyes, mode, playback, reducedMotion, theme.dark, anchor?.x, anchor?.y, scale]);
     return <div ref={container} role="img" aria-label={creatureLabel(mode, running)} data-testid="ip-creature"
         style={{ position: 'relative', width, height, overflow: 'hidden', pointerEvents: 'none',
             filter: style === 'terminal' ? 'grayscale(1)' : undefined, opacity: style === 'terminal' ? 0.6 : 1 }}>
