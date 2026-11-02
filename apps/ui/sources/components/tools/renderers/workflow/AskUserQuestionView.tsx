@@ -24,6 +24,7 @@ import { isClaudeUnifiedTerminalDialogChoiceAgentStateRequest } from '@happier-d
 import { getStructuredQuestionAnswersV1Supported } from '@/sync/domains/state/agentStateCapabilities';
 import { Icon } from '@/components/ui/icons/Icon';
 import {
+    areAskUserQuestionsAnswered,
     buildAskUserQuestionAnswerPayload,
     tryBuildAskUserQuestionAnswerPayload,
 } from './buildAskUserQuestionAnswerPayload';
@@ -378,20 +379,8 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
         );
     }
 
-    // Check if all questions have at least one selection
-    const allQuestionsAnswered = questions.every((_, qIndex) => {
-        const q = questions[qIndex];
-        const options = Array.isArray(q?.options) ? q.options : [];
-        const hasFreeform = Boolean(q?.freeform);
-        const typed = effectiveFreeformAnswers.get(qIndex);
-        const hasTyped = typeof typed === 'string' && typed.trim().length > 0;
-        const acceptsEmpty = q?.freeform?.allowEmpty === true;
-        if (options.length === 0) {
-            return hasTyped || acceptsEmpty;
-        }
-        const selected = selections.get(qIndex);
-        const hasSelection = Boolean(selected && selected.size > 0);
-        return hasFreeform ? (hasSelection || hasTyped) : hasSelection;
+    const allQuestionsAnswered = areAskUserQuestionsAnswered({
+        questions, selections, freeformAnswers: effectiveFreeformAnswers,
     });
     const prospectivePayload = allQuestionsAnswered
         ? tryBuildAskUserQuestionAnswerPayload({

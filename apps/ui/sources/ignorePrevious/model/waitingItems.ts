@@ -10,7 +10,7 @@ export type WaitingItem = {
     requestId: string;
     sessionTitle: string;
     tool: string;
-    /** Questions (`user_action`) are answered in the session, so they get no Allow/Deny. */
+    /** Questions (`user_action`) get no Allow/Deny; supported question cards offer explicit Send. */
     kind: SessionPendingRequest['kind'];
     /** One line for lists and the coordinator's prompt; cut at 140 characters. */
     summary: string;

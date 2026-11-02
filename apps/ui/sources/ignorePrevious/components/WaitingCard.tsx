@@ -2,6 +2,10 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { createPermissionActionDispatchGuard } from '@/components/tools/shell/permissions/permissionActionDispatchGuard';
+import { isClaudeUnifiedTerminalDialogChoiceAgentStateRequest } from '@happier-dev/agents';
+import { normalizeAskUserQuestionRenderQuestions } from '@/components/tools/renderers/workflow/buildAskUserQuestionAnswerPayload';
+import { resolveAgentRequestKind } from '@/utils/sessions/permissions/permissionPromptPolicy';
+import { WaitingQuestion } from './WaitingQuestion';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -56,14 +60,15 @@ export function OpenSessionButton({ sessionId, onOpen }: { sessionId: string; on
 }
 
 /**
- * One request waiting on you. Allow and Deny go through the same dispatch guard as the session's
+ * One request waiting on you. All answers go through the same dispatch guard as the session's
  * own permission footer, under the same key, so two surfaces (or two presses) never send at once.
  * Once this card's answer is sent its buttons stay off until the request leaves the list; a send
  * that fails turns them back on. The desk holds the request only while its answer is in flight:
  * if the agent never drops the request, the session's footer can still answer it.
  */
-export function WaitingCard({ item, issueKey, onOpen, onAnswered }: {
+export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange, isCoordinator = false }: {
     item: WaitingItem;
+    isCoordinator?: boolean;
     issueKey: string | null;
     onOpen: (sessionId: string) => void;
     onAnswered: (outcome: 'allowed' | 'denied') => void;
@@ -91,8 +96,20 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered }: {
     // handler, where a second press in the same commit can't see the state update yet.
     const holdsRef = React.useRef(false);
     const [elsewhere, setElsewhere] = React.useState(false);
+    const [questionError, setQuestionError] = React.useState<string | null>(null);
+    const request = storage(state => state.sessions[item.sessionId]?.agentState?.requests?.[item.requestId]);
+    const questions = React.useMemo(() => {
+        if (isCoordinator || item.disabledReason || item.kind !== 'user_action' || request?.tool !== 'AskUserQuestion'
+            || resolveAgentRequestKind({ toolName: request.tool, requestKind: request.kind }) !== 'user_action'
+            || isClaudeUnifiedTerminalDialogChoiceAgentStateRequest(request)) return null;
+        const input: unknown = request.arguments;
+        // Dialog-specific actions belong to Happier's full question UI, including unknown dialogs.
+        if (input && typeof input === 'object' && 'happierDialog' in input) return null;
+        const normalized = normalizeAskUserQuestionRenderQuestions(input);
+        return normalized.ok ? normalized.questions : null;
+    }, [request, item.disabledReason, item.kind, isCoordinator]);
 
-    const send = async (kind: 'allow' | 'deny', call: () => Promise<SessionPermissionResult>) => {
+    const send = async (kind: 'allow' | 'deny', call: () => Promise<SessionPermissionResult | void>) => {
         if (storage.getState().socketStatus !== 'connected') return;
         try {
             // The guard runs the action only when this press wins the request. A press refused
@@ -101,9 +118,10 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered }: {
             const sent = await guard.dispatch(requestKey, async () => {
                 holdsRef.current = true;
                 setElsewhere(false);
+                setQuestionError(null);
                 setPhase('sending');
                 const result = await call();
-                if (!result.ok) throw result;
+                if (result && !result.ok) throw result;
             });
             if (sent) { onAnswered(kind === 'allow' ? 'allowed' : 'denied'); setPhase('sent'); }
             else if (!holdsRef.current) setElsewhere(true);
@@ -113,6 +131,8 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered }: {
             const code = typeof error === 'object' && error !== null && 'errorCode' in error ? error.errorCode : null;
             if (code === 'permission_request_not_found' || code === 'permission_request_expired') {
                 Modal.alert(t('ignorePrevious.waiting.alreadyAnsweredTitle'), t('ignorePrevious.waiting.alreadyAnswered'));
+            } else if (questions) {
+                setQuestionError(t('ignorePrevious.waiting.answerFailed'));
             } else {
                 Modal.alert(t('ignorePrevious.waiting.answerFailedTitle'), t('ignorePrevious.waiting.answerFailed'));
             }
@@ -169,6 +189,9 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered }: {
                     {t('ignorePrevious.waiting.answeringElsewhere')}
                 </Text>
             ) : null}
+            {questions ? <WaitingQuestion sessionId={item.sessionId} requestId={item.requestId} questions={questions}
+                disabled={disabled} busy={busy} sent={phase === 'sent'} error={questionError}
+                onDirtyChange={onDirtyChange} onSend={call => void send('allow', call)} /> : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {item.kind === 'user_action' || item.disabledReason ? null : (
                     <>
