@@ -201,9 +201,17 @@ describe('toWaitingItems', () => {
                 requests: [{ id: 'r3', tool: 'Bash', kind: 'permission', arguments: { command: 'pwd' }, createdAt: 10 }],
             },
         ]);
-        expect(items.map((i) => i.key)).toEqual(['s2:r3', 's1:r1', 's1:r2']);
+        expect(items.map((i) => [i.sessionId, i.requestId])).toEqual([['s2', 'r3'], ['s1', 'r1'], ['s1', 'r2']]);
         expect(items[1]).toMatchObject({ sessionId: 's1', requestId: 'r1', sessionTitle: 'Builder', summary: 'ls', detail: 'ls', agentNote: 'List files', kind: 'permission' });
         expect(items[2].agentNote).toBeNull();
         expect(items[0].disabledReason).toBe('readOnly');
+    });
+
+    it('gives every request its own key, even when ids contain the separator', () => {
+        const items = toWaitingItems([
+            { sessionId: 'a:b', sessionTitle: 'One', disabledReason: null, requests: [{ id: 'c', tool: 'Bash', kind: 'permission', arguments: { command: 'ls' }, createdAt: 1 }] },
+            { sessionId: 'a', sessionTitle: 'Two', disabledReason: null, requests: [{ id: 'b:c', tool: 'Bash', kind: 'permission', arguments: { command: 'rm -rf ~' }, createdAt: 2 }] },
+        ]);
+        expect(new Set(items.map((i) => i.key)).size).toBe(2);
     });
 });

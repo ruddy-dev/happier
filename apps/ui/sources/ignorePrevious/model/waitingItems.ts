@@ -158,7 +158,8 @@ export function toWaitingItems(
 ): WaitingItem[] {
     const items = input.flatMap(({ sessionId, sessionTitle, requests, disabledReason }) =>
         requests.map((request) => ({
-            key: `${sessionId}:${request.id}`,
+            // Encoded as a pair, so no choice of ids makes two requests share a key.
+            key: JSON.stringify([sessionId, request.id]),
             sessionId,
             requestId: request.id,
             sessionTitle,
