@@ -11600,6 +11600,13 @@ settingsSession: {
         openSession: 'Open session',
         agentSays: ({ name }: { name: string }) => `${name} says:`,
         waiting: {
+            answered: 'Answered',
+            allowed: 'Allowed',
+            denied: 'Denied',
+            elsewhere: 'Answered elsewhere',
+            noLongerWaiting: 'No longer waiting',
+            alreadyAnsweredTitle: 'Request no longer available',
+            alreadyAnswered: 'This request was already answered or has expired. Open the session to check.',
             answerFailedTitle: 'Answer not sent',
             answerFailed: "Your answer didn't go through. Check the connection and try again.",
             unreadable: "The desk can't read this session's request. Open the session to look.",

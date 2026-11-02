@@ -154,6 +154,7 @@ describe('WaitingPanel follows the transcript', () => {
 
     it('answering the older of two requests drops it from Waiting, the count and the chip', async () => {
         seed([session('s1')], { s1: [pendingToolCall('p1', 200), pendingToolCall('p2', 300)] });
+        act(() => storage.getState().setSocketStatus('connected'));
         const screen = await renderDesk();
         expect(occurrences(screen, 'Open session')).toBe(2);
         expect(textOf(screen, 'probe-count')).toBe('2');
@@ -169,6 +170,44 @@ describe('WaitingPanel follows the transcript', () => {
         expect(occurrences(screen, 'Open session')).toBe(1);
         expect(textOf(screen, 'probe-count')).toBe('1');
         expect(chipText(screen)).toContain('(1)');
+        expect(screen.getTextContent()).toContain('No longer waiting');
+        expect(screen.getTextContent()).not.toContain('Answered elsewhere');
+    });
+
+    it.each([
+        ['denied', undefined],
+        ['canceled', undefined],
+        ['canceled', 'Request interrupted'],
+    ] as const)('D1: transcript %s, reason=%s without an agent completion is no longer waiting', async (status, reason) => {
+        seed([session('s1')], { s1: [pendingToolCall('p1', 200)] });
+        act(() => storage.getState().setSocketStatus('connected'));
+        const screen = await renderDesk();
+        expect(screen.findByTestId('ip-waiting-allow-p1')).not.toBeNull();
+        // A transcript checkpoint after a cancellation/interrupt. Keep the real store, pending
+        // fold and panel live; only seed the persisted message shape, without an agent completion.
+        act(() => {
+            storage.getState().applySessions([session('s1', { pendingPermissionRequestCount: 0,
+                pendingUserActionRequestCount: 0, pendingRequestObservedAt: 300 })]);
+            storage.setState((current) => {
+                const transcript = current.sessionMessages.s1;
+                const messagesById = { ...transcript.messagesById };
+                const pending = Object.values(messagesById).find((message) => message.kind === 'tool-call' && message.tool.permission?.id === 'p1');
+                if (!pending || pending.kind !== 'tool-call') throw new Error('pending tool call missing');
+                messagesById[pending.id] = { ...pending, tool: { ...pending.tool,
+                    state: 'error', permission: { id: 'p1', status, ...(reason ? { reason } : {}) },
+                    ...(reason ? { result: { error: reason } } : {}),
+                } };
+                return { sessionMessages: { ...current.sessionMessages, s1: { ...transcript,
+                    messagesById, messagesMap: messagesById, messagesVersion: transcript.messagesVersion + 1,
+                } } };
+            });
+        });
+        expect(storage.getState().sessions.s1.agentState?.completedRequests?.p1).toBeUndefined();
+        expect(screen.findByTestId('ip-waiting-allow-p1')).toBeNull();
+        expect(textOf(screen, 'probe-count')).toBe('0');
+        expect(screen.findByTestId('ip-answered-p1')).not.toBeNull();
+        expect(screen.getTextContent()).toContain('No longer waiting');
+        expect(screen.getTextContent()).not.toContain('Answered elsewhere');
     });
 
     it('request details that arrive after the row turn the bare row into a card', async () => {
