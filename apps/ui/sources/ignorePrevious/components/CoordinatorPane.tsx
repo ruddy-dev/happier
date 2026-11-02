@@ -30,11 +30,18 @@ function openShog() {
  * an account. The import sits inside the check so a normal build folds it away and ships nothing.
  */
 let fixtureBody: React.ComponentType | null = null;
+function loadFixtureBody(): Promise<{ default: React.ComponentType }> {
+    // In a try block on purpose: Metro treats that import as optional, so a dev bundle made without the
+    // flag (which does not fold the check, and whose block list hides the fixtures) still builds.
+    try {
+        return import('../fixtures/CoordinatorBodyStub').then((module) => ({ default: module.CoordinatorBodyStub }));
+    } catch (error) {
+        return Promise.reject(new Error('Desk fixture could not be loaded', { cause: error }));
+    }
+}
 function getFixtureBody(): React.ComponentType | null {
     if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') {
-        fixtureBody ??= React.lazy(() =>
-            import('../fixtures/CoordinatorBodyStub').then((module) => ({ default: module.CoordinatorBodyStub })),
-        );
+        fixtureBody ??= React.lazy(loadFixtureBody);
         return fixtureBody;
     }
     return null;

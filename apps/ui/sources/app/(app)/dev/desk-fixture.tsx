@@ -10,11 +10,15 @@ import { DeskScreen } from '@/ignorePrevious/screens/DeskScreen';
  * ship guard greps the built output for the fixture marker.
  */
 function loadFixture(): Promise<typeof import('@/ignorePrevious/fixtures/applyDeskFixture')> {
-    // The import sits inside this check so a build without the flag folds it away.
+    // The import sits inside this check so a build without the flag folds it away. It also sits inside a
+    // try block on purpose: Metro treats an import in a try block as optional, so a dev bundle made without
+    // the flag (which does not fold the check, and whose block list hides the fixtures) still builds.
     if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') {
-        return import('@/ignorePrevious/fixtures/applyDeskFixture').catch((error: unknown) => {
-            throw new Error('Desk fixture could not be loaded', { cause: error });
-        });
+        try {
+            return import('@/ignorePrevious/fixtures/applyDeskFixture');
+        } catch (error) {
+            return Promise.reject(new Error('Desk fixture could not be loaded', { cause: error }));
+        }
     }
     return Promise.reject(new Error('Desk fixture is switched off'));
 }
