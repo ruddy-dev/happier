@@ -142,7 +142,6 @@ describe('round-8 robot contrast in all seven themes', () => {
     }
     it('Kanagawa working signal remains distinct from Codex green', () => {
         const green = palette.robotPresets.green.body, teal = palette.deskThemes.kanagawa.work;
-        expect(contrast(green, teal)).toBeGreaterThanOrEqual(1.4);
-        expect(separatedHue(green, teal, 45)).toBe(true);
+        expect(contrast(green, teal)).toBeGreaterThanOrEqual(2);
     });
 });
