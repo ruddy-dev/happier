@@ -3,8 +3,9 @@
 // Usage: node scripts/ipFixtureShots.mjs <export-dir> <out-dir> [chrome-path]   (run from apps/ui)
 // - Static server on a random 127.0.0.1 port, SPA fallback to index.html. The runtime config points the app's
 //   server at that same origin, so nothing defaults to a hosted server.
-// - Request guard: any http(s)/ws(s) request to a host other than 127.0.0.1, localhost or [::1] is aborted
-//   and fails the run.
+// - Network guard (installNetworkGuard): any http(s) request to a host other than 127.0.0.1, localhost or [::1]
+//   is aborted before it leaves the browser (context.route); any ws(s) connection to such a host is closed
+//   without ever being opened (context.routeWebSocket, since route() does not see WebSockets). Both fail the run.
 // - Reduced motion, a frozen clock, no GPU; shots at 1440x900 (also with the approvals drawer open) and 390x844.
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
@@ -27,6 +28,36 @@ export function isForbiddenRequestUrl(raw) {
     return NETWORK_PROTOCOLS.has(url.protocol) && !LOCAL_HOSTS.has(url.hostname);
 }
 
+/** Aborts non-local HTTP(S) and closes non-local WebSockets on `context`, recording each in `blocked`. */
+export async function installNetworkGuard(context, blocked) {
+    await context.route('**/*', (route) => {
+        const request = route.request();
+        if (isForbiddenRequestUrl(request.url())) {
+            blocked.push(`${request.method()} ${new URL(request.url()).origin}`);
+            return route.abort('blockedbyclient');
+        }
+        return route.continue();
+    });
+    // A handler that never calls connectToServer() keeps the socket from opening at all.
+    await context.routeWebSocket('**/*', (ws) => {
+        if (isForbiddenRequestUrl(ws.url())) {
+            blocked.push(`WS ${ws.url()}`);
+            ws.close();
+            return;
+        }
+        ws.connectToServer();
+    });
+}
+
+/** The decoded path, or null when it holds a malformed escape (the static server answers 400 then). */
+export function decodeRequestPath(pathname) {
+    try {
+        return decodeURIComponent(pathname);
+    } catch {
+        return null;
+    }
+}
+
 const FIXED_TIME = new Date('2026-11-01T14:02:00Z');
 const ROUTE = '/dev/desk-fixture';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
@@ -39,7 +70,12 @@ function startStatic(dist) {
     const server = createServer((req, res) => {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
         served.push(url.pathname);
-        const file = resolve(dist, `.${url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname)}`);
+        const decoded = url.pathname === '/' ? '/index.html' : decodeRequestPath(url.pathname);
+        if (decoded === null) {
+            res.writeHead(400).end('Bad Request');
+            return;
+        }
+        const file = resolve(dist, `.${decoded}`);
         const inside = file === dist || file.startsWith(`${dist}/`);
         if (inside && existsSync(file) && statSync(file).isFile() && !file.endsWith('index.html')) {
             res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
@@ -83,18 +119,10 @@ async function main() {
         console.log(`chrome ${browser.version()} at ${chromePath}; serving ${dist} on ${origin}`);
         for (const [name, width, height, openApprovals] of [['1440', 1440, 900, false], ['1440-approvals', 1440, 900, true], ['390', 390, 844, false]]) {
             const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', serviceWorkers: 'block' });
-            await context.route('**/*', (route) => {
-                const request = route.request();
-                if (isForbiddenRequestUrl(request.url())) {
-                    blocked.push(`${request.method()} ${new URL(request.url()).origin}`);
-                    return route.abort('blockedbyclient');
-                }
-                return route.continue();
-            });
+            await installNetworkGuard(context, blocked);
             const page = await context.newPage();
             page.on('pageerror', (e) => pageErrors.push(`${name}: ${e.message}`));
             page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(`${name}: ${m.text().slice(0, 300)}`); });
-            page.on('websocket', (ws) => { if (isForbiddenRequestUrl(ws.url())) blocked.push(`WS ${ws.url()}`); });
             await page.clock.install({ time: FIXED_TIME });
             const t = Date.now();
             await page.goto(`${origin}${ROUTE}`, { waitUntil: 'load', timeout: 90_000 });
