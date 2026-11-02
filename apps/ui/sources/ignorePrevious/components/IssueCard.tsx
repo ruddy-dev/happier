@@ -1,15 +1,13 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
 
-import { Text } from '@/components/ui/text/Text';
-import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { t } from '@/text';
 
+import { DeskText as Text } from '../typography/DeskText';
 import type { IssueGroup } from '../model/groupWorkers';
-import { bulbColour, useIpColours } from '../palette';
-import { BulbLabel } from './BulbLabel';
+import { bulbColour, useDeskPaint } from '../palette';
+import { BulbLabel, bulbWord } from './BulbLabel';
 import { WorkerActions } from './WorkerActions';
 
 export type IssueCardProps = Readonly<{
@@ -23,39 +21,48 @@ export type IssueCardProps = Readonly<{
  * bulb dot and word, and the newest worker's title. Open, it lists every worker on that issue.
  */
 export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }: IssueCardProps) {
-    const { theme } = useUnistyles();
-    const colours = useIpColours();
+    const { paint, borderWidth, colours } = useDeskPaint();
     const navigateToSession = useNavigateToSession();
     const label = group.issueKey ?? t('ignorePrevious.noIssue');
     const newest = group.workers[0];
-    const secondary = { color: theme.colors.text.secondary, fontSize: 13 };
+    const count = t('ignorePrevious.workList.workerCount', { count: group.workers.length });
+    const secondary = { color: paint.mute, fontSize: 13 };
 
     return (
         <View
             testID={`ip-issue-${group.issueKey ?? 'none'}`}
             style={{
-                gap: 8,
-                padding: 12,
-                borderRadius: 12,
-                backgroundColor: theme.colors.surface.elevated,
-                minWidth: 150,
-                flexGrow: open ? 1 : 0,
-                flexBasis: open ? '100%' : 'auto',
+                borderRadius: 13,
+                borderWidth,
+                borderColor: group.bulb === 'stuck' ? bulbColour(colours, group.bulb) : paint.rule,
+                backgroundColor: paint.panel2,
+                minWidth: 0,
+                maxWidth: '100%',
+                width: '100%',
             }}
         >
+            {group.bulb === 'turn' ? (
+                <View pointerEvents="none" accessible={false} style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 5, borderRadius: 3, backgroundColor: bulbColour(colours, group.bulb) }} />
+            ) : null}
             <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded: open }}
+                accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: label, state: bulbWord(group.bulb), count, summary: newest?.title ?? '', unheard: newest?.unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: newest.unheardMinutes }) : '' })}
                 onPress={onToggle}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8, paddingLeft: 12, paddingRight: 6, minWidth: 0, borderRadius: 11 }}
             >
-                <View style={{ flexShrink: 1, gap: 2 }}>
-                    <Text style={{ color: theme.colors.text.primary, fontSize: 15, ...Typography.default('semiBold') }}>
+                {/* Reserved for the 40 px face in item 1.16; empty and decorative today. */}
+                <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }} />
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 15, fontWeight: '600' }}>
                         {label}
                     </Text>
-                    <BulbLabel bulb={group.bulb} />
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 }}>
+                        <BulbLabel bulb={group.bulb} />
+                        <Text testID={`ip-work-worker-count-${group.issueKey ?? 'none'}`} style={secondary}>{count}</Text>
+                    </View>
                     {open || !newest ? null : (
-                        <Text style={secondary} numberOfLines={1}>
+                        <Text style={secondary} numberOfLines={1} ellipsizeMode="tail">
                             {newest.title}
                         </Text>
                     )}
@@ -68,12 +75,9 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
             </Pressable>
             {open
                 ? group.workers.map((worker) => (
-                      <View key={worker.sessionId} style={{ gap: 4 }}>
+                      <View key={worker.sessionId} style={{ minWidth: 0, gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: paint.rule }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                              <View
-                                  style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: bulbColour(colours, worker.bulb) }}
-                              />
-                              <Text style={{ color: theme.colors.text.primary, fontSize: 14, flexShrink: 1 }} numberOfLines={1}>
+                              <Text style={{ color: paint.ink, fontSize: 14, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">
                                   {worker.title}
                               </Text>
                               {typeof worker.contextPercent === 'number' ? (
@@ -92,12 +96,13 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle }
                                       paddingVertical: 4,
                                       borderRadius: 8,
                                       borderWidth: 1,
-                                      borderColor: theme.colors.border.default,
+                                      borderColor: paint.rule,
                                   }}
                               >
-                                  <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }}>{'>_'}</Text>
+                                  <Text style={{ color: paint.ink, fontSize: 13 }}>{'>_'}</Text>
                               </Pressable>
                           </View>
+                          <BulbLabel bulb={worker.bulb} />
                           {worker.unheardMinutes != null ? (
                               <Text testID={`ip-worker-stale-${worker.sessionId}`} style={secondary}>
                                   {t('ignorePrevious.connection.unheard', { minutes: worker.unheardMinutes })}

@@ -42,6 +42,7 @@ vi.mock('@/components/sessions/shell/SessionView', async () => {
             return <View testID={`session-view-${id}`}>
                 <TextInput testID={`composer-${id}`} placeholder={resolved.placeholder} />
                 {resolved.statusTrailingActions}
+                {resolved.footerLeadingActions}
             </View>;
         },
     };
@@ -69,6 +70,18 @@ describe('CoordinatorPane body', () => {
         </>);
         expect(screen.findByTestId('composer-c1')?.props.placeholder).toBe('Talk to Shog');
         expect(screen.findByTestId('composer-worker')?.props.placeholder).toBe('Stock placeholder');
+    });
+
+    it('M9 mounts local run settings only on the coordinator, including the fixture route', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        const screen = await renderScreen(<><CoordinatorPane sessionId="c1" /><SessionView id="worker" /></>);
+        expect(screen.findByTestId('session-view-c1')!.findAllByProps({ testID: 'ip-run-settings' }).length).toBeGreaterThan(0);
+        expect(screen.findByTestId('session-view-worker')!.findAllByProps({ testID: 'ip-run-settings' })).toHaveLength(0);
+        await screen.unmount();
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>);
+        await act(async () => { await import('../fixtures/CoordinatorBodyStub'); });
+        expect(fixture.findByTestId('ip-run-settings')).not.toBeNull();
     });
 
     it('J1: the Enter hint appears once in a wide chat and disappears when the chat narrows', async () => {
