@@ -5,6 +5,7 @@ import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScr
 
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import { t } from '@/text';
 
 import type { IssueGroup } from '../model/groupWorkers';
 
@@ -61,6 +62,23 @@ describe('IssueCard', () => {
         expect(screen.findByTestId('ip-bulb-dot-turn')).toBeTruthy();
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'ATR-6')!);
         expect(onToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('includes the unheard note in the folded card label', async () => {
+        const { IssueCard } = await import('./IssueCard');
+        const screen = await renderScreen(<IssueCard
+            group={{ ...group, workers: [{ ...group.workers[0], unheardMinutes: 20 }] }}
+            open={false} onToggle={() => {}}
+        />);
+        expect(screen.findByTestId('ip-issue-ATR-6')!.findByType('Pressable').props.accessibilityLabel)
+            .toContain(t('ignorePrevious.connection.unheard', { minutes: 20 }));
+    });
+
+    it('omits the empty summary clause from the card label', async () => {
+        const { IssueCard } = await import('./IssueCard');
+        const screen = await renderScreen(<IssueCard group={{ ...group, workers: [] }} open={false} onToggle={() => {}} />);
+        expect(screen.findByTestId('ip-issue-ATR-6')!.findByType('Pressable').props.accessibilityLabel)
+            .toBe(`ATR-6: ${t('ignorePrevious.countTurn')}. ${t('ignorePrevious.workList.workerCount', { count: 0 })}`);
     });
 
     it('open, lists every worker with its permission mode and opens a worker', async () => {

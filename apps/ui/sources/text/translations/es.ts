@@ -11527,6 +11527,42 @@ settingsSession: {
             modeCleared: ({ requests }: { requests: string }) => `Approved after mode change: ${requests}`,
             machineOffline: 'Machine offline',
         },
+        runSettings: {
+            title: 'Run settings', model: 'Model', effort: 'Effort',
+            effortLocked: 'Effort: extra high, set by Ultracode',
+            effortUnavailable: 'This model has no effort setting.',
+            ultracode: 'Ultracode', ultracodeOn: 'Ultracode on', ultracodeOff: 'Ultracode off',
+            ultracodeDescription: 'Maximum reasoning with dynamic workflows (forces extra high effort).',
+            ultracodeUnavailable: 'Only on Opus 5.5, Sonnet 5.5 and Fable 5.1.',
+            plansOnly: 'plans only', permissionMode: 'Permission mode',
+            permissionNote: 'Plans only. Shog plans and starts workers and never edits files. Each worker gets its own mode when it starts.',
+            nextTurn: 'applies next turn',
+            footer: 'Changes Shog only, from your next message. Workers get their model when they start.',
+            models: { default: 'Default model', opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5', fable: 'Fable 5.1' },
+            modelDescriptions: {
+                default: 'Use CLI settings.', opus: 'Best at planning and reviews.',
+                sonnet: 'Quicker for everyday back and forth.', haiku: 'Fast lookups and summaries.',
+                fable: 'For the hardest calls. Uses your allowance fastest.',
+            },
+            efforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max' },
+            effortDescriptions: {
+                low: 'Quick replies with less deliberation.',
+                medium: 'A little more thought before replying.',
+                high: 'Thorough reasoning, the desk default for planning.',
+                xhigh: 'More time and allowance for difficult design decisions.',
+                max: 'The most reasoning effort; expect slower replies and higher usage.',
+            },
+        },
+        composer: {
+            placeholder: 'Talk to Shog',
+            enterHint: 'Enter sends, Shift+Enter for a new line',
+            briefFirst: 'Brief me first',
+            briefPrompt: 'The six questions: aim, agreed, checked, happening, your turn, left.',
+            startNew: 'Start something new',
+            startPrompt: 'Plan a new issue together before anyone starts.',
+            unavailableTitle: 'Composer unavailable',
+            unavailable: "Shog's composer isn't open for typing. Nothing was sent.",
+        },
         connection: {
             lastSeen: ({ time }: { time: string }) => `Not connected. Last connected at ${time}.`,
             noData: 'Not connected. Waiting for the first update.',
@@ -11552,6 +11588,11 @@ settingsSession: {
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
         work: 'Work',
+        workList: {
+            workerCount: ({ count }: { count: number }) => count === 1 ? '1 worker' : `${count} workers`,
+            cardLabel: ({ key, state, count, summary, unheard }: { key: string; state: string; count: string; summary: string; unheard: string }) => [`${key}: ${state}`, count, summary, unheard].filter(Boolean).join('. '),
+            railLabel: ({ key, state, count }: { key: string; state: string; count: string }) => `${key}: ${state}. ${count}`,
+        },
         noIssue: 'No issue',
         faces: 'Faces',
         details: 'Details',
@@ -11590,7 +11631,6 @@ settingsSession: {
         shogPause: 'Pause',
         shogReplay: 'Replay',
         walkWaiting: ({ count }: { count: number }) => `Go through what's waiting (${count})`,
-        walkWaitingShown: "Go through what's waiting with me",
         walkWaitingPrompt: ({ list }: { list: string }) =>
             `Go through what's waiting on me, one at a time, in this order. For each one, tell me what it does and why the worker wants it, reading the worker's session if you need more context. Then rate it: safe to allow, fairly safe, or check first. For "check first", say what to check or which tests to run. End each one with allow or deny. Don't answer any request yourself: I press Allow or Deny on the desk.\n\n${list}`,
         walkItem: ({ n, session, id, tool, summary }: { n: number; session: string; id: string; tool: string; summary: string }) =>
@@ -11605,8 +11645,6 @@ settingsSession: {
         walkPrs: 'Go through PRs',
         walkPrsPrompt:
             "Go through my open PRs one at a time: what each one changes, what its review found, and whether it's ready. Recommend merge, wait or close for each. Don't merge anything yourself.",
-        sendFailedTitle: 'Message not sent',
-        sendFailed: "Shoggrates didn't get that. Check the connection and try again.",
     },
 } as const;
 
