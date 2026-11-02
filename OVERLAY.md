@@ -12,6 +12,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | Strings | an `ignorePrevious: { … }` block at the end of every locale in `apps/ui/sources/text/translations/` |
 | Upkeep tooling | `scripts/overlay/` (new) |
 | Composer seam | `apps/ui/sources/components/sessions/model/{sessionComposerOverrides,composerRequests}.ts` (new), wired into `SessionView.tsx` |
+| Dev-only desk fixture (screenshots, landing-page demo) | `apps/ui/sources/app/(app)/dev/desk-fixture.tsx` (route), `apps/ui/sources/ignorePrevious/fixtures/` (scenario, store seeding and the stub coordinator body), `apps/ui/scripts/ipFixtureShots.mjs` (shots in system Chrome), `scripts/overlay/ipFixtureShipGuard.mjs` (all new) |
 | Desk test harness | `apps/ui/sources/ignorePrevious/testkit/` (scenario driver and JSON scripts); in the UI testkit, `mocks/reducedMotion.ts` and `mocks/sync.ts`; `apps/ui/sources/dev/vitestOriginGuard.ts`; in `packages/tests`, `src/testkit/deskTest/`, `scripts/desk-env.mjs` and `suites/core-e2e/permissions.lifecycle.plain.test.ts` (all new) |
 
 ## Branches
@@ -57,12 +58,15 @@ Upstream marks stable releases with immutable tags such as `ui-web-v0.2.19`, plu
    node scripts/overlay/syncOverlayStrings.mjs
    node --test scripts/overlay/*.test.mjs
    cd apps/ui && yarn typecheck
-   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/dev/vitestOriginGuard.test.ts sources/dev/testkit/mocks/mockFactories.test.ts sources/sync/ops/sessions.permissionDeny.test.ts sources/sync/ops/__tests__/sessionAbort.test.ts sources/sync/ops/sessions.permissionResult.test.ts sources/components/sessions/model/sessionComposerOverrides.test.tsx sources/components/sessions/model/composerRequests.test.tsx sources/components/sessions/shell/SessionView.composerSeam.test.tsx
+   yarn vitest run --config vitest.config.ts sources/ignorePrevious sources/theme sources/text sources/components/settings/appearance/themeProfiles sources/dev/vitestOriginGuard.test.ts sources/dev/testkit/mocks/mockFactories.test.ts sources/sync/ops/sessions.permissionDeny.test.ts sources/sync/ops/__tests__/sessionAbort.test.ts sources/sync/ops/sessions.permissionResult.test.ts sources/components/sessions/model/sessionComposerOverrides.test.tsx sources/components/sessions/model/composerRequests.test.tsx sources/components/sessions/shell/SessionView.composerSeam.test.tsx sources/auth/routing/authRouting.test.ts sources/dev/metro.config.ipFixtures.spec.ts "sources/app/(app)/dev"
+   node --test scripts/ipFixtureShots.test.mjs
    cd ../../packages/tests && yarn typecheck
    node --test src/testkit/deskTest/originGuard.test.mjs
    ```
 
-4. Open a draft PR into `overlay` and try `/desk` in the browser before merging.
+4. Re-check the ship guard: a cold export without `EXPO_PUBLIC_IP_FIXTURES`, then `node scripts/overlay/ipFixtureShipGuard.mjs <export-dir>` must pass (see "The desk fixture").
+
+5. Open a draft PR into `overlay` and try `/desk` in the browser before merging.
 
 ## Strings
 
@@ -82,11 +86,22 @@ Optional, in `apps/ui/.env.local` (gitignored). Restart `yarn web` after changin
 
 Without an auto-compact value, the bars measure against the model's context window.
 
+### The desk fixture
+
+`EXPO_PUBLIC_IP_FIXTURES=1` builds in the dev-only route `/dev/desk-fixture`: the real desk over five made-up sessions written into the store, with no account and no server. The coordinator's chat is replaced by a fixed transcript (Happier's chat needs an account). Without the flag the route redirects to `/`, the public-route line in `authRouting.ts` is off, and `metro.config.js` blocks `ignorePrevious/fixtures/` so none of it can be bundled. Set the flag only for a screenshot or demo build.
+
+| Variable | Meaning |
+|---|---|
+| `EXPO_PUBLIC_IP_FIXTURES` | `1` builds in the fixture route and stub. Anything else leaves it out. |
+| `HAPPIER_METRO_EXTRA_WATCH_FOLDERS` | Folders Metro should also watch, separated by the path delimiter (`:`). Off unless set. A git worktree that links another checkout's `node_modules` needs it, or `expo export` fails with "Failed to get the SHA-1". |
+
+Ship guard. A normal build must carry no fixture. After a **cold** export without the flag, run `node scripts/overlay/ipFixtureShipGuard.mjs <export-dir>`; it exits 1 if any file holds the fixture marker. Cold means a fresh Metro cache: Metro's transform cache ignores `EXPO_PUBLIC_*` values, so a warm cache that last saw the flag on gives a bundle that still carries the fixture. Give each set of `EXPO_PUBLIC_*` values its own `TMPDIR` for Metro's cache and delete `metro-file-map-*` before each run (`~/dev/tools/happier-wt/export.sh` does both). To shoot the flag-on build: `cd apps/ui && node scripts/ipFixtureShots.mjs <flag-on-export-dir> <out-dir>`.
+
 ## Patched upstream files
 
 Everything else the overlay adds lives in the new files listed under "Where the overlay lives", so it can't
 conflict with upstream. These upstream files are edited and are where a merge can conflict. From
-`node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (28 files: 20 for the overlay itself, plus the 8 the desk test harness edits):
+`node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (31 files: 20 for the overlay itself, 8 for the desk test harness, 3 for the desk fixture):
 
 | File | Why |
 |---|---|
@@ -105,6 +120,8 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
 | `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. |
+| `apps/ui/sources/auth/routing/authRouting.ts`, `authRouting.test.ts` | One line makes `dev/desk-fixture` public for signed-out users, only in a build with `EXPO_PUBLIC_IP_FIXTURES=1`; the test covers it on and off. |
+| `apps/ui/metro.config.js` | Two seams: `HAPPIER_METRO_EXTRA_WATCH_FOLDERS` adds watch folders (off unless set), and a `resolver.blockList` entry drops `ignorePrevious/fixtures/` unless `EXPO_PUBLIC_IP_FIXTURES=1`. |
 | `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing actions, gauge and mic replacement, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.
