@@ -224,7 +224,8 @@ describe('DeskScreen', () => {
         const screen = await renderDesk();
         await screen.pressByTestIdAsync('ip-shog-open');
         const { ShogView } = await import('../components/ShogView');
-        expect(state.showModal).toHaveBeenCalledWith(expect.objectContaining({ component: ShogView }));
+        expect(screen.tree.root.findAllByType(ShogView)).toHaveLength(1);
+        expect(state.showModal).not.toHaveBeenCalled();
     });
 
     it('reads the sidebar list on a cold load, before any session record has loaded', async () => {
