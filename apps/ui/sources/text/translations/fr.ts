@@ -10809,6 +10809,11 @@ settingsSession: {
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
         work: 'Work',
+        workList: {
+            workerCount: ({ count }: { count: number }) => count === 1 ? '1 worker' : `${count} workers`,
+            cardLabel: ({ key, state, count, summary }: { key: string; state: string; count: string; summary: string }) => `${key}: ${state}. ${count}. ${summary}`,
+            railLabel: ({ key, state, count }: { key: string; state: string; count: string }) => `${key}: ${state}. ${count}`,
+        },
         noIssue: 'No issue',
         faces: 'Faces',
         details: 'Details',

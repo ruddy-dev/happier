@@ -2,13 +2,12 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
-import { Text } from '@/components/ui/text/Text';
-import { Typography } from '@/constants/Typography';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
 import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState } from '@/utils/sessions/sessionUtils';
 
+import { DeskText as Text } from '../typography/DeskText';
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { useCoordinatorId } from '../model/useCoordinatorId';
@@ -63,7 +62,7 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
         <View key={id} style={{ minWidth: 64, gap: 2 }}>
             <Text
                 testID={`ip-count-${id}`}
-                style={{ color: theme.colors.text.primary, fontSize: 22, ...Typography.default('semiBold') }}
+                style={{ color: theme.colors.text.primary, fontSize: 22, fontWeight: '600' }}
             >
                 {/* Before the first sync a 0 would be a false count, so each tile shows a dash. */}
                 {ready ? value : '–'}
@@ -90,6 +89,7 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
  */
 export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     const { theme } = useUnistyles();
+    const colours = useIpColours();
     const desk = useDeskSessions();
     const { lookup, ready } = desk;
     // The coordinator is the chat beside this panel, not a worker: it gets no row, tile or card (L1).
@@ -134,19 +134,27 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
 
     if (compact) {
         return (
-            <View style={{ flexDirection: compact, flexWrap: 'wrap', alignItems: compact === 'row' ? 'center' : 'flex-start', gap: compact === 'row' ? 16 : 8 }}>
+            <View style={{ flexDirection: compact, flexWrap: compact === 'row' ? 'wrap' : 'nowrap', alignItems: 'center', minWidth: 0, maxWidth: '100%', gap: 4 }}>
                 {groups.map((group) => {
                     const label = group.issueKey ?? t('ignorePrevious.noIssue');
                     return (
                         <View
                             key={group.issueKey ?? 'no-issue'}
                             testID={`ip-rail-issue-${group.issueKey ?? 'none'}`}
-                            style={{ gap: 2, paddingVertical: 4 }}
+                            accessible
+                            accessibilityLabel={t('ignorePrevious.workList.railLabel', { key: label, state: bulbWord(group.bulb), count: t('ignorePrevious.workList.workerCount', { count: group.workers.length }) })}
+                            style={{ width: 62, maxWidth: '100%', minWidth: 0, alignItems: 'center', gap: 1, paddingHorizontal: 2, paddingTop: 4, paddingBottom: 5, borderRadius: 10 }}
                         >
-                            <Text style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }} numberOfLines={1}>
+                            {group.bulb === 'turn' ? (
+                                <View pointerEvents="none" accessible={false} style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 3, backgroundColor: bulbColour(colours, group.bulb) }} />
+                            ) : null}
+                            {/* Reserved for the 28 px face in item 1.16. */}
+                            <View testID={`ip-rail-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 28, height: 28, flexShrink: 0 }} />
+                            <Text accessibilityLabel={label} style={{ color: theme.colors.text.primary, fontSize: 11, fontWeight: '600', maxWidth: '100%' }} numberOfLines={1} ellipsizeMode="tail">
                                 {label}
                             </Text>
                             <BulbLabel bulb={group.bulb} size={8} />
+                            <Text accessibilityLabel={t('ignorePrevious.workList.workerCount', { count: group.workers.length })} style={{ color: theme.colors.text.secondary, fontSize: 11 }}>{group.workers.length}</Text>
                         </View>
                     );
                 })}
@@ -155,9 +163,9 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
     }
 
     return (
-        <View style={{ gap: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
+        <View style={{ gap: 10, minWidth: 0, maxWidth: '100%' }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                <Text style={{ color: theme.colors.text.primary, fontSize: 18, fontWeight: '600' }}>
                     {t('ignorePrevious.work')}
                 </Text>
                 <View style={{ flexDirection: 'row', marginLeft: 'auto', gap: 4 }}>
@@ -166,7 +174,7 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
                 </View>
             </View>
             <WorkCounts rows={rows} ready={ready} />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+            <View style={{ gap: 8, minWidth: 0, width: '100%' }}>
                 {groups.map((group) => {
                     const key = group.issueKey ?? '';
                     return (

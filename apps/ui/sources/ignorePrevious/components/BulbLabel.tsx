@@ -2,7 +2,7 @@ import * as React from 'react';
 import { View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
-import { Text } from '@/components/ui/text/Text';
+import { DeskText as Text } from '../typography/DeskText';
 import { t } from '@/text';
 
 import type { Bulb } from '../model/bulb';
@@ -27,10 +27,11 @@ export const BulbLabel = React.memo(function BulbLabel({ bulb, size = 10 }: { bu
     const { theme } = useUnistyles();
     const colours = useIpColours();
     return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
             <View
                 testID={`ip-bulb-dot-${bulb}`}
                 style={{
+                    flexShrink: 0,
                     width: size,
                     height: size,
                     borderRadius: size / 2,
@@ -39,7 +40,7 @@ export const BulbLabel = React.memo(function BulbLabel({ bulb, size = 10 }: { bu
                     borderColor: theme.colors.border.strong,
                 }}
             />
-            <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{bulbWord(bulb)}</Text>
+            <Text accessibilityLabel={bulbWord(bulb)} numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.text.secondary, fontSize: 12, flexShrink: 1 }}>{bulbWord(bulb)}</Text>
         </View>
     );
 });

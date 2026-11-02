@@ -74,6 +74,8 @@ Upstream marks stable releases with immutable tags such as `ui-web-v0.2.19`, plu
 
 All overlay text lives in the `ignorePrevious` block of `en.ts`. Happier's integrity test requires every locale to have the same keys, so after editing `en.ts`, run `node scripts/overlay/syncOverlayStrings.mjs`. It copies the block into the other 11 locale files, which carry the English text. `zh-Hant.ts` is built from `zh-Hans` with overrides, so it inherits the block and the script leaves it alone.
 
+The Work column's count and full accessibility labels use `ignorePrevious.workList` in `en.ts`, copied into `ca.ts`, `de.ts`, `es.ts`, `fr.ts`, `it.ts`, `ja.ts`, `pl.ts`, `pt.ts`, `ru.ts` and `zh-Hans.ts` by the same script.
+
 The overlay is English-only by design. `apps/ui/sources/text/i18n.integrity.test.ts` lists `ignorePrevious.` among its allowed untranslated prefixes, so the English copies don't fail the untranslated-strings check.
 
 ## Build settings
