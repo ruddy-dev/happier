@@ -2,7 +2,7 @@
 // Ship guard for the desk fixture: a web export made WITHOUT EXPO_PUBLIC_IP_FIXTURES=1 must carry nothing of it.
 // Usage: node scripts/overlay/ipFixtureShipGuard.mjs <export-dir>
 // Exit 0: clean. Exit 1: a fixture string is in the output. Exit 2: bad usage, or the folder is not a usable web
-// export (missing, no index.html, or index.html names no script under _expo/static/js/web/ that exists), so an
+// export (missing local scripts or anything other than one Expo web entry in index.html), so an
 // empty result would prove nothing.
 //
 // It looks for the fixture marker (which lives only in the fixture's JSON) and for four strings that the
@@ -46,8 +46,42 @@ function* walk(dir) {
     }
 }
 
-// The entry bundle is whatever script index.html loads (Expo names it after the entry file, currently index-<hash>.js).
-const ENTRY_SCRIPT = /_expo\/static\/js\/web\/[^"'\s>?#]+\.js/g;
+// Tokenize complete tags before inspecting attributes, so quoted markup and comments cannot become scripts.
+// Raw-text elements consume their bodies: text inside JavaScript/CSS is not HTML markup.
+function scriptSources(html) {
+    const sources = [];
+    const tags = /<!--[\s\S]*?(?:-->|$)|<![^>]*>|<\/?([a-z][a-z0-9:-]*)\b((?:[^>"']|"[^"']*"|'[^']*')*)>/gi;
+    let tag;
+    while ((tag = tags.exec(html))) {
+        if (!tag[1] || tag[0].startsWith('</')) continue;
+        const name = tag[1].toLowerCase();
+        // These change script activation or URL resolution and are outside Expo's supported export shape.
+        if (['base', 'template', 'plaintext'].includes(name)) throw new Error(`unsupported ${name} element in index.html`);
+        if (name === 'script') {
+            const attributes = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+            let attribute;
+            while ((attribute = attributes.exec(tag[2]))) {
+                if (attribute[1].toLowerCase() !== 'src') continue;
+                sources.push(attribute[2] ?? attribute[3] ?? attribute[4] ?? '');
+                break;
+            }
+        }
+        if (['script', 'style', 'textarea', 'title'].includes(name)) {
+            const close = new RegExp(`</${name}\\s*>`, 'gi');
+            close.lastIndex = tags.lastIndex;
+            if (!close.exec(html)) throw new Error(`unclosed ${name} element in index.html`);
+            tags.lastIndex = close.lastIndex;
+        }
+    }
+    return sources;
+}
+
+function localScriptPath(source) {
+    if (!source.trim()) throw new Error('empty script src in index.html');
+    const url = new URL(source, 'https://export.invalid/');
+    if (url.origin !== 'https://export.invalid') return null;
+    return decodeURIComponent(url.pathname).slice(1);
+}
 
 /**
  * Files under `dir` containing each needle, and how many files were read. Throws unless `dir` looks like a
@@ -74,9 +108,10 @@ export function scanForNeedles(dir, needles) {
         for (const needle of needles) if (content.includes(needle)) hits.get(needle).push(file);
     }
     if (indexHtml === null) throw new Error(`no index.html under ${dir}: not a finished web export, so an empty result proves nothing`);
-    const scripts = indexHtml.match(ENTRY_SCRIPT) ?? [];
-    if (!scripts.some((script) => present.has(script))) {
-        throw new Error(`index.html under ${dir} names no script under _expo/static/js/web/ that exists: not a finished web export, so an empty result proves nothing`);
+    const scripts = scriptSources(indexHtml).map(localScriptPath).filter((path) => path !== null);
+    const entries = scripts.filter((path) => /^_expo\/static\/js\/web\/[^/]+\.js$/.test(path));
+    if (entries.length !== 1 || scripts.some((script) => !present.has(script))) {
+        throw new Error(`index.html under ${dir} must load exactly one Expo web entry and every local script must exist: not a finished web export, so an empty result proves nothing`);
     }
     return { hits, scanned };
 }
