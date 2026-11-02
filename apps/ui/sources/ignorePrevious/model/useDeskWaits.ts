@@ -18,8 +18,16 @@ import {
 import { useDeskSessions } from '../useDeskSessions';
 import { toWaitingItems, type WaitingDisabledReason, type WaitingItem } from './waitingItems';
 
-/** A session that says it is waiting on you, but whose requests live in a record or transcript not loaded here. */
-export type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string }>;
+/**
+ * A session that says it is waiting on you, but whose requests the desk can't show. `notLoaded`:
+ * its full record, or the transcript its requests live in, hasn't loaded yet. `unreadable`: the desk
+ * has everything the app could read of it and found no request there (metadata it can't read, or a
+ * pending count with no parsable request).
+ */
+export type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string; reason: 'notLoaded' | 'unreadable' }>;
+
+/** What the desk has of a session's transcript: its messages so far, and whether the full load finished. */
+export type DeskTranscript = Readonly<{ messages: readonly Message[]; isLoaded: boolean }>;
 
 export type DeskWaits = Readonly<{ items: WaitingItem[]; unloaded: UnloadedWait[]; count: number; ready: boolean }>;
 
@@ -46,13 +54,16 @@ function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisab
 export function collectWaits(
     list: readonly SessionListRenderableSession[],
     lookup: ReadonlyMap<string, Session>,
-    readTranscript: (sessionId: string) => readonly Message[] | undefined,
+    readTranscript: (sessionId: string) => DeskTranscript | undefined,
+    unreadable: readonly SessionListRenderableSession[],
 ): { items: WaitingItem[]; unloaded: UnloadedWait[] } {
     const input = list.map((row) => {
         const session = lookup.get(row.id);
         // As SessionView does: only a session whose requests live in its transcript gets the messages,
         // so an inactive session keeps the helpers' short-circuit and shows no stale request.
-        const messages = session && shouldReadTranscriptForPendingRequests(session) ? readTranscript(row.id) : undefined;
+        const needsTranscript = session !== undefined && shouldReadTranscriptForPendingRequests(session);
+        const transcript = needsTranscript ? readTranscript(row.id) : undefined;
+        const messages = transcript?.messages;
         const permissions = session ? listPendingPermissionRequests(session, messages) : [];
         const seen = new Set(permissions.map((request) => request.id));
         const questions = session ? listPendingUserActionRequests(session, messages).filter((request) => !seen.has(request.id)) : [];
@@ -62,15 +73,25 @@ export function collectWaits(
             sessionTitle: getSessionName(row),
             requests: [...permissions, ...questions],
             disabledReason: approvalDisabledReason(row),
+            // Everything the app can read of it is here, so an empty request list means unreadable, not unloaded.
+            fullyRead: session !== undefined && (!needsTranscript || transcript?.isLoaded === true),
         };
     });
-    const unloaded = input
+    const unloaded: UnloadedWait[] = input
         .filter(({ row, requests }) => {
             if (requests.length > 0) return false;
             const state = getSessionStatus(row).state;
             return state === 'permission_required' || state === 'action_required';
         })
-        .map(({ sessionId, sessionTitle }) => ({ sessionId, sessionTitle }));
+        .map(({ sessionId, sessionTitle, fullyRead }) => ({
+            sessionId,
+            sessionTitle,
+            reason: fullyRead ? 'unreadable' : 'notLoaded',
+        }));
+    // Never in `list`, so never counted twice.
+    for (const row of unreadable) {
+        unloaded.push({ sessionId: row.id, sessionTitle: getSessionName(row), reason: 'unreadable' });
+    }
     return { items: toWaitingItems(input), unloaded };
 }
 
@@ -81,9 +102,9 @@ function transcriptSignature(entry: TranscriptEntry): string {
     return `${entry?.isLoaded ? 1 : 0}:${entry?.messagesVersion ?? 0}`;
 }
 
-function readTranscript(sessionId: string): readonly Message[] | undefined {
+function readTranscript(sessionId: string): DeskTranscript | undefined {
     const entry = storage.getState().sessionMessages[sessionId];
-    return entry ? readStoredSessionMessagesFromStateLike(entry) : undefined;
+    return entry ? { messages: readStoredSessionMessagesFromStateLike(entry), isLoaded: entry.isLoaded === true } : undefined;
 }
 
 /**
@@ -92,7 +113,7 @@ function readTranscript(sessionId: string): readonly Message[] | undefined {
  * or its list row, so each listed session's transcript version is a dependency of its own.
  */
 export function useDeskWaits(): DeskWaits {
-    const { list, lookup, ready } = useDeskSessions();
+    const { list, lookup, ready, unreadable } = useDeskSessions();
     // Stable while the list is, so the selector isn't rebuilt every render.
     const ids = React.useMemo(() => list.map((row) => row.id), [list]);
     const signatures = storage(
@@ -100,10 +121,10 @@ export function useDeskWaits(): DeskWaits {
     );
     // `signatures` is read through readTranscript, not by name: it is here so a transcript write recomputes.
     return React.useMemo(() => {
-        const { items, unloaded } = collectWaits(list, lookup, readTranscript);
+        const { items, unloaded } = collectWaits(list, lookup, readTranscript, unreadable);
         // A bare waiting row counts too (R24): it is one thing to look at.
         return { items, unloaded, count: items.length + unloaded.length, ready };
-    }, [list, lookup, signatures, ready]);
+    }, [list, lookup, signatures, ready, unreadable]);
 }
 
 /** How many things wait on you across your sessions: the count on the desk's approvals button. */

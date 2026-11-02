@@ -11103,6 +11103,7 @@ settingsSession: {
         waiting: {
             answerFailedTitle: 'Answer not sent',
             answerFailed: "Your answer didn't go through. Check the connection and try again.",
+            unreadable: "The desk can't read this session's request. Open the session to answer it.",
         },
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',

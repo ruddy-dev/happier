@@ -55,7 +55,9 @@ export function WaitingPanel({ onOpenSession }: { onOpenSession?: () => void } =
             {unloaded.map((wait) => (
                 <View key={`unloaded:${wait.sessionId}`} style={styles.card}>
                     <Text style={styles.title}>{wait.sessionTitle}</Text>
-                    <Text style={styles.secondary}>{t('ignorePrevious.needsLook')}</Text>
+                    <Text style={styles.secondary}>
+                        {wait.reason === 'unreadable' ? t('ignorePrevious.waiting.unreadable') : t('ignorePrevious.needsLook')}
+                    </Text>
                     <View style={{ flexDirection: 'row' }}>
                         <OpenSessionButton sessionId={wait.sessionId} onOpen={open} />
                     </View>

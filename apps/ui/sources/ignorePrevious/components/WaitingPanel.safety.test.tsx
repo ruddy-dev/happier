@@ -7,7 +7,10 @@ import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { createDeferred } from '@/dev/testkit/hooks/createDeferred';
 import { createPermissionActionDispatchGuard } from '@/components/tools/shell/permissions/permissionActionDispatchGuard';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync } from '@/dev/testkit/render/renderScreen';
+import { Text } from '@/components/ui/text/Text';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
+import { parsePlainSessionAgentState } from '@/sync/engine/sessions/parsePlainSessionPayload';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,6 +94,43 @@ function seed(sessions: Session[]) {
         storage.getState().applyReady();
     });
 }
+
+/**
+ * A sidebar row whose metadata the app could not decrypt or parse (`metadataUnavailable`), as the
+ * list sync leaves it. The full record never loads, so the row is all the desk has.
+ */
+function seedUnreadableRow(id: string, pendingPermissionRequestCount: number, metadata: Record<string, unknown> | null = null) {
+    const row = buildSessionListRenderableFromSession(
+        createSessionFixture({ id, active: true, pendingPermissionRequestCount, pendingRequestObservedAt: Date.now() }),
+    );
+    act(() => {
+        storage.setState(previous, true);
+        storage.getState().mergeSessionListRenderables([
+            { ...row, metadata: metadata as typeof row.metadata, metadataUnavailable: true },
+        ]);
+        storage.getState().applyReady();
+    });
+}
+
+function CountProbe() {
+    const { useWaitingCount } = useDeskWaitsModule!;
+    return <Text testID="probe-count">{String(useWaitingCount())}</Text>;
+}
+
+let useDeskWaitsModule: typeof import('../model/useDeskWaits') | null = null;
+
+async function renderPanelWithCount() {
+    const { WaitingPanel } = await import('./WaitingPanel');
+    useDeskWaitsModule = await import('../model/useDeskWaits');
+    return renderScreen(
+        <>
+            <WaitingPanel />
+            <CountProbe />
+        </>,
+    );
+}
+
+const UNREADABLE = "The desk can't read this session's request. Open the session to answer it.";
 
 async function renderPanel() {
     const { WaitingPanel } = await import('./WaitingPanel');
@@ -280,4 +320,56 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-allow-r15')).toBeTruthy();
         expect(screen.findByTestId('ip-waiting-deny-r15')).toBeTruthy();
     });
+
+    it('W6: a session with unreadable metadata and a pending request shows a needs-a-look row', async () => {
+        seedUnreadableRow('u1', 1);
+        const screen = await renderPanelWithCount();
+        const waiting = textUnder(screen.findByTestId('ip-waiting'));
+        expect(waiting).toContain(UNREADABLE);
+        expect(waiting).not.toContain('Allow');
+        expect(waiting).not.toContain('Deny');
+        expect(textUnder(screen.findByTestId('probe-count'))).toBe('1');
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session'), 'Open session');
+        expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/u1(\?|$)/);
+    });
+
+    it('W6: an unreadable session with nothing pending is not listed', async () => {
+        seedUnreadableRow('u2', 0);
+        const screen = await renderPanelWithCount();
+        expect(screen.findByTestId('ip-waiting')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-empty')).toBeTruthy();
+        expect(textUnder(screen.findByTestId('probe-count'))).toBe('0');
+    });
+
+    it('W6: a hidden system session stays hidden', async () => {
+        seedUnreadableRow('u3', 1, { path: '/work/system', host: 'desk-test', hiddenSystemSession: true });
+        const screen = await renderPanelWithCount();
+        expect(screen.findByTestId('ip-waiting')).toBeNull();
+        expect(textUnder(screen.findByTestId('probe-count'))).toBe('0');
+    });
+
+    it('S: an agentState that parses to {} with a pending count shows the unreadable row, not a card', async () => {
+        // 'Zm9vYmFy' is not JSON, so the parser falls back to {}: the request is lost, the count is not.
+        const agentState = parsePlainSessionAgentState('Zm9vYmFy');
+        expect(agentState).toEqual({});
+        seed([
+            sessionWithRequest('s1', 'unused', { tool: 'Bash' }, {
+                agentState,
+                pendingPermissionRequestCount: 1,
+                pendingRequestObservedAt: Date.now(),
+            }),
+        ]);
+        // The transcript has loaded and holds nothing either: the desk has all the app can read.
+        // Before it loads, the row keeps the "open the session to see what" copy (WaitingPanel.transcript.test).
+        act(() => {
+            storage.getState().applyMessagesLoaded('s1');
+        });
+        const screen = await renderPanelWithCount();
+        const waiting = textUnder(screen.findByTestId('ip-waiting'));
+        expect(waiting).toContain(UNREADABLE);
+        expect(waiting).not.toContain('Allow');
+        expect(textUnder(screen.findByTestId('probe-count'))).toBe('1');
+    });
+
+    it.todo('Spike S case c: agentState written by REST PATCH without a count update is invisible to the desk. Does the product want an upstream marker from parsePlainSessionAgentState?');
 });
