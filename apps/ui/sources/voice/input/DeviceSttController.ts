@@ -21,6 +21,8 @@ type DeviceSttHandle = {
 };
 
 export type DeviceSttController = Readonly<{
+  /** Cancels pending permission/start and discards the active transcript. */
+  cancel: (sessionId: string) => void;
   clearHandsFreeSession: (sessionId?: string) => void;
   isHandsFreeSession: (sessionId: string) => boolean;
   start: (sessionId: string) => Promise<void>;
@@ -33,16 +35,21 @@ export function createDeviceSttController(deps: {
   getSettings: () => any;
   canAutoStopTurn: (sessionId: string) => boolean;
   onAutoStopTurn: (sessionId: string) => void;
+  /** Optional dictation consumer: browser recognition can end without a stop press. */
+  onRecognitionEnd?: (sessionId: string) => void;
+  /** Continuous dictation keeps finalized phrases while the next interim phrase changes. */
+  accumulateFinalResults?: boolean;
 }): DeviceSttController {
   let handle: DeviceSttHandle | null = null;
   let handsFreeSessionId: string | null = null;
+  let pendingStart: { sessionId: string } | null = null;
 
   const isDomRuntime = (): boolean => typeof window !== 'undefined' && typeof document !== 'undefined';
 
   const isHandsFreeDeviceSttEnabled = (): boolean => isHandsFreeSttEnabled(deps.getSettings());
 
-  const cleanupListeners = () => {
-    const subscriptions = handle?.subscriptions ?? [];
+  const cleanupListeners = (target = handle) => {
+    const subscriptions = target?.subscriptions ?? [];
     try {
       subscriptions.forEach((subscription) => subscription.remove());
     } catch {
@@ -57,14 +64,36 @@ export function createDeviceSttController(deps: {
     handsFreeSessionId = null;
   };
 
+  const cancel = (sessionId: string) => {
+    if (pendingStart?.sessionId === sessionId) pendingStart = null;
+    const target = handle;
+    if (!target || target.sessionId !== sessionId) return;
+    handle = null;
+    target.endpointDetector.cancel();
+    cleanupListeners(target);
+    target.resolveEnd();
+    target.transcript = '';
+    try { target.module?.abort?.(); } catch {
+      // Content-free default signal also survives a consumer's UI teardown.
+      console.error('device_stt_cancel_failed');
+      deps.setState({ status: 'error', sessionId: null, error: 'device_stt_cancel_failed' });
+    }
+  };
+
   const start = async (sessionId: string) => {
+    const attempt = { sessionId };
+    pendingStart = attempt;
     const microphonePermission = await requestMicrophonePermission();
+    if (pendingStart !== attempt) return;
     if (!microphonePermission.granted) {
+      pendingStart = null;
+      deps.setState({ status: 'idle', sessionId: null, error: 'device_stt_permission_denied' });
       showMicrophonePermissionDeniedAlert(microphonePermission.canAskAgain);
       return;
     }
 
     const { ExpoSpeechRecognitionModule } = await import('expo-speech-recognition');
+    if (pendingStart !== attempt) return;
 
     if (typeof ExpoSpeechRecognitionModule?.isRecognitionAvailable === 'function' && !ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
       deps.setState({ status: 'idle', sessionId: null, error: 'device_stt_unavailable' });
@@ -85,6 +114,8 @@ export function createDeviceSttController(deps: {
       }
     }
 
+    if (pendingStart !== attempt) return;
+    pendingStart = null;
     handle?.endpointDetector.cancel();
     cleanupListeners();
 
@@ -118,13 +149,18 @@ export function createDeviceSttController(deps: {
       })
     );
 
+    let finalizedTranscript = '';
     nextHandle.subscriptions.push(
       ExpoSpeechRecognitionModule.addListener('result', (event: any) => {
         const results = Array.isArray(event?.results) ? event.results : [];
         const transcript = typeof results?.[0]?.transcript === 'string' ? results[0].transcript.trim() : '';
         if (!transcript) return;
 
-        nextHandle.transcript = transcript;
+        // expo-speech-recognition 3.1 emits each finalized phrase separately on web.
+        nextHandle.transcript = deps.accumulateFinalResults && finalizedTranscript
+          ? `${finalizedTranscript} ${transcript}`
+          : transcript;
+        if (deps.accumulateFinalResults && event?.isFinal === true) finalizedTranscript = nextHandle.transcript;
         if (isHandsFreeDeviceSttEnabled()) {
           nextHandle.endpointDetector.observe({
             transcript,
@@ -141,12 +177,14 @@ export function createDeviceSttController(deps: {
     nextHandle.subscriptions.push(
       ExpoSpeechRecognitionModule.addListener('end', () => {
         nextHandle.resolveEnd();
+        if (handle === nextHandle) deps.onRecognitionEnd?.(sessionId);
       })
     );
 
     nextHandle.subscriptions.push(
       ExpoSpeechRecognitionModule.addListener('error', () => {
         nextHandle.resolveEnd();
+        if (handle === nextHandle) deps.setState({ status: 'error', sessionId: null, error: 'device_stt_recognition_failed' });
       })
     );
 
@@ -163,7 +201,7 @@ export function createDeviceSttController(deps: {
         continuous: true,
       } as any);
     } catch (error) {
-      handle = null;
+      cancel(sessionId);
       deps.setState({ status: 'idle', sessionId: null, error: 'device_stt_start_failed' });
       throw error;
     }
@@ -176,31 +214,29 @@ export function createDeviceSttController(deps: {
       return '';
     }
 
-    handle.endpointDetector.cancel();
+    const target = handle;
+    target.endpointDetector.cancel();
 
     try {
-      handle.module?.stop?.();
+      target.module?.stop?.();
     } catch {
-      // ignore
+      deps.setState({ status: 'error', sessionId: null, error: 'device_stt_stop_failed' });
     }
 
-    await Promise.race([handle.endPromise, new Promise<void>((resolve) => setTimeout(resolve, 5_000))]);
-
-    const text = handle.transcript.trim();
-    const subscriptions = handle.subscriptions;
-    handle.endpointDetector.cancel();
-    handle = null;
-
-    try {
-      subscriptions.forEach((subscription) => subscription.remove());
-    } catch {
-      // ignore
-    }
+    // Preserve the controller's existing speech-service stop budget; clear its timer on early end.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([target.endPromise, new Promise<void>((resolve) => { timeout = setTimeout(resolve, 5_000); })]);
+    if (timeout !== undefined) clearTimeout(timeout);
+    const text = target.transcript.trim();
+    target.endpointDetector.cancel();
+    cleanupListeners(target);
+    if (handle === target) handle = null;
 
     return text;
   };
 
   return {
+    cancel,
     clearHandsFreeSession,
     isHandsFreeSession: (sessionId: string) => handsFreeSessionId === sessionId,
     setHandsFreeSession: (sessionId: string | null) => {
