@@ -14,6 +14,8 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | Composer seam | `apps/ui/sources/components/sessions/model/{sessionComposerOverrides,composerRequests}.ts` (new), wired into `SessionView.tsx` |
 | Desk test harness | `apps/ui/sources/ignorePrevious/testkit/` (scenario driver and JSON scripts); in the UI testkit, `mocks/reducedMotion.ts` and `mocks/sync.ts`; `apps/ui/sources/dev/vitestOriginGuard.ts`; in `packages/tests`, `src/testkit/deskTest/`, `scripts/desk-env.mjs` and `suites/core-e2e/permissions.lifecycle.plain.test.ts` (all new) |
 
+Desk text must use `DeskText` (or `DESK_FONT_STACK` from `ignorePrevious/fonts/deskFont.ts`): Happier `Text` sets Inter/Plex inline, and portaled content (Popover, Modal) does not inherit the root.
+
 ## Branches
 
 - `stable-base`: the upstream stable tag in use. It only ever moves forward to a newer stable tag.
@@ -92,6 +94,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 |---|---|
 | `apps/ui/sources/modal/components/BaseModal.tsx` | Registers a modal-priority Escape blocker while visible on web so desk popups yield keyboard and outside clicks to real dialogs, including the command palette. Side effect: `MultiPaneHost` skips its own Esc handling while a blocker above pane priority is registered, so while a modal is visible, Esc no longer closes an overlay pane or details view; the modal's own handler still gets the key. |
 | `apps/ui/sources/components/ui/popover/Popover.tsx` | Marks portaled web content with `data-happy-popover-content` so desk popups leave menu interactions to Popover. |
+| `apps/ui/public/ignore-previous/fonts/jetbrains-mono-latin.woff2`, `apps/ui/public/ignore-previous/fonts/OFL.txt` | Local JetBrains Mono web asset and its standalone SIL OFL licence. Expo serves public assets; the desk-owned installer applies weights 500–700 only while a listed route is mounted. |
 | `README.md` | Overlay notice, licence and AI disclosure at the top. |
 | `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | The `ignorePrevious` string block (see Strings). |
 | `apps/ui/sources/text/i18n.integrity.test.ts` | Allows the English-only `ignorePrevious.` prefix. |
@@ -107,6 +110,8 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
 | `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. |
+| `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.ts` | Adds `holdAfterSuccess`, default true to preserve the session footer; the desk opts out of shared settlement after success while keeping in-flight arbitration. |
+| `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.test.ts` | Covers the option with a retained footer request and release on cleanup. |
 | `apps/ui/sources/components/sessions/shell/SessionView.tsx` | Takes an optional `composer` prop (placeholder, extra chips and badges, trailing actions, gauge and mic replacement, hiding stop and context usage) and registers the composer with the request bus, so the desk can fill or focus it. Without the prop it behaves as upstream. |
 
 When a merge conflicts in one of these, keep upstream's change and re-apply the overlay line.

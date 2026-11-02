@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
@@ -83,6 +84,30 @@ describe('CoordinatorPrompts', () => {
         expect(text).toContain('Title s2');
         expect(typeof displayText).toBe('string');
         expect(String(text).length).toBeGreaterThan(String(displayText).length);
+    });
+
+    it('tells the coordinator which waiting sessions the desk could not read, apart from ones not loaded yet', async () => {
+        seed([session('coord', null)]);
+        // Two sidebar rows with a pending request and no full record: one unreadable, one not loaded yet.
+        const unreadable = buildSessionListRenderableFromSession(
+            createSessionFixture({ id: 'u1', active: true, pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now() }),
+        );
+        const notLoaded = buildSessionListRenderableFromSession(
+            createSessionFixture({ id: 'n1', active: true, pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now() }),
+        );
+        act(() => {
+            storage.getState().mergeSessionListRenderables([{ ...unreadable, metadata: null, metadataUnavailable: true }, notLoaded]);
+        });
+        const screen = await renderPrompts();
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+
+        const lines = String(state.submit.mock.calls[0]?.[1]).split('\n');
+        const u1 = lines.find((line) => line.includes('session u1'));
+        const n1 = lines.find((line) => line.includes('session n1'));
+        expect(u1).toBeDefined();
+        expect(n1).toBeDefined();
+        expect(u1).not.toContain("aren't loaded");
+        expect(n1).toContain("aren't loaded");
     });
 
     it('offers only the PR walk-through when nothing waits', async () => {
