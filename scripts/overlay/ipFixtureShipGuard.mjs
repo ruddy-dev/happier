@@ -109,7 +109,8 @@ export function scanForNeedles(dir, needles) {
     }
     if (indexHtml === null) throw new Error(`no index.html under ${dir}: not a finished web export, so an empty result proves nothing`);
     const scripts = scriptSources(indexHtml).map(localScriptPath).filter((path) => path !== null);
-    const entries = scripts.filter((path) => /^_expo\/static\/js\/web\/[^/]+\.js$/.test(path));
+    // Expo names its support bundles `__expo-metro-runtime-*` and `__common-*`; any other web bundle is an entry.
+    const entries = scripts.filter((path) => /^_expo\/static\/js\/web\/(?!__)[^/]+\.js$/.test(path));
     if (entries.length !== 1 || scripts.some((script) => !present.has(script))) {
         throw new Error(`index.html under ${dir} must load exactly one Expo web entry and every local script must exist: not a finished web export, so an empty result proves nothing`);
     }
