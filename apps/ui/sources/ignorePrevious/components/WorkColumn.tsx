@@ -7,12 +7,13 @@ import { Typography } from '@/constants/Typography';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
-import { getSessionName, getSessionStatus, shouldShowAbortButtonForSessionState } from '@/utils/sessions/sessionUtils';
+import { getSessionName, getSessionStatus } from '@/utils/sessions/sessionUtils';
 
 import { bulbFromSessionState, type Bulb } from '../model/bulb';
 import { groupWorkersByIssue, type WorkerRow } from '../model/groupWorkers';
 import { useCoordinatorId } from '../model/useCoordinatorId';
-import { workerUnheardMinutes } from '../model/workerFreshness';
+import { workerLastSignalAt, workerUnheardMinutes } from '../model/workerFreshness';
+import { isDeskWorkerBusy } from '../model/workerBusy';
 import { useDeskNow } from '../model/useDeskNow';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { bulbColour, useIpColours } from '../palette';
@@ -42,8 +43,9 @@ function toWorkerRows(
             bulb: bulbFromSessionState(state),
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
+            lastSignalAt: workerLastSignalAt(row),
             contextPercent: meter ? Math.round(meter.ratio * 100) : null,
-            canStop: shouldShowAbortButtonForSessionState(state) && unheardMinutes === null,
+            canStop: isDeskWorkerBusy(state) && unheardMinutes === null,
             unheardMinutes,
             inactive: row.active !== true,
         };
