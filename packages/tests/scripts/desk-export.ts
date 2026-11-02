@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 
+import { clearDeskMetroFileMaps } from '../src/testkit/deskTest/deskMetroCache';
 import { DESK_UI_ENV } from '../src/testkit/deskTest/deskUiEnv';
 import { isUiWebExportCurrent, startUiWebExport } from '../src/testkit/process/uiWebExport';
 
@@ -27,6 +28,8 @@ const env = {
     HAPPIER_E2E_UI_WEB_EXPORT_TIMEOUT_MS: '1500000',
 };
 const cached = isUiWebExportCurrent(env);
+// Persisted maps can be stale across runs with linked node_modules. Keep transform caches.
+if (!cached) await clearDeskMetroFileMaps(metroTmp);
 const started = Date.now();
 const ui = await startUiWebExport({ testDir: mkdtempSync(join(tmpdir(), 'desk-export-')), env });
 await ui.stop();

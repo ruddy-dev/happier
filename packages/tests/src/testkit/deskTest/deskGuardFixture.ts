@@ -27,6 +27,15 @@ export async function runDeskGuardFixture(
         blocked.push({ url, reason: forbiddenOriginLabel(url, deskExtraForbiddenOrigins) ?? 'not on the allowed list' });
         await socket.close();
     });
-    await use(blocked);
-    assertNoBlockedRequests(blocked);
+    try {
+        await use(blocked);
+    } finally {
+        try {
+            // Stop in-flight polling handlers before context teardown. Playwright 1.58.2 has
+            // no WebSocket unroute API; those routes end with the context.
+            await context.unrouteAll({ behavior: 'ignoreErrors' });
+        } finally {
+            assertNoBlockedRequests(blocked);
+        }
+    }
 }
