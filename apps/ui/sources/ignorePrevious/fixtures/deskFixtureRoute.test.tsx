@@ -8,7 +8,7 @@ import { storage } from '@/sync/domains/state/storage';
 
 import { getStoredCoordinatorId, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
 
-import DeskFixturePage from './desk-fixture';
+import DeskFixturePage from '@/app/(app)/dev/desk-fixture';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 

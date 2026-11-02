@@ -47,11 +47,14 @@ function FixtureDesk() {
     return ready ? <DeskScreen /> : null;
 }
 
+// A module constant, not an inline literal: a new object each render makes the stack re-apply the options.
+const SCREEN_OPTIONS = { title: 'Desk fixture' };
+
 export default function DeskFixturePage() {
     if (process.env.EXPO_PUBLIC_IP_FIXTURES !== '1') return <Redirect href="/" />;
     return (
         <>
-            <Stack.Screen options={{ title: 'Desk fixture' }} />
+            <Stack.Screen options={SCREEN_OPTIONS} />
             <FixtureDesk />
         </>
     );
