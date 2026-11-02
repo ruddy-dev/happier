@@ -25,6 +25,21 @@ function openShog() {
     Modal.show({ component: ShogView });
 }
 
+/**
+ * Fixture builds (EXPO_PUBLIC_IP_FIXTURES=1) show a fixed transcript here, because Happier's chat needs
+ * an account. The import sits inside the check so a normal build folds it away and ships nothing.
+ */
+let fixtureBody: React.ComponentType | null = null;
+function getFixtureBody(): React.ComponentType | null {
+    if (process.env.EXPO_PUBLIC_IP_FIXTURES === '1') {
+        fixtureBody ??= React.lazy(() =>
+            import('../fixtures/CoordinatorBodyStub').then((module) => ({ default: module.CoordinatorBodyStub })),
+        );
+        return fixtureBody;
+    }
+    return null;
+}
+
 export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: React.ReactNode }) {
     const { theme } = useUnistyles();
     // The meter needs the full record; it appears once the coordinator's record has loaded.
@@ -34,6 +49,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     // and hand SessionView the state so it shows loading or retrying instead of "isn't available".
     const hydration = useHydrateSessionForRoute(sessionId, 'IgnorePrevious.CoordinatorPane');
     const waiting = useWaitingCount() > 0;
+    const FixtureBody = getFixtureBody();
 
     return (
         <View style={{ flex: 1, minHeight: 480 }}>
@@ -58,15 +74,21 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
-                <SessionView
-                    id={sessionId}
-                    routeHydrationState={hydration}
-                    routeAnchorOverride={true}
-                    surfaceFocusedOverride={true}
-                    safeAreaTopMode="internal"
-                    headerSafeAreaTopMode="internal"
-                    chatBottomSpacing="none"
-                />
+                {FixtureBody ? (
+                    <React.Suspense fallback={null}>
+                        <FixtureBody />
+                    </React.Suspense>
+                ) : (
+                    <SessionView
+                        id={sessionId}
+                        routeHydrationState={hydration}
+                        routeAnchorOverride={true}
+                        surfaceFocusedOverride={true}
+                        safeAreaTopMode="internal"
+                        headerSafeAreaTopMode="internal"
+                        chatBottomSpacing="none"
+                    />
+                )}
             </View>
         </View>
     );
