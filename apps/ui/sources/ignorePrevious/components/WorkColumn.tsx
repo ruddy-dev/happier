@@ -1,6 +1,11 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY } from '@happier-dev/protocol';
+import { readSessionAppliedModelMetadataStateV1 } from '@happier-dev/agents';
+import { resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
+import { matchesSessionControlProvider } from '@/sync/domains/sessionControl/readSessionControlMetadata';
+import { getModelOverrideForSpawn } from '@/sync/domains/models/modelOverride';
+import { resolveMetadataModelOverride } from '@/sync/domains/sessionAuthoring/sessionAuthoringNormalization';
 
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
@@ -21,6 +26,8 @@ import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { IssueCard } from './IssueCard';
 import { useDeskSessions } from '../useDeskSessions';
+import { spriteForModel } from '../sprites';
+import { WorkerSprite, type WorkerSpriteProps } from './WorkerSprite';
 
 export function toWorkerRows(
     list: readonly SessionListRenderableSession[],
@@ -31,6 +38,10 @@ export function toWorkerRows(
     return list.map((row) => {
         // Mode and context size live on the full record, so they show once it has loaded.
         const loaded = lookup.get(row.id);
+        const applied = loaded ? readSessionAppliedModelMetadataStateV1(loaded.metadata) : null;
+        const agentId = resolveAgentIdFromFlavor(loaded?.metadata?.flavor);
+        const appliedModel = applied && agentId && matchesSessionControlProvider({ agentId, metadata: loaded?.metadata, provider: applied.provider })
+            ? applied.modelId : null;
         const meter = loaded ? sessionContextMeter(loaded) : null;
         // Freshness is judged against the desk clock, so a worker that falls silent goes stale without a store write.
         const state = getSessionStatus(row, nowMs).state;
@@ -41,6 +52,8 @@ export function toWorkerRows(
             title: getSessionName(row),
             // Resolved once per worker from its tag, title, branch and folder (see resolveIssue).
             issueKey: issueKeys.get(row.id) ?? null,
+            model: loaded ? appliedModel ?? getModelOverrideForSpawn(loaded)?.modelId
+                ?? resolveMetadataModelOverride(loaded).modelId ?? loaded.modelMode ?? null : null,
             bulb: bulbFromSessionState(state, usageLimit !== null),
             usageLimit,
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
@@ -91,7 +104,7 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
  * at a time; Details opens them all. `compact` draws just each issue's key and state, in a column
  * (the desk's collapsed rail) or a row (its narrow-screen strip).
  */
-export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
+export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 'row'; faceStyle?: WorkerSpriteProps['faceStyle']; calm?: boolean }) {
     const { text, inset, colours } = useDeskPaint();
     const desk = useDeskSessions();
     const { lookup, ready } = desk;
@@ -151,8 +164,9 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
                             {group.bulb === 'turn' ? (
                                 <View pointerEvents="none" accessible={false} style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 3, backgroundColor: bulbColour(colours, group.bulb) }} />
                             ) : null}
-                            {/* Reserved for the 28 px face in item 1.16. */}
-                            <View testID={`ip-rail-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 28, height: 28, flexShrink: 0 }} />
+                            <View testID={`ip-rail-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 28, height: 28, flexShrink: 0 }}>
+                                <WorkerSprite kind={spriteForModel(group.workers[0]?.model)} bulb={group.bulb} size={28} faceStyle={faceStyle} calm={calm} />
+                            </View>
                             <Text style={{ color: text.primary, fontSize: 11, fontWeight: '600', maxWidth: '100%' }} numberOfLines={1} ellipsizeMode="tail">
                                 {label}
                             </Text>
@@ -186,6 +200,8 @@ export function WorkColumn({ compact }: { compact?: 'column' | 'row' }) {
                             group={group}
                             open={details || openKeys.has(key)}
                             onToggle={() => toggle(key)}
+                            faceStyle={faceStyle}
+                            calm={calm}
                         />
                     );
                 })}

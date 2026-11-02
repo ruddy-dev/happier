@@ -5,6 +5,8 @@ export type WorkerRow = {
     sessionId: string;
     title: string;
     issueKey: string | null;
+    /** Model id from the full record; absent/null until known, never inferred from agent flavour. */
+    model?: string | null;
     bulb: Bulb;
     usageLimit?: WorkerUsageLimit | null;
     /** Null until the session's full record has loaded. */
