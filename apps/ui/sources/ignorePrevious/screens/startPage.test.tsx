@@ -15,6 +15,7 @@ import { createWelcomeFeaturesResponse } from '@/__tests__/routes/(app)/index.te
 
 const navigation = vi.hoisted(() => ({
     pathname: '/',
+    platformOS: 'web',
     params: {} as Record<string, string | string[] | undefined>,
     replace: vi.fn(),
 }));
@@ -47,6 +48,7 @@ vi.mock('react-native-unistyles', async () => {
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
     return createReactNativeWebMock({
+        Platform: { get OS() { return navigation.platformOS; } },
         useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
     });
 });
@@ -59,10 +61,10 @@ vi.mock('react-native-safe-area-context', () => ({
 
 const credentials = { token: `hdr.${Buffer.from(JSON.stringify({ sub: 'start-page-test' })).toString('base64')}.sig` };
 
-function atPath(pathname: string) {
+function atPath(pathname: string, search = '') {
     navigation.pathname = pathname;
     // The existing root-link guard reads the browser URL, independently of Expo params.
-    vi.stubGlobal('window', { location: { pathname } });
+    vi.stubGlobal('window', { location: { pathname, search } });
 }
 
 async function show(children: React.ReactNode, signedIn = true) {
@@ -79,6 +81,7 @@ describe('signed-in start page', () => {
     const initialStore = storage.getState();
 
     beforeEach(() => {
+        navigation.platformOS = 'web';
         navigation.params = {};
         navigation.replace.mockClear();
         storage.setState(initialStore, true);
@@ -101,6 +104,33 @@ describe('signed-in start page', () => {
     });
 
     it('redirects signed-in / to /desk without mounting the old home', async () => {
+        const screen = await show(<Home />);
+        expect(screen.findAllByType('Redirect').map((node) => node.props.href)).toEqual(['/desk']);
+        expect(screen.findAllByType(MainView)).toHaveLength(0);
+        await screen.unmount();
+    });
+
+    it.each<Record<string, string>>([
+        { server: 'https://relay.example.test' },
+        { url: 'https://relay.example.test', auto: '1' },
+        { utm: 'x' },
+    ])('leaves signed-in root query %j to its existing owners', async (params) => {
+        navigation.params = params;
+        const search = `?${new URLSearchParams(Object.entries(params)).toString()}`;
+        atPath('/', search);
+
+        const screen = await show(<Home />);
+        expect(screen.findAllByType('Redirect')).toHaveLength(0);
+        expect(navigation.replace).not.toHaveBeenCalled();
+        expect(window.location.search).toBe(search);
+        await screen.unmount();
+    });
+
+    it.each(['ios', 'android'])('keeps the current native redirect on %s without a browser location', async (platformOS) => {
+        navigation.platformOS = platformOS;
+        navigation.params = { utm: 'x' };
+        vi.stubGlobal('window', undefined);
+
         const screen = await show(<Home />);
         expect(screen.findAllByType('Redirect').map((node) => node.props.href)).toEqual(['/desk']);
         expect(screen.findAllByType(MainView)).toHaveLength(0);
