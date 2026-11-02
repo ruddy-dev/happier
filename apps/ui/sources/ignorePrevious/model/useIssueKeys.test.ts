@@ -113,6 +113,47 @@ describe('useIssueKeys', () => {
         expect(hook.getCurrent().get('w1')).toBe('ATR-6');
     });
 
+    it.each(['title', 'branch', 'folder'] as const)('N2: unloaded metadata must not flash a weaker %s match', async (source) => {
+        const full = worker('w1', {
+            tag: 'ATR-6-build',
+            title: source === 'title' ? 'ATR-7 other' : 'Worker',
+            path: source === 'folder' ? '/work/atr-9-other' : '/work/repo',
+        });
+        act(() => {
+            storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(full)]);
+            if (source === 'branch') storage.getState().applyScmStatus('w1', scm('atr-8-other'));
+            storage.getState().applyReady();
+        });
+        const { hook, seen } = await renderKeys();
+        expect(hook.getCurrent().get('w1')).toBeNull();
+        await act(async () => { storage.getState().applySessions([full]); });
+        expect(dedupe(seen)).toEqual([null, 'ATR-6']);
+    });
+
+    it('N2: a full record behind the list metadata version must wait for the tag', async () => {
+        seed([worker('w1', { title: 'Worker' })]);
+        const newer = worker('w1', { title: 'ATR-7 other', tag: 'ATR-6-review', version: 2 });
+        act(() => {
+            storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(newer)]);
+        });
+        const { hook, seen } = await renderKeys();
+        expect(hook.getCurrent().get('w1')).toBeNull();
+        await act(async () => { storage.getState().applySessions([newer]); });
+        expect(dedupe(seen)).toEqual([null, 'ATR-6']);
+    });
+
+    it('N2: current metadata without a tag restores the fallback after hydration', async () => {
+        const full = worker('w1', { title: 'ATR-7 tidy' });
+        act(() => {
+            storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(full)]);
+            storage.getState().applyReady();
+        });
+        const { hook } = await renderKeys();
+        expect(hook.getCurrent().get('w1')).toBeNull();
+        await act(async () => { storage.getState().applySessions([full]); });
+        expect(hook.getCurrent().get('w1')).toBe('ATR-7');
+    });
+
     it('N3 same repo and branch, different tags, two issues', async () => {
         seed([worker('w1', { tag: 'ATR-6-build' }), worker('w2', { tag: 'ATR-7-build' })]);
         act(() => {
