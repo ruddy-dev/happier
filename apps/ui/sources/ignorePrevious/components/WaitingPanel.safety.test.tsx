@@ -188,4 +188,31 @@ describe('WaitingPanel safety', () => {
         gate.resolve();
         await expect(footerSend).resolves.toBe(true);
     });
+
+    it('J3: a network error on Allow says the answer did not go through, not "already answered"', async () => {
+        state.rpc.mockImplementation(async (call: RpcCall) => {
+            if (call.method === 'permission') throw new Error('network down');
+            return { ok: true };
+        });
+        seed([sessionWithRequest('s1', 'r8', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r8'), 'allow');
+        expect(state.alert).toHaveBeenCalledWith(
+            'Answer not sent',
+            "Your answer didn't go through. Check the connection and try again.",
+        );
+        expect(JSON.stringify(state.alert.mock.calls)).not.toMatch(/already answered|expired/i);
+    });
+
+    // Characterises today's gap: sessionAllow drops the CLI's reply, so an {ok:false} looks like success.
+    it('D1: a { ok: false } reply raises no alert today', async () => {
+        state.rpc.mockResolvedValue({ ok: false, errorCode: 'permission_request_not_found', errorMessage: 'request not found' });
+        seed([sessionWithRequest('s1', 'r9', { tool: 'Bash', arguments: { command: 'npm test' } })]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-r9'), 'allow');
+        expect(permissionCalls()).toHaveLength(1);
+        expect(state.alert).not.toHaveBeenCalled();
+    });
+
+    it.todo('D1: should an { ok:false } reply show "already answered" or silently drop the card? (Seam PR, sessionAllowResult)');
 });

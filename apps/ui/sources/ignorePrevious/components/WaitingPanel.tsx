@@ -133,7 +133,8 @@ function WaitingCard({ item, onOpen }: { item: WaitingItem; onOpen: (sessionId: 
             if (sent) setPhase('sent');
         } catch {
             setPhase('idle');
-            Modal.alert(t('ignorePrevious.allowFailedTitle'), t('ignorePrevious.allowFailed'));
+            // Only a thrown send lands here; it says nothing about whether the request is still open.
+            Modal.alert(t('ignorePrevious.waiting.answerFailedTitle'), t('ignorePrevious.waiting.answerFailed'));
         }
     };
 

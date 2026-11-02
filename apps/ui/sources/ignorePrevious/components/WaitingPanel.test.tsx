@@ -131,15 +131,15 @@ describe('WaitingPanel', () => {
         expect(screen.findByTestId('ip-waiting')).toBeNull();
     });
 
-    it('shows an error when the request was already answered', async () => {
+    it('says the answer was not sent when sending it fails', async () => {
         state.allow.mockRejectedValue(new Error('gone'));
         const screen = await renderPanel();
         await act(async () => {
             await pressTestInstanceAsync(button(screen, 'Allow Bash'));
         });
         expect(state.alert).toHaveBeenCalledWith(
-            expect.any(String),
-            'That request was already answered or has expired.',
+            'Answer not sent',
+            "Your answer didn't go through. Check the connection and try again.",
         );
     });
 

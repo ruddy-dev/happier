@@ -10791,8 +10791,10 @@ settingsSession: {
         deny: 'Deny',
         openSession: 'Open session',
         agentSays: ({ name }: { name: string }) => `${name} says:`,
-        allowFailed: 'That request was already answered or has expired.',
-        allowFailedTitle: 'Answer not sent',
+        waiting: {
+            answerFailedTitle: 'Answer not sent',
+            answerFailed: "Your answer didn't go through. Check the connection and try again.",
+        },
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
         work: 'Work',
