@@ -10,6 +10,7 @@ import { useEnrichedMarkdownStyle } from '@/components/markdown/enriched/useEnri
 import { MarkdownBlockView } from '@/components/markdown/MarkdownBlockView';
 import type { Message } from '@/sync/domains/messages/messageTypes';
 import { Typography } from '@/constants/Typography';
+import { storage } from '@/sync/domains/state/storage';
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -58,9 +59,37 @@ describe('C15/C16 transcript appearance', () => {
         expect(jumps.map(node => StyleSheet.flatten(node.props.style))).toMatchSnapshot();
         expect(StyleSheet.flatten(toolChrome(screen).parent!.props.style)).toMatchSnapshot('stock tool container');
         expect(screen.tree.findByType('probe').props.bundle.markdownStyle.paragraph.fontFamily).toBe(Typography.default().fontFamily);
+        const body = screen.tree.findAll(node => typeof node.type === 'string' && node.children.includes('Body words'))[0];
+        expect(StyleSheet.flatten(body.props.style)?.fontFamily).toBe(Typography.default().fontFamily);
         const stock = JSON.stringify(screen.tree.toJSON());
         await screen.update(<TranscriptAppearanceContext.Provider value={null}><Rows /><MarkdownProbe /></TranscriptAppearanceContext.Provider>);
         expect(JSON.stringify(screen.tree.toJSON())).toEqual(stock);
+    });
+
+    it('uses the appearance font and colour for active streaming text', async () => {
+        const settings = storage.getState().settings;
+        storage.setState({ settings: { ...settings, transcriptStreamingMarkdownRenderingEnabled: false } });
+        const message: Message = { kind: 'agent-text', id: 'stream', localId: 'segment', createdAt: 2, text: 'Streaming words', meta: {
+            happierStreamSegmentV1: { v: 1, segmentKind: 'assistant', segmentLocalId: 'segment', segmentState: 'streaming', startedAtMs: 1000, updatedAtMs: 1000 },
+        } };
+        const screen = await renderScreen(<TranscriptAppearanceContext.Provider value={appearance}><MessageView message={message} sessionId="chat" metadata={null} /></TranscriptAppearanceContext.Provider>);
+        const text = screen.findByTestId('transcript-streaming-plain:stream');
+        expect(text).not.toBeNull();
+        expect(StyleSheet.flatten(text!.props.style)).toMatchObject({ fontFamily: 'Test Mono', color: '#eeeeee' });
+        storage.setState({ settings });
+    });
+
+    it('keeps tool result markdown in the stock font under a Terminal appearance', async () => {
+        const settings = storage.getState().settings;
+        storage.setState({ settings: { ...settings, toolViewDetailLevelDefault: 'full' } });
+        const message = messages[2];
+        if (message.kind !== 'tool-call') throw new Error('expected tool');
+        const toolMessage: Message = { ...message, tool: { ...message.tool!, name: 'Reasoning', result: { content: 'Tool result markdown' } } };
+        const screen = await renderScreen(<TranscriptAppearanceContext.Provider value={appearance}><MessageView message={toolMessage} sessionId="chat" metadata={null} /></TranscriptAppearanceContext.Provider>);
+        const markdown = screen.tree.findAllByType('EnrichedMarkdownText').find(node => node.props.markdown === 'Tool result markdown');
+        expect(markdown).toBeDefined();
+        expect(markdown!.props.markdownStyle.paragraph.fontFamily).toBe(Typography.default().fontFamily);
+        storage.setState({ settings });
     });
 
     it('applies opt-in square user/agent/tool containers and message text fonts', async () => {

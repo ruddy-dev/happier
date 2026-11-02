@@ -15,6 +15,7 @@ import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { deskThemes } from '../palette';
 import { MaskFace } from './MaskFace';
 import { SessionView } from '@/components/sessions/shell/SessionView';
+import { MMKV } from 'react-native-mmkv';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -89,12 +90,36 @@ describe('CoordinatorPane body', () => {
             expect(deskPrefs.get('terminalPalette')).toBe(palette);
             expect(read().userBubbleStyle.backgroundColor).toBe(deskThemes[palette].panel);
             expect(read().markdownColors.text.primary).toBe(deskThemes[palette].ink);
+            expect(read().toolContainerStyle.backgroundColor).toBeUndefined();
         }
         await screen.pressByTestIdAsync('ip-chat-style-mask');
         expect(read().agentLeading.type).toBe(MaskFace);
         expect(read().agentContainerStyle).toBeUndefined();
         expect(screen.findByTestId('session-view-worker')!.props['data-appearance']).toBeNull();
         await screen.unmount();
+    });
+
+    it('falls back to defaults for unknown stored chat choices', async () => {
+        const stored = new MMKV();
+        stored.set('ignorePrevious.chatStyle', 'garbage');
+        stored.set('ignorePrevious.terminalPalette', 'garbage');
+        stored.set('ignorePrevious.thinkingAndTools', 'garbage');
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        expect(screen.findByTestId('session-view-c1')!.props['data-appearance'].agentLeading.type).toBe(MaskFace);
+        expect(deskPrefs.get('chatStyle')).toBe('mask');
+        await screen.unmount();
+        stored.set('ignorePrevious.chatStyle', 'terminal');
+        const terminal = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        expect(terminal.findByTestId('session-view-c1')!.props['data-appearance'].userBubbleStyle.backgroundColor).toBe(deskThemes.tokyo.panel);
+        expect(deskPrefs.get('thinkingAndTools')).toBe('reply-link');
+    });
+
+    it('renders the default Terminal palette for an unknown stored palette', async () => {
+        const stored = new MMKV();
+        stored.set('ignorePrevious.chatStyle', 'terminal');
+        stored.set('ignorePrevious.terminalPalette', 'garbage');
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        expect(screen.findByTestId('session-view-c1')!.props['data-appearance'].userBubbleStyle.backgroundColor).toBe(deskThemes.tokyo.panel);
     });
 
     it('J1: only the coordinator gets Talk to Shog through the composer seam', async () => {
