@@ -12,7 +12,7 @@ import { Text } from '@/components/ui/text/Text';
 import scenario from './desk-fixture.json';
 import { CreatureFixture } from './CreatureFixture';
 
-export function CoordinatorBodyStub() {
+export function CoordinatorBodyStub({ footerLeadingActions }: { footerLeadingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
     const { transcript, composerPlaceholder } = scenario.coordinatorBody;
     return (
@@ -49,6 +49,7 @@ export function CoordinatorBodyStub() {
                 }}
             >
                 <Text style={{ color: theme.colors.text.secondary, fontSize: 14 }}>{composerPlaceholder}</Text>
+                <View style={{ flexDirection: 'row', paddingTop: 8 }}>{footerLeadingActions}</View>
             </View>
         </ScrollView>
     );

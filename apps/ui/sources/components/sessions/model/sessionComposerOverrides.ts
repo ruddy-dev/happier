@@ -18,6 +18,8 @@ export type SessionViewComposerOverrides = Readonly<{
     /** Appended after Happier's badges. */
     statusBadges?: ReadonlyArray<AgentInputStatusBadge>;
     statusTrailingActions?: React.ReactNode;
+    /** Always visible at the start of the action footer, including collapsed layouts. */
+    footerLeadingActions?: React.ReactNode;
     /** undefined keeps Happier's gauge, null removes it, a view model replaces it. */
     providerUsageGauge?: ConnectedServiceQuotaGaugeViewModel | null;
     /** undefined keeps Happier's mic, null removes it, an object replaces it. */
@@ -40,6 +42,7 @@ export type ComposerBase = Readonly<{
 
 export type ResolvedComposer = Omit<ComposerBase, 'isReadOnly'> & Readonly<{
     statusTrailingActions: React.ReactNode;
+    footerLeadingActions: React.ReactNode;
     hideContextUsage: boolean;
 }>;
 
@@ -69,6 +72,7 @@ export function useSessionComposerOverrides(
         extraActionChips,
         statusBadges,
         statusTrailingActions: overrides?.statusTrailingActions,
+        footerLeadingActions: overrides?.footerLeadingActions,
         providerUsageGauge: overrides?.providerUsageGauge !== undefined ? overrides.providerUsageGauge : base.providerUsageGauge,
         onMicPress: mic === undefined ? base.onMicPress : mic?.onPress,
         isMicActive: mic === undefined ? base.isMicActive : mic?.isActive,

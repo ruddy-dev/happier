@@ -10,7 +10,7 @@ import type { WorkerRow } from '../model/groupWorkers';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const state = vi.hoisted(() => ({
-    abort: vi.fn(async (_sessionId: string) => undefined),
+    rpc: vi.fn(),
     publish: vi.fn(async (_params: unknown) => undefined),
     navigate: vi.fn(),
     alert: vi.fn(),
@@ -26,10 +26,14 @@ vi.mock('expo-router', async () => {
     return createExpoRouterMock({ router: { navigate: state.navigate, push: state.navigate } }).module;
 });
 
-// The session RPC is the boundary; the abort op's own tests cover what it sends.
-vi.mock('@/sync/ops', async (importOriginal) => {
-    const { createSyncOpsModuleMock } = await import('@/dev/testkit/mocks/syncOps');
-    return createSyncOpsModuleMock({ importOriginal, overrides: { sessionAbort: state.abort } });
+// Keep the abort operation real; replace only its RPC transport boundary.
+vi.mock('@/sync/runtime/orchestration/serverScopedRpc/serverScopedSessionRpc', async (importOriginal) => {
+    const { installServerScopedSessionRpcModuleMock } = await import('@/dev/testkit/mocks/serverScopedRpc');
+    return installServerScopedSessionRpcModuleMock({ sessionRpcWithServerScope: state.rpc })(importOriginal);
+});
+vi.mock('@react-navigation/native', async () => {
+    const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
+    return createReactNavigationNativeMock();
 });
 
 // Publishing the mode to the session's metadata is the network write; the store stays real.
@@ -48,7 +52,7 @@ function seedSession(id: string, extra: Partial<Session> = {}) {
         createSessionFixture({
             id,
             active: true,
-            metadata: { path: '/home/u/dev', host: 'box', homeDir: '/home/u', machineId: 'machine-1', flavor: 'claude' } as Session['metadata'],
+            metadata: { path: '/work/project', host: 'box', homeDir: '/work', machineId: 'machine-1', flavor: 'claude' } as Session['metadata'],
             ...extra,
         }),
     ]);
@@ -65,8 +69,9 @@ async function renderActions(row: WorkerRow) {
 
 describe('WorkerActions', () => {
     beforeEach(() => {
+        storage.setState({ machines: {} });
         storage.getState().setSocketStatus('connected');
-        state.abort.mockReset().mockResolvedValue(undefined);
+        state.rpc.mockReset().mockResolvedValue(undefined);
         state.publish.mockReset().mockResolvedValue(undefined);
         state.navigate.mockReset();
         state.alert.mockReset();
@@ -76,7 +81,7 @@ describe('WorkerActions', () => {
         seedSession('busy');
         const busy = await renderActions(worker('busy', { canStop: true }));
         await pressTestInstanceAsync(busy.findByTestId('ip-stop-busy')!);
-        expect(state.abort).toHaveBeenCalledWith('busy');
+        expect(state.rpc).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'busy', method: 'abort' }));
 
         seedSession('idle');
         const idle = await renderActions(worker('idle', { canStop: false }));
@@ -110,7 +115,7 @@ describe('WorkerActions', () => {
     it('shows the mode but offers no change on a view-only session', async () => {
         seedSession('shared', { accessLevel: 'view', permissionMode: 'default' } as Partial<Session>);
         const screen = await renderActions(worker('shared'));
-        expect(screen.getTextContent()).toContain('default');
+        expect(screen.getTextContent()).toContain('Mode unknown');
         expect(screen.findByTestId('ip-mode-shared')).toBeNull();
     });
 
@@ -132,8 +137,8 @@ describe('WorkerActions', () => {
         expect(JSON.stringify(state.navigate.mock.calls)).toContain('nap');
     });
 
-    it('offers a plain open, not resume, when the session cannot be resumed by you', async () => {
-        storage.getState().applyMachines([createMachineFixture({ id: 'machine-1', active: true, activeAt: Date.now() })]);
+    it('C7/W9: keeps plain Open available to a viewer even when the machine is offline', async () => {
+        storage.getState().applyMachines([createMachineFixture({ id: 'machine-1', active: true, activeAt: 1 })]);
         seedSession('peek', { active: false, accessLevel: 'view' } as Partial<Session>);
         const screen = await renderActions(worker('peek', { inactive: true }));
         expect(screen.findByTestId('ip-resume-peek')).toBeNull();
