@@ -37,8 +37,8 @@ export function createDeviceSttController(deps: {
   onAutoStopTurn: (sessionId: string) => void;
   /** Optional dictation consumer: browser recognition can end without a stop press. */
   onRecognitionEnd?: (sessionId: string) => void;
-  /** Continuous dictation keeps finalized phrases while the next interim phrase changes. */
-  accumulateFinalResults?: boolean;
+  /** Opts into dictation phrase accumulation, cancellation and error lifecycle. */
+  dictation?: boolean;
 }): DeviceSttController {
   let handle: DeviceSttHandle | null = null;
   let handsFreeSessionId: string | null = null;
@@ -65,6 +65,7 @@ export function createDeviceSttController(deps: {
   };
 
   const cancel = (sessionId: string) => {
+    if (!deps.dictation) return;
     if (pendingStart?.sessionId === sessionId) pendingStart = null;
     const target = handle;
     if (!target || target.sessionId !== sessionId) return;
@@ -82,18 +83,20 @@ export function createDeviceSttController(deps: {
 
   const start = async (sessionId: string) => {
     const attempt = { sessionId };
-    pendingStart = attempt;
+    if (deps.dictation) pendingStart = attempt;
     const microphonePermission = await requestMicrophonePermission();
-    if (pendingStart !== attempt) return;
+    if (deps.dictation && pendingStart !== attempt) return;
     if (!microphonePermission.granted) {
-      pendingStart = null;
-      deps.setState({ status: 'idle', sessionId: null, error: 'device_stt_permission_denied' });
+      if (deps.dictation) {
+        pendingStart = null;
+        deps.setState({ status: 'idle', sessionId: null, error: 'device_stt_permission_denied' });
+      }
       showMicrophonePermissionDeniedAlert(microphonePermission.canAskAgain);
       return;
     }
 
     const { ExpoSpeechRecognitionModule } = await import('expo-speech-recognition');
-    if (pendingStart !== attempt) return;
+    if (deps.dictation && pendingStart !== attempt) return;
 
     if (typeof ExpoSpeechRecognitionModule?.isRecognitionAvailable === 'function' && !ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
       deps.setState({ status: 'idle', sessionId: null, error: 'device_stt_unavailable' });
@@ -114,8 +117,8 @@ export function createDeviceSttController(deps: {
       }
     }
 
-    if (pendingStart !== attempt) return;
-    pendingStart = null;
+    if (deps.dictation && pendingStart !== attempt) return;
+    if (deps.dictation) pendingStart = null;
     handle?.endpointDetector.cancel();
     cleanupListeners();
 
@@ -157,10 +160,10 @@ export function createDeviceSttController(deps: {
         if (!transcript) return;
 
         // expo-speech-recognition 3.1 emits each finalized phrase separately on web.
-        nextHandle.transcript = deps.accumulateFinalResults && finalizedTranscript
+        nextHandle.transcript = deps.dictation && finalizedTranscript
           ? `${finalizedTranscript} ${transcript}`
           : transcript;
-        if (deps.accumulateFinalResults && event?.isFinal === true) finalizedTranscript = nextHandle.transcript;
+        if (deps.dictation && event?.isFinal === true) finalizedTranscript = nextHandle.transcript;
         if (isHandsFreeDeviceSttEnabled()) {
           nextHandle.endpointDetector.observe({
             transcript,
@@ -177,14 +180,14 @@ export function createDeviceSttController(deps: {
     nextHandle.subscriptions.push(
       ExpoSpeechRecognitionModule.addListener('end', () => {
         nextHandle.resolveEnd();
-        if (handle === nextHandle) deps.onRecognitionEnd?.(sessionId);
+        if (deps.dictation && handle === nextHandle) deps.onRecognitionEnd?.(sessionId);
       })
     );
 
     nextHandle.subscriptions.push(
       ExpoSpeechRecognitionModule.addListener('error', () => {
         nextHandle.resolveEnd();
-        if (handle === nextHandle) deps.setState({ status: 'error', sessionId: null, error: 'device_stt_recognition_failed' });
+        if (deps.dictation && handle === nextHandle) deps.setState({ status: 'error', sessionId: null, error: 'device_stt_recognition_failed' });
       })
     );
 
@@ -201,7 +204,8 @@ export function createDeviceSttController(deps: {
         continuous: true,
       } as any);
     } catch (error) {
-      cancel(sessionId);
+      if (deps.dictation) cancel(sessionId);
+      else handle = null;
       deps.setState({ status: 'idle', sessionId: null, error: 'device_stt_start_failed' });
       throw error;
     }
@@ -220,17 +224,19 @@ export function createDeviceSttController(deps: {
     try {
       target.module?.stop?.();
     } catch {
-      deps.setState({ status: 'error', sessionId: null, error: 'device_stt_stop_failed' });
+      if (deps.dictation) deps.setState({ status: 'error', sessionId: null, error: 'device_stt_stop_failed' });
     }
 
-    // Preserve the controller's existing speech-service stop budget; clear its timer on early end.
+    // Keep the existing stop budget and lifecycle for callers that do not opt into dictation.
     let timeout: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([target.endPromise, new Promise<void>((resolve) => { timeout = setTimeout(resolve, 5_000); })]);
-    if (timeout !== undefined) clearTimeout(timeout);
-    const text = target.transcript.trim();
-    target.endpointDetector.cancel();
-    cleanupListeners(target);
-    if (handle === target) handle = null;
+    if (deps.dictation && timeout !== undefined) clearTimeout(timeout);
+    // Legacy callers consume the current handle after waiting; dictation can cancel or replace it.
+    const stoppedHandle = deps.dictation ? target : handle!;
+    const text = stoppedHandle.transcript.trim();
+    stoppedHandle.endpointDetector.cancel();
+    if (!deps.dictation || handle === target) handle = null;
+    cleanupListeners(stoppedHandle);
 
     return text;
   };

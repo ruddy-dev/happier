@@ -57,7 +57,7 @@ export function useDeskDictation(sessionId: string) {
             getSettings: () => storage.getState().settings,
             canAutoStopTurn: () => false,
             onAutoStopTurn: () => {},
-            accumulateFinalResults: true,
+            dictation: true,
             onRecognitionEnd: () => { void finish(); },
             setState: patch => {
                 if (disposed || !operation) return;
