@@ -18,6 +18,7 @@ import { syncPerformanceTelemetry } from '@/sync/runtime/syncPerformanceTelemetr
 import { scmStatusSync } from '@/scm/scmStatusSync';
 import { ingestWorkspaceMutationMessages } from '@/scm/refresh/workspaceMutationIngestionRuntime';
 import { deliverHiddenSessionScmMutationSignal } from '@/sync/engine/sessions/hiddenSessionScmMutationSignal';
+import { observeWorkerPermissionOutcome } from '@/ignorePrevious/model/workerPermissionOutcome';
 import { voiceHooks } from '@/voice/context/voiceHooks';
 import { reportNewAgentRequestsFromSessionTransition } from '@/voice/context/reportNewAgentRequestsFromSessionTransition';
 import { deriveNewAgentRequests } from '@/sync/domains/permissions/deriveNewAgentRequests';
@@ -1381,6 +1382,20 @@ export async function handleUpdateContainer(params: {
         return mode !== 'e2ee';
     };
 
+    const observeDeliveredWorkerPermissionOutcome = () => {
+        if (updateData.body.t !== 'new-message' && updateData.body.t !== 'message-updated') return;
+        const { sid, message } = updateData.body;
+        // Materialization is registered before this independent observation starts. Its
+        // decrypt/parse must never gate routing, settlement, or the next socket handler.
+        void Promise.resolve().then(() => observeWorkerPermissionOutcome({
+            session: getSocketSessionApplyBase(sid),
+            sourceServerId,
+            rawMessage: message,
+            getSessionEncryption: id => encryption.getSessionEncryption(id),
+            shouldContinue,
+        })).catch(() => { log.log('Worker permission outcome observation failed'); });
+    };
+
     if (updateData.body.t === 'new-message') {
         if (isPlainSessionBlockedByClientRequirement(updateData.body.sid)) return;
         const getSessionMaterializedMaxSeqForGapDetection = (sessionId: string) =>
@@ -1394,7 +1409,7 @@ export async function handleUpdateContainer(params: {
             onNormalizedMessagesApplied: ingestWorkspaceMutationMessages,
             markSessionMaterializedMaxSeq,
         };
-        await trackSessionMessageMaterialization(updateData.body.sid, handleNewMessageSocketUpdate({
+        const materialization = trackSessionMessageMaterialization(updateData.body.sid, handleNewMessageSocketUpdate({
             updateData,
             getSessionEncryption: (sessionId) => encryption.getSessionEncryption(sessionId),
             getSession: getSocketSessionApplyBase,
@@ -1460,6 +1475,8 @@ export async function handleUpdateContainer(params: {
                 }
                 : undefined,
         }));
+        observeDeliveredWorkerPermissionOutcome();
+        await materialization;
     } else if (updateData.body.t === 'message-updated') {
         if (isPlainSessionBlockedByClientRequirement(updateData.body.sid)) return;
         const getSessionMaterializedMaxSeqForGapDetection = (sessionId: string) =>
@@ -1470,7 +1487,7 @@ export async function handleUpdateContainer(params: {
 
         socketMessageApplyCoalescer.dropQueuedMessageIds(updateData.body.sid, [updateData.body.message.id]);
 
-        await trackSessionMessageMaterialization(updateData.body.sid, handleMessageUpdatedSocketUpdate({
+        const materialization = trackSessionMessageMaterialization(updateData.body.sid, handleMessageUpdatedSocketUpdate({
             updateData,
             getSessionEncryption: (sessionId) => encryption.getSessionEncryption(sessionId),
             getSession: getSocketSessionApplyBase,
@@ -1544,6 +1561,8 @@ export async function handleUpdateContainer(params: {
                 }
                 : undefined,
         }));
+        observeDeliveredWorkerPermissionOutcome();
+        await materialization;
     } else if (updateData.body.t === 'new-session') {
         log.log('🆕 New session update received');
         if (!shouldContinue()) return;
