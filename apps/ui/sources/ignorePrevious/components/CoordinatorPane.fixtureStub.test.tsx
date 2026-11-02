@@ -84,6 +84,40 @@ describe('CoordinatorPane body', () => {
         expect(fixture.findByTestId('ip-run-settings')).not.toBeNull();
     });
 
+    it('Finding 7 C9 places the context gauge in the composer and removes the header meter, including fixtures', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CLAUDE', '220000');
+        const base = createSessionFixture({ id: 'c1' });
+        storage.getState().applySessions([{ ...base, metadata: { ...base.metadata!, flavor: 'claude' }, latestUsage: {
+            inputTokens: 0, outputTokens: 0, cacheCreation: 0, cacheRead: 0,
+            contextSize: 95_500, contextSizeIsReported: true, contextWindowTokens: 1_000_000, timestamp: 1,
+        } }]);
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        expect(screen.findByTestId('session-view-c1')!.findAllByProps({ testID: 'ip-context-gauge' }).length).toBeGreaterThan(0);
+        // The header is the pane's first host child. Check visible meter text, not a retired testID.
+        const header = screen.findByTestId('ip-coordinator-pane')!.children[0];
+        if (typeof header === 'string') throw new Error('Expected the coordinator header');
+        expect(header.findAll(node => typeof node.type === 'string' && node.children.some(child =>
+            typeof child === 'string' && /%|before auto-compact|of the window/.test(child),
+        ))).toHaveLength(0);
+        const overrides = screen.tree.findByType(SessionView).props.composer;
+        expect(overrides.providerUsageGauge).toBeNull();
+        expect(overrides.hide.contextUsage).toBe(true);
+        await screen.unmount();
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>);
+        await act(async () => { await import('../fixtures/CoordinatorBodyStub'); });
+        expect(fixture.findByTestId('ip-fixture-coordinator-body')!.findAllByProps({ testID: 'ip-context-gauge' }).length).toBeGreaterThan(0);
+    });
+
+    it.each([false, true])('Finding 6 omits the status node without a hint or report, loaded=%s', async (loaded) => {
+        viewport.width = 390;
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
+        if (loaded) storage.getState().applySessions([createSessionFixture({ id: 'no-report', latestUsage: null })]);
+        const screen = await renderScreen(<CoordinatorPane sessionId="no-report" />);
+        expect(screen.tree.findByType(SessionView).props.composer.statusTrailingActions).toBeNull();
+    });
+
     it('J1: the Enter hint appears once in a wide chat and disappears when the chat narrows', async () => {
         vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
         const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);

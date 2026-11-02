@@ -1,6 +1,6 @@
 export const DESK_FONT_STACK = '"JetBrains Mono", ui-monospace, monospace';
 // Exact pathnames only. Later pass-through pages opt in here and mount DeskFontRoot.
-export const DESK_FONT_ROUTES: readonly string[] = ['/desk'];
+export const DESK_FONT_ROUTES: readonly string[] = ['/desk', '/desk/settings'];
 
 const installations = new WeakMap<Document, { style: HTMLStyleElement; mounts: number }>();
 

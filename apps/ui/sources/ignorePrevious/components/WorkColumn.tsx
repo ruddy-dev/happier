@@ -42,7 +42,7 @@ function toWorkerRows(
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
             lastActivityAt: workerLastActivityAt(row),
-            contextPercent: meter ? Math.round(meter.ratio * 100) : null,
+            contextPercent: meter ? meter.percent : null,
             canStop: isDeskWorkerBusy(state) && unheardMinutes === null,
             unheardMinutes,
             inactive: row.active !== true,

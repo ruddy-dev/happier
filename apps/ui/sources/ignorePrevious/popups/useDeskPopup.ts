@@ -12,6 +12,8 @@ export type DeskPopupOptions = Partial<OutsideClickPolicy> & Readonly<{
     openerRef: RefObject<View | HTMLElement | null>;
     /** Attach to the host containing the whole popup, including when portaled. */
     contentRef: RefObject<View | HTMLElement | null>;
+    /** Return focus on explicit close or Escape, while preserving focus taken by an outside click. */
+    returnFocusOnClose?: boolean;
 }>;
 
 // Pointer ordering only. Keyboard ordering stays with Happier's shared Escape stack.
@@ -41,6 +43,9 @@ function topOutsideClickLayer() {
 export function useDeskPopup(options: DeskPopupOptions): void {
     const current = useRef(options);
     current.current = options;
+    // Closing can clear the caller's pinned state in the same render. Retain the open policy.
+    const returnFocusOnClose = useRef(false);
+    if (options.open) returnFocusOnClose.current = options.returnFocusOnClose === true;
     const close = useCallback(() => current.current.onClose(), []);
     const focusFallbackRef = useFocusReturnFallbackRef();
     const escapeFocusReturnRef = useRef<HTMLElement | null>(null);
@@ -69,6 +74,7 @@ export function useDeskPopup(options: DeskPopupOptions): void {
         // Capture the actual opener so ref replacement cannot redirect focus to a new element.
         const focusReturnRef = { current: opener instanceof HTMLElement ? opener : null };
         escapeFocusReturnRef.current = focusReturnRef.current;
+        let closedByOutsideClick = false;
         const onClick = (event: MouseEvent) => {
             if (topOutsideClickLayer() !== layer) return;
             // A modal or command palette above the desk owns its pointer interactions.
@@ -84,6 +90,7 @@ export function useDeskPopup(options: DeskPopupOptions): void {
             if (trigger instanceof HTMLElement && trigger.contains(target)) return;
             if (!shouldCloseOnOutsideClick({ presentation, hasHalfAnsweredCard })) return;
             // Lower layers have already declined this event; let the target handle its click.
+            closedByOutsideClick = true;
             close();
         };
         // Click runs after pointer focus, so cleanup can preserve the newly focused target.
@@ -93,7 +100,7 @@ export function useDeskPopup(options: DeskPopupOptions): void {
             outsideClickLayers.splice(outsideClickLayers.indexOf(layer), 1);
             const active = document.activeElement;
             const content = current.current.contentRef.current;
-            if (active == null || active === document.body || (content instanceof HTMLElement && content.contains(active))) {
+            if ((returnFocusOnClose.current && !closedByOutsideClick) || active == null || active === document.body || (content instanceof HTMLElement && content.contains(active))) {
                 restoreFocusToBestTarget(focusReturnRef, focusFallbackRef);
             }
         };
