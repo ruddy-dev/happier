@@ -26,3 +26,10 @@ it('C9 uses one session owner for compact and window percentages and the setting
     expect(sessionContextMeter(claudeSession(95_500))).toMatchObject({ percent: 10, limit: 1_000_000, towardsCompact: false });
     expect(sessionContextMeter(claudeSession(null))).toBeNull();
 });
+
+it('uses Codex reported context and its own compact setting after a provider switch', () => {
+    vi.stubEnv('EXPO_PUBLIC_IP_AUTOCOMPACT_CODEX', '180000');
+    const session = claudeSession(90_000);
+    session.metadata = { ...session.metadata!, flavor: 'codex' };
+    expect(sessionContextMeter(session)).toMatchObject({ percent: 50, limit: 180_000, compactSetting: 'EXPO_PUBLIC_IP_AUTOCOMPACT_CODEX' });
+});

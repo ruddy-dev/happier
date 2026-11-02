@@ -125,6 +125,19 @@ describe('continueSessionWithArmedAgent', () => {
         expect(outcome.disposition).toMatchObject({ draft: 'preserve', arm: 'keep', send: 'allow' });
     });
 
+    it.each(['read-only', 'plan'])('requires advertised transfer support for an explicit host intent even when %s is committed', async (permissionMode) => {
+        machineRpcWithServerScope.mockResolvedValue({ protocolVersion: 1, results: {
+            'tool.sessionAgentTransition': { ok: true, checkedAt: 1, data: {} },
+        } });
+        const outcome = await continueSessionWithArmedAgent(submission({
+            committedPermissionMode: permissionMode,
+            input: { text: 'what is your role?', meta: { permissionMode } },
+        }), { requireInputPermissionIntentSupport: true });
+        expect(machineRpcWithServerScope.mock.calls.map(([request]) => request.method)).toEqual(['capabilities.detect']);
+        expect(outcome.result).toBeNull();
+        expect(outcome.disposition).toMatchObject({ draft: 'preserve', arm: 'keep' });
+    });
+
     it('continues on an older daemon when permission aliases have the same canonical intent', async () => {
         machineRpcWithServerScope.mockResolvedValue({ type: 'accepted', localId: 'local-1' });
         const outcome = await continueSessionWithArmedAgent(submission({

@@ -171,6 +171,49 @@ describe('useInSessionAgentPickerControls', () => {
         ));
     });
 
+    it.each([
+        ['claude', 'codex', 'read-only'], ['codex', 'claude', 'plan'],
+    ] as const)('arms an exact host model from %s to %s with %s in the existing draft owner', async (sourceAgent, targetAgent, permissionMode) => {
+        machineRpcWithServerScope.mockImplementation((request: { method: string; payload: { selections?: readonly unknown[] } }) => Promise.resolve(
+            request.method === 'capabilities.detect'
+                ? { protocolVersion: 1, results: { 'tool.sessionAgentTransition': { ok: true, checkedAt: 1, data: { supportsInputPermissionIntent: true } } } }
+                : { v: 1, inspections: (request.payload.selections ?? []).map(() => AVAILABLE) },
+        ));
+        const scope = { serverId: 'server-1', accountId: 'host-picker-user' };
+        const hook = await renderControls({ currentAgentId: sourceAgent, accountScope: scope,
+            source: { ...supportedSource, currentBackendTargetKey: `builtInAgent:${sourceAgent}` } });
+        await act(async () => {
+            await hook.getCurrent().selectAgentForNextMessage(`builtInAgent:${targetAgent}`, {
+                modelId: targetAgent === 'codex' ? 'gpt-6.1-sol' : 'claude-opus-5-5',
+                modelLabel: 'Chosen model', sessionModeId: null, configOverrides: {}, inputPermissionMode: permissionMode,
+            });
+        });
+        await act(async () => { await Promise.resolve(); });
+        expect(hook.getCurrent().armedContinuation?.selection).toMatchObject({ agentId: targetAgent });
+        expect(hook.getCurrent().armedContinuationPermissionMode).toBe(permissionMode);
+        expect(existingSessionDraftSemanticValues.read(scope, 'session-1', 'routing.agentContinuation'))
+            .toMatchObject({ inputPermissionMode: permissionMode });
+        expect(machineRpcWithServerScope.mock.calls.every(([request]) => request.method !== 'session.agentTransition')).toBe(true);
+        await hook.unmount();
+    });
+
+    it.each([false, undefined])('refuses host arming without explicit input permission support (%s)', async support => {
+        machineRpcWithServerScope.mockResolvedValue({ protocolVersion: 1, results: {
+            'tool.sessionAgentTransition': { ok: true, checkedAt: 1, data: { supportsInputPermissionIntent: support } },
+        } });
+        const hook = await renderControls();
+        let result: string | undefined;
+        await act(async () => {
+            result = await hook.getCurrent().selectAgentForNextMessage('builtInAgent:codex', {
+                modelId: 'gpt-6.1-sol', modelLabel: 'Sol', sessionModeId: null, configOverrides: {}, inputPermissionMode: 'read-only',
+            });
+        });
+        expect(result).toBe('unavailable');
+        expect(hook.getCurrent().armedContinuation).toBeNull();
+        expect(machineRpcWithServerScope.mock.calls.map(([request]) => request.method)).toEqual(['capabilities.detect']);
+        await hook.unmount();
+    });
+
     it('offers the rest of the Agent catalog beside the Agent already running', async () => {
         const hook = await renderControls();
         await openPicker(hook);
