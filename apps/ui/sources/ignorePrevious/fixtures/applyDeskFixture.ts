@@ -5,7 +5,7 @@
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
-import { setStoredCoordinatorId } from '../deskPrefs';
+import { setCoordinatorOverride } from '../deskPrefs';
 import scenario from './desk-fixture.json';
 
 type FixtureSession = {
@@ -51,12 +51,23 @@ function buildSession(spec: FixtureSession, index: number, now: number): Session
 }
 
 /**
- * Seeds the store the way a first sync would leave it: the sessions, the coordinator choice for this
- * device, then "ready". `now` stamps every record, so a frozen clock gives the same desk each run.
+ * Seeds the store the way a first sync would leave it: the sessions, the coordinator for this device, then
+ * "ready". `now` stamps every record, so a frozen clock gives the same desk each run.
+ *
+ * Nothing here is persisted: the coordinator is an in-memory override, not the stored choice. The sessions
+ * are in the store, though, and the store feeds an account's warm cache once someone signs in, so the caller
+ * must call the returned `release` when it stops showing the desk. It deletes only the fixture's sessions and
+ * puts readiness back as it was.
  */
-export function applyDeskFixture(now: number = Date.now()): void {
-    const sessions = (scenario.sessions as FixtureSession[]).map((spec, index) => buildSession(spec, index, now));
-    setStoredCoordinatorId(scenario.coordinatorId);
-    storage.getState().applySessions(sessions);
+export function applyDeskFixture(now: number = Date.now()): () => void {
+    const specs = scenario.sessions as FixtureSession[];
+    const wasReady = storage.getState().isDataReady;
+    setCoordinatorOverride(scenario.coordinatorId);
+    storage.getState().applySessions(specs.map((spec, index) => buildSession(spec, index, now)));
     storage.getState().applyReady();
+    return () => {
+        for (const spec of specs) storage.getState().deleteSession(spec.id);
+        if (!wasReady) storage.setState({ isDataReady: false });
+        setCoordinatorOverride(null);
+    };
 }

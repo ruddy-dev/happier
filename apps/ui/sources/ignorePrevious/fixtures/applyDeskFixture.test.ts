@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 
-import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
+import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '../deskPrefs';
 import { issueKeyFromPath, issueKeyFromTitle } from '../model/issueKey';
 import scenario from './desk-fixture.json';
 import { DESK_FIXTURE_MARKER, applyDeskFixture } from './applyDeskFixture';
@@ -17,10 +18,12 @@ describe('applyDeskFixture', () => {
     beforeEach(() => {
         storage.setState(before, true);
         setStoredCoordinatorId(null);
+        setCoordinatorOverride(null);
     });
 
     afterEach(() => {
         storage.setState(before, true);
+        setCoordinatorOverride(null);
         setStoredCoordinatorId(storedBefore);
     });
 
@@ -34,11 +37,35 @@ describe('applyDeskFixture', () => {
         expect(storage.getState().isDataReady).toBe(true);
     });
 
-    it('stores the fixture coordinator as this device\'s choice, and it is one of the sessions', () => {
+    it('shows the fixture coordinator, which is one of the sessions', () => {
         applyDeskFixture(NOW);
 
         expect(getStoredCoordinatorId()).toBe(scenario.coordinatorId);
         expect(storage.getState().sessions[scenario.coordinatorId]).toBeDefined();
+    });
+
+    it('never touches a coordinator choice that is already stored on this device', () => {
+        setStoredCoordinatorId('real-coord-session');
+
+        const release = applyDeskFixture(NOW);
+        release();
+
+        // The override is gone and the persisted pick was never written over.
+        expect(getStoredCoordinatorId()).toBe('real-coord-session');
+    });
+
+    it('hands back a release that removes the fixture sessions and leaves other sessions and readiness as they were', () => {
+        storage.getState().applySessions([createSessionFixture({ id: 'real-1', active: true })]);
+        expect(storage.getState().isDataReady).toBe(false);
+
+        const release = applyDeskFixture(NOW);
+        expect(Object.keys(storage.getState().sessions)).toContain('fx-coord');
+        release();
+
+        expect(Object.keys(storage.getState().sessions)).toEqual(['real-1']);
+        expect(Object.keys(storage.getState().sessionListRenderables)).toEqual(['real-1']);
+        expect(storage.getState().isDataReady).toBe(false);
+        expect(getStoredCoordinatorId()).toBeNull();
     });
 
     it('seeds a pending tool request, a working agent and a stopped agent', () => {

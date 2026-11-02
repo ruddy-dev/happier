@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen } from '@/dev/testkit';
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import { readPersistedSessionListWarmCacheEntries, setWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
 
-import { getStoredCoordinatorId, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
+import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
 
 import DeskFixturePage from '@/app/(app)/dev/desk-fixture';
 
@@ -44,6 +46,36 @@ vi.mock('@/hooks/session/useHydrateSessionForRoute', async () => {
     return deskScreenMocks.hydrateSessionForRoute();
 });
 
+// A test-owned sign-in state, so a test can sign in while the route is open.
+const auth = vi.hoisted(() => {
+    const state = { isAuthenticated: false, credentials: null as { token: string; secret: string } | null };
+    const listeners = new Set<() => void>();
+    let snapshot = { ...state };
+    return {
+        set(next: Partial<typeof state>) {
+            Object.assign(state, next);
+            snapshot = { ...state };
+            for (const listener of [...listeners]) listener();
+        },
+        subscribe(listener: () => void) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
+        get: () => snapshot,
+    };
+});
+
+vi.mock('@/auth/context/AuthContext', async () => {
+    const React = await import('react');
+    return { useAuth: () => React.useSyncExternalStore(auth.subscribe, auth.get, auth.get) };
+});
+
+// Pins the active server so the account's warm cache has a key to be written under.
+vi.mock('@/sync/domains/server/serverRuntime', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/sync/domains/server/serverRuntime')>();
+    return { ...actual, getActiveServerSnapshot: () => ({ ...actual.getActiveServerSnapshot(), serverId: 'srv-test' }) };
+});
+
 function Panes({ children }: { children?: React.ReactNode }) {
     return <AppPaneProvider>{children}</AppPaneProvider>;
 }
@@ -55,13 +87,28 @@ describe('dev/desk-fixture route', () => {
     beforeEach(() => {
         storage.setState(before, true);
         setStoredCoordinatorId(null);
+        setCoordinatorOverride(null);
+        auth.set({ isAuthenticated: false, credentials: null });
     });
 
     afterEach(() => {
         vi.unstubAllEnvs();
         storage.setState(before, true);
+        setCoordinatorOverride(null);
         setStoredCoordinatorId(storedBefore);
+        setWarmCacheAccountScope(null);
+        auth.set({ isAuthenticated: false, credentials: null });
     });
+
+    async function showFixtureDesk() {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
+        await vi.waitFor(async () => {
+            await act(async () => {});
+            expect(screen.findByTestId('ip-fixture-coordinator-body')).not.toBeNull();
+        });
+        return screen;
+    }
 
     it('redirects home and seeds nothing when the build has no fixture flag', async () => {
         vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
@@ -99,7 +146,86 @@ describe('dev/desk-fixture route', () => {
         expect(screen.findByTestId('ip-work')).not.toBeNull();
         expect(screen.findByTestId('session-view-fx-coord')).toBeNull();
         expect(storage.getState().isDataReady).toBe(true);
+        // The desk found the fixture's coordinator (otherwise it would show the picker, not the coordinator pane).
         expect(getStoredCoordinatorId()).toBe('fx-coord');
         await screen.unmount();
+    });
+
+    it('leaves a coordinator choice already stored on this device alone', async () => {
+        setStoredCoordinatorId('real-coord-session');
+
+        const screen = await showFixtureDesk();
+        expect(getStoredCoordinatorId()).toBe('fx-coord');
+        await screen.unmount();
+
+        expect(getStoredCoordinatorId()).toBe('real-coord-session');
+    });
+
+    it('takes the fixture sessions out of the store when the route is left', async () => {
+        const screen = await showFixtureDesk();
+        expect(Object.keys(storage.getState().sessions)).toContain('fx-coord');
+
+        await screen.unmount();
+
+        expect(Object.keys(storage.getState().sessions)).toEqual([]);
+        expect(storage.getState().isDataReady).toBe(false);
+    });
+
+    it.each([
+        ['an authenticated session', { isAuthenticated: true, credentials: null }],
+        ['stored credentials', { isAuthenticated: false, credentials: { token: 't', secret: 's' } }],
+    ])('refuses to seed over %s and says why', async (_label, signedIn) => {
+        auth.set(signedIn);
+        storage.getState().applySessions([createSessionFixture({ id: 'real-1', active: true })]);
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+
+        const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
+        await act(async () => {});
+
+        expect(screen.findByTestId('ip-fixture-signed-in')).not.toBeNull();
+        expect(screen.findByTestId('ip-work')).toBeNull();
+        expect(Object.keys(storage.getState().sessions)).toEqual(['real-1']);
+        await screen.unmount();
+        expect(Object.keys(storage.getState().sessions)).toEqual(['real-1']);
+    });
+
+    it('refuses to seed when the store already holds an account profile', async () => {
+        storage.setState({ profile: { ...storage.getState().profile, id: 'acct-1' } });
+
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
+        await act(async () => {});
+
+        expect(screen.findByTestId('ip-fixture-signed-in')).not.toBeNull();
+        expect(Object.keys(storage.getState().sessions)).toEqual([]);
+        await screen.unmount();
+    });
+
+    it('clears the fixture the moment credentials arrive while the route is open', async () => {
+        const screen = await showFixtureDesk();
+
+        await act(async () => {
+            auth.set({ isAuthenticated: true });
+        });
+
+        expect(screen.findByTestId('ip-fixture-signed-in')).not.toBeNull();
+        expect(screen.findByTestId('ip-work')).toBeNull();
+        expect(Object.keys(storage.getState().sessions)).toEqual([]);
+        await screen.unmount();
+    });
+
+    it('persists no fixture session to the account warm cache once someone signs in after a signed-out visit', async () => {
+        const screen = await showFixtureDesk();
+        await screen.unmount();
+
+        // Sign in: the account scope exists and a real session arrives; the warm cache saves after its debounce.
+        setWarmCacheAccountScope('acct-test');
+        storage.setState({ profile: { ...storage.getState().profile, id: 'acct-test' } });
+        storage.getState().applySessions([createSessionFixture({ id: 'real-1', active: true })]);
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+
+        const persisted = Object.keys(readPersistedSessionListWarmCacheEntries('srv-test', 'acct-test') ?? {});
+        expect(persisted).toContain('real-1');
+        expect(persisted.filter((id) => id.startsWith('fx-'))).toEqual([]);
     });
 });
