@@ -100,6 +100,7 @@ describe('CoordinatorPane body', () => {
     it.each([
         ['mask', 1200, 1000, 128], ['terminal', 1200, 1000, 116],
         ['mask', 390, 390, 72], ['terminal', 390, 390, 72],
+        ['mask', 320, 320, 72], ['terminal', 320, 320, 72],
     ] as const)('reveals the %s header creature at viewport %i and opens the full panel', async (style, viewportWidth, headerWidth, height) => {
         viewport.width = viewportWidth;
         deskPrefs.set('chatStyle', style);
@@ -115,11 +116,13 @@ describe('CoordinatorPane body', () => {
         // The engine's mask box is 0.8 times head width; a larger box reveals body around the foreground mask.
         const bodyWidth = Math.min(height * 0.25, headerWidth * 0.2) * creature.props.scale * 0.8;
         expect(bodyWidth).toBeGreaterThan(mask.props.size * 1.45);
-        expect(creature.props.anchor.x * headerWidth).toBeCloseTo((viewportWidth === 390 ? 10 + 4 : style === 'terminal' ? 12 + 22 : 16 + 22) + mask.props.size / 2);
+        expect(creature.props.anchor.x * headerWidth).toBeCloseTo((viewportWidth <= 390 ? 10 + 4 : style === 'terminal' ? 12 + 22 : 16 + 22) + mask.props.size / 2);
         expect(StyleSheet.flatten(header.props.style).height).toBe(height);
         expect(screen.getTextContent()).toContain('Shog');
         expect(screen.findByTestId('ip-coord-state')).not.toBeNull();
         await screen.pressByTestIdAsync('ip-shog-open');
+        expect(screen.tree.root.findAll(node => node.props.borderRadius === 0
+            && node.findAllByProps({ testID: 'ip-shog' }).length > 0).length).toBeGreaterThan(0);
         const panelCreature = screen.findByTestId('ip-shog')!.findByType(DeskCreature);
         expect(panelCreature.props.anchor).toEqual({ x: 0.5, y: 0.5 });
         expect(panelCreature.props.scale).toBe(1.6);
