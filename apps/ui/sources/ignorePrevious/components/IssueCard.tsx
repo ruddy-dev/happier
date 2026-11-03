@@ -38,12 +38,15 @@ export type IssueCardProps = Readonly<{
  */
 export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, faceStyle, calm, item, projectName, attention, archive, knownProjectCodes }: IssueCardProps) {
     const { paint, borderWidth, colours } = useDeskPaint();
-    const terminal = useDeskPref('chatStyle') === 'terminal';
+    const [chatStyle] = useDeskPref('chatStyle');
+    const terminal = chatStyle === 'terminal';
     const navigateToSession = useDeskSessionNavigation();
     const label = group.issueKey ?? t('ignorePrevious.noIssue');
     const newest = group.workers[0];
     const stateWorker = group.stateWorker;
-    const unheardMinutes = stateWorker?.unheardMinutes ?? newest?.unheardMinutes;
+    const freshnessWorker = stateWorker ?? newest;
+    const unheardMinutes = freshnessWorker?.unheardMinutes;
+    const limitedWorkers = open ? [] : group.workers.filter(worker => worker.usageLimit);
     const count = t('ignorePrevious.workList.workerCount', { count: group.workers.length });
     const secondary = { color: paint.mute, fontSize: 13 };
     const stage = item ? wqStage(item.status) : null;
@@ -91,15 +94,18 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                         {item ? <WorkCardStage issueKey={item.id} status={item.status} /> : null}
                     </View>
                     {!open && unheardMinutes != null ? (
-                        <Text testID={`ip-worker-stale-${stateWorker?.unheardMinutes != null ? stateWorker.sessionId : newest?.sessionId}`} style={secondary}>
+                        <Text testID={`ip-worker-stale-${freshnessWorker?.sessionId}`} style={secondary}>
                             {t('ignorePrevious.connection.unheard', { minutes: unheardMinutes })}
                         </Text>
                     ) : null}
                 </View>
             </Pressable>
-            {!open && stateWorker?.usageLimit ? (
-                <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
-                    <WorkerUsageLimitLine status={stateWorker.usageLimit} sessionId={stateWorker.sessionId} />
+            {limitedWorkers.length > 0 ? (
+                <View style={{ paddingHorizontal: 12, paddingBottom: 8, gap: 2 }}>
+                    {limitedWorkers.map(worker => worker.usageLimit ? (
+                        <WorkerUsageLimitLine key={worker.sessionId} status={worker.usageLimit} sessionId={worker.sessionId}
+                            workerTitle={group.workers.length > 1 ? worker.title : undefined} />
+                    ) : null)}
                 </View>
             ) : null}
             {open

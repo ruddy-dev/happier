@@ -10953,6 +10953,7 @@ settingsSession: {
             resetDue: 'Usage limit: reset due',
             waitsForResetAt: ({ time }: { time: string }) => `Usage limit: waits for reset, ${time}`,
             autoResumeArmed: ({ line }: { line: string }) => `${line}; auto-resume armed`,
+            workerLimit: ({ worker, line }: { worker: string; line: string }) => `${worker}: ${line}`,
         },
         screenTitle: 'Sleeper Agents',
         coordinator: 'Coordinator',

@@ -7,7 +7,7 @@ import { useDeskNow } from '../model/useDeskNow';
 import { useDeskPaint } from '../palette';
 import { DeskText } from '../typography/DeskText';
 
-export function WorkerUsageLimitLine({ status, sessionId }: { status: WorkerUsageLimit; sessionId: string }) {
+export function WorkerUsageLimitLine({ status, sessionId, workerTitle }: { status: WorkerUsageLimit; sessionId: string; workerTitle?: string }) {
     const { paint } = useDeskPaint();
     const now = useDeskNow();
     const { serverId } = useActiveServerSnapshot();
@@ -22,9 +22,10 @@ export function WorkerUsageLimitLine({ status, sessionId }: { status: WorkerUsag
             ? t('ignorePrevious.usageLimit.resetDue')
             : t('ignorePrevious.usageLimit.waitsForResetAt', { time: resetTime });
     }
+    if (recoveryEnabled && status.autoResumeArmed) line = t('ignorePrevious.usageLimit.autoResumeArmed', { line });
     return (
         <DeskText testID={`ip-worker-usage-limit-${sessionId}`} style={{ color: paint.mute, fontSize: 13 }}>
-            {recoveryEnabled && status.autoResumeArmed ? t('ignorePrevious.usageLimit.autoResumeArmed', { line }) : line}
+            {workerTitle ? t('ignorePrevious.usageLimit.workerLimit', { worker: workerTitle, line }) : line}
         </DeskText>
     );
 }
