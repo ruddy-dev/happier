@@ -9,8 +9,8 @@ import { useTopBarAppearance } from './topBarAppearance';
 
 export function DeskTopBar({ phone, sessionsRef, onSessions, waiting, settings }: { phone: boolean; sessionsRef: React.RefObject<View | null>; onSessions: () => void; waiting: React.ReactNode; settings: (colour: string) => React.ReactNode }) {
     const { terminal, paint, maskColours } = useTopBarAppearance();
-    return <View testID="ip-top-bar" style={{ minHeight: 52, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: paint.rule, backgroundColor: paint.bg }}>
-        <View testID="ip-top-brand" style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1, minWidth: 0 }}>
+    return <View testID="ip-top-bar" style={{ minHeight: 52, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: phone ? 4 : 8, paddingHorizontal: phone ? 8 : 12, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: paint.rule, backgroundColor: paint.bg }}>
+        <View testID="ip-top-brand" style={{ flexDirection: 'row', alignItems: 'center', gap: phone ? 4 : 9, flexShrink: 1, minWidth: 0 }}>
             {terminal && <DeskText accessible={false} aria-hidden style={{ color: paint.user, fontSize: 15, fontWeight: '700' }}>$</DeskText>}
             <View testID="ip-top-brand-mask" aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexShrink: 0 }}>
                 <MaskFace size={26} bulb="rest" colours={maskColours} />

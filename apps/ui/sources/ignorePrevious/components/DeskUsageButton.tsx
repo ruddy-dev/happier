@@ -56,7 +56,7 @@ export function DeskUsageButton({ phone = false, usage }: { phone?: boolean; usa
         <Pressable ref={openerRef} testID="ip-top-usage" accessibilityRole="button"
             accessibilityLabel={t('ignorePrevious.topBar.usageStatus', { status })} accessibilityState={{ expanded: open }}
             aria-haspopup="dialog" aria-expanded={open} onPress={() => open ? close() : setOpen(true)}
-            style={{ marginLeft: 'auto', padding: 8, minHeight: 44, minWidth: phone ? 44 : undefined, flexShrink: 0, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: open ? paint.rule : 'transparent', borderRadius: terminal ? 2 : 999 }}>
+            style={{ marginLeft: 'auto', paddingVertical: 8, paddingHorizontal: phone ? 4 : 8, minHeight: 44, minWidth: phone ? 44 : undefined, flexShrink: 0, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: open ? paint.rule : 'transparent', borderRadius: terminal ? 2 : 999 }}>
             {!(phone && available) && <DeskText style={{ color: paint.mute, fontSize: terminal ? 12 : 12.5 }}>{t('ignorePrevious.topBar.usage')}</DeskText>}
             {(!phone || available) && <DeskText testID="ip-top-usage-inline" style={{ color: phone ? paint.ink : paint.mute, fontSize: terminal ? 12 : 12.5,
                 ...(phone ? { textAlign: 'center', fontVariant: ['tabular-nums'] as const } : {}) }}>
