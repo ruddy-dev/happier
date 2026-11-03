@@ -806,7 +806,12 @@ function convertReducerMessageToMessage(
             localId: reducerMsg.localId,
             createdAt: reducerMsg.createdAt,
             kind: 'tool-call',
-            tool: { ...reducerMsg.tool },
+            // Later reducer passes mutate permission fields in place. Keep the published
+            // message's prior contribution intact for incremental aggregate reconciliation.
+            tool: {
+                ...reducerMsg.tool,
+                ...(reducerMsg.tool.permission ? { permission: { ...reducerMsg.tool.permission } } : {}),
+            },
             children: childMessages,
             meta: reducerMsg.meta,
             ...observationMetadata,

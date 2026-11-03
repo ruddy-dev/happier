@@ -106,8 +106,8 @@ function areTerminalStatesInterchangeable(
 /**
  * Applies one changed message to the aggregate in place.
  *
- * Returns `false` when the change is not expressible as a monotone update
- * (a contribution weakened or disappeared); the caller MUST then discard the
+ * A producer-proven sole contributor can be retracted exactly. Otherwise returns
+ * `false` when a contribution weakened or disappeared; the caller MUST discard the
  * aggregate — it may have been partially mutated — and rebuild it via
  * `buildTranscriptRenderableAggregate` before its next use.
  */
@@ -115,6 +115,8 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
     aggregate: TranscriptRenderableAggregate;
     previous: Message | null;
     next: Message;
+    /** Existing producer indexes must prove this message is the only contributor for the id. */
+    isSoleRequestStateContributor?: (requestId: string) => boolean;
 }>): boolean {
     const { aggregate, previous, next } = params;
 
@@ -165,6 +167,10 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
         for (const [requestId, previousState] of previousStates) {
             const nextState = nextStates.get(requestId);
             if (!nextState) {
+                if (params.isSoleRequestStateContributor?.(requestId) === true) {
+                    aggregate.requestStates.delete(requestId);
+                    continue;
+                }
                 // The message stopped contributing this request id; the merged
                 // map cannot un-learn it, so a full rebuild is required.
                 return false;
@@ -173,6 +179,10 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
                 mergeTranscriptRequestState(previousState, nextState) !== nextState
                 && !areTerminalStatesInterchangeable(previousState, nextState)
             ) {
+                if (params.isSoleRequestStateContributor?.(requestId) === true) {
+                    aggregate.requestStates.delete(requestId);
+                    continue;
+                }
                 // The new contribution would lose the merge against the old
                 // one — a non-monotone downgrade the merge cannot express.
                 return false;

@@ -45,6 +45,17 @@ function startObserving(history: WaitingHistory) {
             if (!session || !row || row.metadataUnavailable) continue;
             const entry = state.sessionMessages[item.sessionId];
             const aggregate = entry?.renderableAggregate;
+            // An explicit empty projection with no conflicting per-ID live request proves a
+            // gap, even when retention lost the aggregate or kept an old pending contribution.
+            // Missing counts or lost transcript evidence alone do not prove departure.
+            if (session.pendingPermissionRequestCount === 0
+                && session.pendingUserActionRequestCount === 0
+                && !session.agentState?.requests?.[item.requestId]) {
+                watch.source = undefined;
+                history.setState(current => current.departed.has(key) ? current
+                    : { departed: new Set(current.departed).add(key) });
+                continue;
+            }
             if (!session.agentState && !aggregate) continue;
             if (entry && (!aggregate || !canReuseTranscriptRenderableAggregateRequestStates(aggregate,
                 session.agentState?.completedRequests ?? null))) continue;

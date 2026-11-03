@@ -372,6 +372,16 @@ function readOwnerProcessGoneSinceMs(session: Session | undefined): number | nul
     return session ? readSessionRuntimeLostSinceMs(session, nowServerMs()) : null;
 }
 
+function isSoleMainRequestContributor(state: ReducerState, previous: Message | undefined, next: Message, requestId: string): boolean {
+    // Main-timeline calls coalesce through toolIdToMessageId. Sidechains can retain a
+    // second contribution under the same id, which this single-slot index cannot prove away.
+    return state.sidechains.size === 0
+        && previous?.kind === 'tool-call' && next.kind === 'tool-call'
+        && previous.children.length === 0 && next.children.length === 0
+        && previous.tool.id === requestId && next.tool.id === requestId
+        && state.toolIdToMessageId.get(requestId) === next.id;
+}
+
 export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
     existing: SessionMessages;
     agentState: Session['agentState'] | null;
@@ -404,6 +414,7 @@ export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
         const prev = messagesById[message.id];
         if (renderableAggregate && !applyMessageChangeToTranscriptRenderableAggregate({
             aggregate: renderableAggregate, previous: prev ?? null, next: message,
+            isSoleRequestStateContributor: id => isSoleMainRequestContributor(existing.reducerState, prev, message, id),
         })) renderableAggregate = undefined;
         if ((prev && shouldIncludeSubagentSourceMessage(prev)) || shouldIncludeSubagentSourceMessage(message)) {
             didSubagentSourceChange = true;
@@ -715,6 +726,7 @@ export function createMessagesDomain<S extends MessagesDomain & MessagesDomainDe
                             aggregate: renderableAggregate,
                             previous: prev ?? null,
                             next: message,
+                            isSoleRequestStateContributor: id => isSoleMainRequestContributor(existingSession.reducerState, prev, message, id),
                         });
                         if (!appliedToAggregate) {
                             renderableAggregate = undefined;
