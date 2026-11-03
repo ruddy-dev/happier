@@ -7,6 +7,7 @@ import { readComposerText, requestComposerText } from '@/components/sessions/mod
 import { t } from '@/text';
 
 import { readDeskAttentionWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
+import { displayText } from '../model/displayText';
 import { DeskText } from '../typography/DeskText';
 import { usePhoneControlPaint } from './usePhoneControlPaint';
 
@@ -29,23 +30,26 @@ function PromptChip({ testID, label, onPress, phone }: { testID: string; label: 
 
 /** The waiting list as the coordinator reads it: what each request runs, not only the agent's description. */
 function waitingList({ items, unloaded }: DeskWaits): string {
+    // Keep provider text within its draft line, without truncating the detail shown in the drawer.
+    const line = (text: string) => text.replace(/\n/g, ' ↵ ');
+    const name = (text: string) => line(displayText(text));
     const lines: string[] = [];
     let n = 0;
     for (const item of items) {
         n += 1;
-        const who = { n, session: item.sessionTitle, id: item.sessionId };
+        const who = { n, session: name(item.sessionTitle), id: name(item.sessionId) };
         if (item.kind === 'user_action') {
             lines.push(t('ignorePrevious.walkItemQuestion', who));
             if (item.disabledReason === 'notGranted') lines.push(t('ignorePrevious.walkItemRestricted'));
             continue;
         }
-        lines.push(t('ignorePrevious.walkItem', { ...who, tool: item.tool, summary: item.detail }));
+        lines.push(t('ignorePrevious.walkItem', { ...who, tool: line(item.tool), summary: line(item.detail) }));
         if (item.disabledReason === 'notGranted') lines.push(t('ignorePrevious.walkItemRestricted'));
-        if (item.agentNote) lines.push(t('ignorePrevious.walkItemNote', { note: item.agentNote }));
+        if (item.agentNote) lines.push(t('ignorePrevious.walkItemNote', { note: line(item.agentNote) }));
     }
     for (const wait of unloaded) {
         n += 1;
-        const who = { n, session: wait.sessionTitle, id: wait.sessionId };
+        const who = { n, session: name(wait.sessionTitle), id: name(wait.sessionId) };
         lines.push(wait.reason === 'unreadable' ? t('ignorePrevious.walkItemUnreadable', who) : t('ignorePrevious.walkItemUnloaded', who));
         if (wait.disabledReason === 'notGranted') lines.push(t('ignorePrevious.walkItemRestricted'));
     }
