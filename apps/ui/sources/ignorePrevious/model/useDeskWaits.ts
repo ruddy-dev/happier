@@ -155,11 +155,15 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
         if (cached.value.unloaded) unloaded.push(cached.value.unloaded);
         if (cached.value.unloaded || (cached.value.input.requests.length > 0 && cached.value.stillLoading)) loadingSessionIds.push(row.id);
     }
-    for (const row of desk.unreadable) {
-        const value: UnloadedInput = { row, reason: 'unreadable' };
-        const previous = snapshot?.unloaded.find((item) => item.row.id === row.id);
-        unloaded.push(previous && shallow(previous, value) ? previous : value);
-        loadingSessionIds.push(row.id);
+    if (desk.unreadable.length > 0) {
+        // Index once, including readable placeholders that have just become unreadable.
+        const previousUnloaded = new Map(snapshot?.unloaded.map(item => [item.row.id, item]));
+        for (const row of desk.unreadable) {
+            const value: UnloadedInput = { row, reason: 'unreadable' };
+            const previous = previousUnloaded.get(row.id);
+            unloaded.push(previous && shallow(previous, value) ? previous : value);
+            loadingSessionIds.push(row.id);
+        }
     }
     sessionCache = nextCache;
     lastState = state;

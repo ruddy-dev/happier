@@ -144,8 +144,6 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
                     </Text>
                 </>
             )}
-            {item.kind === 'user_action' ? null : <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId}
-                offersApproval={!item.disabledReason && !item.requiresInspection} />}
             <WaitingAnswers key={waitingItemGenerationKey(item)} item={item} expanded={expanded} refreshing={refreshing}
                 actions={actions} isCoordinator={isCoordinator}
                 onOpen={onOpen} onDirtyChange={onDirtyChange} onRequestChanged={() => {
@@ -288,6 +286,8 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
     );
 
     return <>
+            {item.kind === 'user_action' ? null : <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId}
+                offersApproval={!disabled && !item.disabledReason} />}
             {earlier || phase === 'changed' || (action.phase === 'sending' && action.contentsChanged) ? <Text testID={`ip-waiting-earlier-${item.requestId}`} accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.secondary}>
                 {t(earlier?.phase === 'sending' || phase === 'sending' ? 'ignorePrevious.waiting.earlierSending'
                     : changedAnswer?.result === 'unconfirmed' ? 'ignorePrevious.waiting.earlierFailed' : 'ignorePrevious.waiting.earlierUnconfirmed')}

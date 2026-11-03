@@ -175,6 +175,25 @@ export function WorkColumn(props: WorkColumnProps) {
     return <WorkAppearance><WorkColumnContent {...props} /></WorkAppearance>;
 }
 
+/** Only the expanded Work layout consumes request labels and attention details. */
+function WorkDetailProjection({ excludeSessionId, children }: {
+    excludeSessionId?: string;
+    children: (attentionBySession: ReadonlyMap<string, string>) => React.ReactNode;
+}) {
+    const waits = useDeskWaits(excludeSessionId);
+    const attentionBySession = React.useMemo(() => {
+        const reasons = new Map<string, string>();
+        for (const wait of waits.items) {
+            if (!reasons.has(wait.sessionId)) reasons.set(wait.sessionId, wait.kind === 'user_action'
+                ? t('ignorePrevious.question')
+                : t('ignorePrevious.workList.approvalNeeded', { summary: wait.summary }));
+        }
+        return reasons;
+    }, [waits.items]);
+
+    return children(attentionBySession);
+}
+
 function WorkColumnContent({ compact, faceStyle, calm }: WorkColumnProps) {
     const { paint, text, inset, colours } = useDeskPaint();
     const [style] = useDeskPref('chatStyle');
@@ -215,16 +234,6 @@ function WorkColumnContent({ compact, faceStyle, calm }: WorkColumnProps) {
     // Rows rebuild when the list, a full record, an issue key or the desk clock changes; nothing else.
     const rows = React.useMemo(() => toWorkerRows(live, lookup, issueKeys, nowMs), [live, lookup, issueKeys, nowMs]);
     const groups = React.useMemo(() => groupWorkersByIssue(rows), [rows]);
-    const waits = useDeskWaits(coordinatorId ?? undefined);
-    const attentionBySession = React.useMemo(() => {
-        const reasons = new Map<string, string>();
-        for (const wait of waits.items) {
-            if (!reasons.has(wait.sessionId)) reasons.set(wait.sessionId, wait.kind === 'user_action'
-                ? t('ignorePrevious.question')
-                : t('ignorePrevious.workList.approvalNeeded', { summary: wait.summary }));
-        }
-        return reasons;
-    }, [waits.items]);
 
     const toggle = React.useCallback((key: string) => {
         setOpenKeys((prev) => {
@@ -282,6 +291,7 @@ function WorkColumnContent({ compact, faceStyle, calm }: WorkColumnProps) {
     }
 
     return (
+        <WorkDetailProjection excludeSessionId={coordinatorId ?? undefined}>{attentionBySession => (
         <View style={{ gap: 10, minWidth: 0, maxWidth: '100%' }}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, ...(terminal ? { paddingBottom: 7, borderBottomWidth: 1, borderBottomColor: paint.rule } : {}) }}>
                 <Text accessibilityRole="header" style={{ color: terminal ? text.secondary : text.primary, fontSize: terminal ? 12 : 18, fontWeight: terminal ? '700' : '600', ...(terminal ? { textTransform: 'lowercase', letterSpacing: 0.48 } : {}) }}>
@@ -326,5 +336,6 @@ function WorkColumnContent({ compact, faceStyle, calm }: WorkColumnProps) {
                 })}
             </View>
         </View>
+        )}</WorkDetailProjection>
     );
 }
