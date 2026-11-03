@@ -147,7 +147,9 @@ describe('DeskScreen', () => {
         expect(sessionAllowResult).toHaveBeenCalledTimes(2);
     });
 
-    it('leaving the account discards late action feedback while preserving the shared transport lock', async () => {
+    it.each([
+        ['account', 'success'], ['account', 'failure'], ['server', 'success'], ['server', 'failure'],
+    ] as const)('leaving the %s with the drawer closed discards late %s while preserving the shared transport lock', async (change, outcome) => {
         const pending = createDeferred<SessionPermissionResult>();
         vi.mocked(sessionAllowResult).mockReturnValueOnce(pending.promise);
         act(() => storage.setState({ profileScope: { serverId: 'server-a', accountId: 'account-a' }, socketStatus: 'connected' }));
@@ -158,12 +160,15 @@ describe('DeskScreen', () => {
         const screen = await renderDesk();
         await screen.pressByTestIdAsync('ip-waiting-toggle-permission');
         await screen.pressByTestIdAsync('ip-waiting-allow-permission');
-        act(() => storage.setState({ profileScope: { serverId: 'server-a', accountId: 'account-b' } }));
+        await screen.pressByTestIdAsync('ip-approvals-open');
+        act(() => storage.setState({ profileScope: change === 'account'
+            ? { serverId: 'server-a', accountId: 'account-b' } : { serverId: 'server-b', accountId: 'account-a' } }));
+        await screen.pressByTestIdAsync('ip-approvals-open');
         await screen.pressByTestIdAsync('ip-waiting-toggle-permission');
         try {
             await screen.pressByTestIdAsync('ip-waiting-allow-permission');
             expect(sessionAllowResult).toHaveBeenCalledTimes(1);
-        } finally { await act(async () => pending.reject(new Error('old account send failed'))); }
+        } finally { await act(async () => outcome === 'success' ? pending.resolve({ ok: true }) : pending.reject(new Error('old scope send failed'))); }
         expect(Modal.alert).not.toHaveBeenCalled();
         expect(screen.findByTestId('ip-waiting-allow-permission')?.props.disabled).toBe(false);
         await screen.pressByTestIdAsync('ip-waiting-allow-permission');

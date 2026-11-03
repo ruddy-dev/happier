@@ -12,6 +12,10 @@ import { sessionAllowResult, sessionDenyResult, sessionAllowWithAnswers } from '
 import { createDeferred } from '@/dev/testkit';
 import { createWaitingHistory } from './WaitingPanel';
 import type { SessionPermissionResult } from '@/sync/ops/sessions';
+import { Modal } from '@/modal';
+import * as waitingItems from '../model/waitingItems';
+import * as transcriptReader from '@/sync/domains/messages/readStoredSessionMessages';
+import { readDeskWaits } from '../model/useDeskWaits';
 
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
@@ -19,6 +23,10 @@ vi.mock('react-native', async () => {
     return createReactNativeWebMock({ View: web.View, Pressable: web.Pressable, Text: web.Text, ScrollView: web.ScrollView, TextInput: web.TextInput, Animated: web.Animated, Easing: web.Easing });
 });
 vi.mock('@/sync/ops', () => ({ sessionAllowWithAnswers: vi.fn(), sessionAllowResult: vi.fn(), sessionDenyResult: vi.fn() }));
+vi.mock('@/modal', async () => {
+    const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');
+    return createModalModuleMock().module;
+});
 vi.mock('@react-navigation/native', async () => {
     const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
     return createReactNavigationNativeMock();
@@ -66,6 +74,7 @@ let previous: ReturnType<typeof storage.getState>;
 let previousStyle: ReturnType<typeof deskPrefs.get<'chatStyle'>>;
 beforeEach(() => {
     vi.mocked(sessionAllowResult).mockClear(); vi.mocked(sessionDenyResult).mockClear(); vi.mocked(sessionAllowWithAnswers).mockClear();
+    vi.mocked(Modal.alert).mockClear();
     previousStyle = deskPrefs.get('chatStyle');
     previous = storage.getState();
     storage.getState().applySessions([]);
@@ -74,6 +83,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); storage.setState(previous, true); deskPrefs.set('chatStyle', previousStyle);
+    vi.restoreAllMocks();
 });
 function element(id: string) {
     const found = container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
@@ -288,4 +298,156 @@ it('view-only question text stays escaped and has no hidden Enter action through
     // The collapsed row's retained controls also cannot submit via Enter.
     await act(async () => element('ip-waiting-detail-request').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     expect(sessionAllowResult).not.toHaveBeenCalled(); expect(sessionDenyResult).not.toHaveBeenCalled(); expect(sessionAllowWithAnswers).not.toHaveBeenCalled();
+});
+
+function occurrence(version = 1, present = true) {
+    return createSessionFixture({ id: 'worker', active: true, agentStateVersion: version, agentState: { requests: present ? {
+        request: { tool: 'Bash', arguments: { command: 'echo same raw content' }, createdAt: 1 },
+    } : {} } });
+}
+async function openOccurrence() {
+    await click('ip-approvals-open');
+    await click('ip-waiting-toggle-request');
+}
+
+it('a mounted card can answer an identical occurrence after a batched departure and return', async () => {
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([occurrence()]);
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    const toggle = element('ip-waiting-toggle-request');
+    await act(async () => {
+        storage.getState().applySessions([occurrence(2, false)]);
+        storage.getState().applySessions([occurrence(3)]);
+    });
+    expect(element('ip-waiting-toggle-request')).toBe(toggle);
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+});
+
+it.each(['success', 'legacy', 'expired', 'failure'] as const)('late %s while still absent cannot disable its later identical return', async result => {
+    const pending = createDeferred<SessionPermissionResult | void>();
+    // Older adapters can resolve void, which the action contract intentionally accepts.
+    vi.mocked(sessionAllowResult).mockReturnValueOnce(pending.promise as Promise<SessionPermissionResult>);
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([occurrence()]);
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    await click('ip-approvals-close');
+    await act(async () => storage.getState().applySessions([occurrence(2, false)]));
+    await act(async () => {
+        if (result === 'failure') pending.reject(new Error('old failure'));
+        else if (result === 'expired') pending.resolve({ ok: false, errorMessage: 'gone', requestId: 'request', errorCode: 'permission_request_expired' });
+        else pending.resolve(result === 'legacy' ? undefined : { ok: true });
+    });
+    expect(Modal.alert).not.toHaveBeenCalled();
+    await act(async () => storage.getState().applySessions([occurrence(3)]));
+    await openOccurrence();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+});
+
+it.each(['sent', 'unavailable'] as const)('closed %s state is retired after disappearance and identical return', async outcome => {
+    vi.mocked(sessionAllowResult).mockResolvedValueOnce(outcome === 'sent' ? { ok: true }
+        : { ok: false, errorMessage: 'gone', requestId: 'request', errorCode: 'permission_request_expired' });
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([occurrence()]);
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).toBe('true');
+    await click('ip-approvals-close');
+    await act(async () => storage.getState().applySessions([occurrence(2, false)]));
+    await act(async () => storage.getState().applySessions([occurrence(3)]));
+    await openOccurrence();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+});
+
+it.each([false, true])('closed disappearance and return are observed with transcript loaded=%s and changed completions', async loaded => {
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([occurrence()]);
+    storage.getState().applyMessages('worker', [{ id: 'text', localId: null, createdAt: 1,
+        role: 'agent', isSidechain: false, content: [{ type: 'text', text: 'Working', uuid: 'text', parentUUID: null }] }]);
+    if (loaded) storage.getState().applyMessagesLoaded('worker');
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    await click('ip-approvals-close');
+    await act(async () => storage.getState().applySessions([{ ...occurrence(2, false), agentState: {
+        requests: {}, completedRequests: { request: { tool: 'Bash', arguments: { command: 'echo same raw content' },
+            createdAt: 1, completedAt: 2, status: 'approved' } },
+    } }]));
+    const returned = occurrence(3);
+    returned.agentState!.requests!.request.createdAt = 3;
+    await act(async () => storage.getState().applySessions([returned]));
+    await openOccurrence();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+});
+
+it.each(['success', 'legacy', 'expired', 'failure'] as const)('closed disappearance/return rejects late %s but keeps the actual call locked', async result => {
+    const pending = createDeferred<SessionPermissionResult>();
+    vi.mocked(sessionAllowResult).mockReturnValueOnce(pending.promise);
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([occurrence()]);
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    await click('ip-approvals-close');
+    await act(async () => storage.getState().applySessions([occurrence(2, false)]));
+    await act(async () => storage.getState().applySessions([occurrence(3)]));
+    await openOccurrence();
+    try {
+        await click('ip-waiting-allow-request');
+        expect(sessionAllowResult).toHaveBeenCalledTimes(1);
+    } finally {
+        await act(async () => {
+            if (result === 'failure') pending.reject(new Error('old failure'));
+            else if (result === 'expired') pending.resolve({ ok: false, errorMessage: 'gone', requestId: 'request', errorCode: 'permission_request_expired' });
+            else if (result === 'legacy') pending.resolve(undefined as unknown as SessionPermissionResult);
+            else pending.resolve({ ok: true });
+        });
+    }
+    expect(Modal.alert).not.toHaveBeenCalled();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+});
+
+it('settlement while closed builds no details, and tracks only the acted-on request during token writes', async () => {
+    const pending = createDeferred<SessionPermissionResult>();
+    vi.mocked(sessionAllowResult).mockReturnValueOnce(pending.promise);
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([occurrence()]);
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    await click('ip-approvals-close');
+    await act(async () => storage.getState().applySessions([createSessionFixture({ id: 'streaming', active: true,
+        pendingPermissionRequestCount: 0, pendingUserActionRequestCount: 0 })]));
+    const details = vi.spyOn(waitingItems, 'toWaitingItems');
+    const reads = vi.spyOn(transcriptReader, 'readStoredSessionMessagesFromStateLike');
+    const directReads = vi.spyOn(transcriptReader, 'readStoredSessionMessages');
+    for (let i = 0; i < 5; i++) await act(async () => storage.getState().applyMessages('streaming', [{
+        id: `token-${i}`, localId: null, createdAt: 10 + i, role: 'agent', isSidechain: false,
+        content: [{ type: 'text', text: `token ${i}`, uuid: `token-${i}`, parentUUID: null }],
+    }]));
+    expect(reads).not.toHaveBeenCalled();
+    expect(directReads).not.toHaveBeenCalled();
+    await act(async () => storage.getState().applySessions([{ ...occurrence(), metadataVersion: 2,
+        metadata: { ...occurrence().metadata!, name: 'New title while closed' } }]));
+    // applySessions derives its list row from the transcript. Isolate the late RPC below from
+    // that producer work; it must not rebuild the now-invalidated drawer projection.
+    directReads.mockClear();
+    await act(async () => pending.reject(new Error('retry me')));
+    expect(details).not.toHaveBeenCalled();
+    expect(reads).not.toHaveBeenCalled();
+    expect(directReads).not.toHaveBeenCalled();
+    await openOccurrence();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+});
+
+it('closed permission revoke/re-grant and stale observations preserve the same live sent request', async () => {
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([occurrence(3)]);
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    await click('ip-approvals-close');
+    await act(async () => storage.getState().applySessions([{ ...occurrence(3), accessLevel: 'view', updatedAt: 20 }]));
+    await act(async () => storage.getState().applySessions([occurrence(2, false)])); // Older agentState must lose.
+    await act(async () => storage.getState().applySessions([{ ...occurrence(3), accessLevel: 'edit', canApprovePermissions: true, updatedAt: 30 }]));
+    expect(readDeskWaits().count).toBe(1);
+    await openOccurrence();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(1);
 });
