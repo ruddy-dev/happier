@@ -155,7 +155,7 @@ describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible nam
         expect(card?.querySelector('[data-testid="ip-worker-usage-limit-limited"]')).toBeNull();
     });
 
-    it.each(['multiple limits', 'working sibling', 'question sibling', 'failed sibling', 'view-only sibling', 'view-only limited worker', 'ungranted limited worker'] as const)(
+    it.each(['multiple limits', 'working sibling with multiple limits', 'working sibling', 'question sibling', 'failed sibling', 'view-only sibling', 'view-only limited worker', 'ungranted limited worker'] as const)(
         'keeps the state owner and reset details for %s', async scenario => {
             deskPrefs.set('chatStyle', style);
             const now = new Date(2026, 10, 4, 12, 0).getTime();
@@ -173,7 +173,7 @@ describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible nam
             };
             let other: Partial<Session>;
             if (scenario === 'multiple limits') other = { ...limited, lastRuntimeIssue: usageLimitIssue(now, now + 120_000) };
-            else if (scenario === 'working sibling') other = { active: true, activeAt: now, thinking: true, thinkingAt: now };
+            else if (scenario.startsWith('working sibling')) other = { active: true, activeAt: now, thinking: true, thinkingAt: now };
             else if (scenario === 'failed sibling') other = { active: true, activeAt: now, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
                 lastRuntimeIssue: { v: 1, scope: 'primary_session', status: 'failed', code: 'provider_exit', source: 'provider_process_exit', occurredAt: now } };
             else if (scenario === 'question sibling') other = { ...pending, pendingPermissionRequestCount: 0, pendingUserActionRequestCount: 1,
@@ -183,6 +183,9 @@ describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible nam
             const workers = sameWorker ? [{ ...limited, ...other }] : [limited, createSessionFixture({
                 ...other, id: 'other', updatedAt: now, metadata: { path: '/work/atr-18-other', host: 'fixture' },
             })];
+            if (scenario === 'working sibling with multiple limits') workers.push({
+                ...limited, id: 'second-limited', lastRuntimeIssue: usageLimitIssue(now, now + 120_000),
+            });
             await act(async () => {
                 storage.getState().applySessions(workers);
                 storage.getState().applyReady();
@@ -192,11 +195,11 @@ describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible nam
             const button = card?.querySelector('[role="button"]') as HTMLElement | null;
             expect(button).not.toBeNull();
             const name = button?.getAttribute('aria-label');
-            const limitReason = t('connectedServices.pools.behavior.switchOn.usageLimit');
-            const ownsLimit = scenario === 'multiple limits' || sameWorker;
-            if (ownsLimit) expect(name?.split(limitReason)).toHaveLength(2);
-            else expect(name).not.toContain(limitReason);
-            const stateKey = scenario === 'working sibling' ? 'ignorePrevious.countWorking'
+            const multiple = scenario === 'multiple limits' || scenario === 'working sibling with multiple limits';
+            const limitReason = multiple ? '2 at usage limit' : t('connectedServices.pools.behavior.switchOn.usageLimit');
+            expect(name?.split(limitReason)).toHaveLength(2);
+            expect(name?.match(/usage limit/gi)).toHaveLength(1);
+            const stateKey = scenario.startsWith('working sibling') ? 'ignorePrevious.countWorking'
                 : scenario === 'question sibling' ? 'ignorePrevious.countTurn'
                 : scenario === 'failed sibling' ? 'ignorePrevious.countStuck' : 'ignorePrevious.usageLimit.waiting';
             expect(name).toContain(t(stateKey));
@@ -207,15 +210,18 @@ describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible nam
             const time = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
             expect(name).not.toContain(time(now + 60_000));
             expect(name).not.toContain(time(now + 120_000));
-            if (scenario === 'multiple limits') {
+            if (multiple) {
                 expect(card?.querySelector('[data-testid="ip-issue-usage-limits-ATR-18"]')?.textContent).toBe(t('ignorePrevious.usageLimit.nextKnownResetAt', {
-                    count: t('ignorePrevious.usageLimit.limitedCount', { count: 2 }), time: time(now + 60_000),
+                    count: '2 at usage limit', time: time(now + 60_000),
                 }));
+            } else {
+                expect(card?.querySelector('[data-testid="ip-worker-usage-limit-limited"]')?.textContent)
+                    .toBe(t('ignorePrevious.usageLimit.waitsForResetAt', { time: time(now + 60_000) }));
             }
             await act(async () => button?.click());
             expect(button?.getAttribute('aria-label')).toBe(name);
             expect(card?.querySelector('[data-testid="ip-worker-usage-limit-limited"]')?.textContent).toBe(t('ignorePrevious.usageLimit.waitsForResetAt', { time: time(now + 60_000) }));
-            if (scenario === 'multiple limits') expect(card?.querySelector('[data-testid="ip-worker-usage-limit-other"]')?.textContent)
+            if (multiple) expect(card?.querySelector(`[data-testid="ip-worker-usage-limit-${scenario === 'multiple limits' ? 'other' : 'second-limited'}"]`)?.textContent)
                 .toBe(t('ignorePrevious.usageLimit.waitsForResetAt', { time: time(now + 120_000) }));
         },
     );

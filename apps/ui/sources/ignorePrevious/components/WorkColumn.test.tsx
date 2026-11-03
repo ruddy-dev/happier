@@ -859,7 +859,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         expect(screen.findByTestId('ip-count-working')?.props.children).toBe(1);
         expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(count);
         const summary = screen.findByTestId('ip-issue-usage-limits-ATR-18');
-        expect(summary?.props.children).toBe(`${count} limited · next known reset ${time(resetAt)}`);
+        expect(summary?.props.children).toBe(`${count} at usage limit · next known reset ${time(resetAt)}`);
         expect(summary?.props.numberOfLines).toBe(1);
         expect(summary?.props.ellipsizeMode).toBe('tail');
         expect(screen.getTextContent()).not.toContain('Same worker title');
@@ -867,6 +867,10 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
 
         // The existing disclosure reveals full per-worker evidence and real unique identities.
         const disclosure = screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable');
+        expect(disclosure.props.accessibilityLabel).toContain(t('ignorePrevious.countWorking'));
+        expect(disclosure.props.accessibilityLabel).toContain(`${count} at usage limit`);
+        expect(disclosure.props.accessibilityLabel.match(/usage limit/gi)).toHaveLength(1);
+        expect(disclosure.props.accessibilityLabel).not.toContain(time(resetAt));
         await pressTestInstanceAsync(disclosure);
         expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')).toBeNull();
         for (const [i, id] of ids.entries()) {
@@ -878,14 +882,14 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         expect(screen.findByTestId('ip-worker-session-worker')).toBeNull();
         await pressTestInstanceAsync(disclosure);
         await act(async () => { vi.advanceTimersByTime(60_000); });
-        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} limited · next known reset due`);
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} at usage limit · next known reset due`);
 
         // Clearing the earliest real limit updates only the aggregate, never the other resets.
         seed([{ ...limits[0], seq: limits[0].seq + 1, latestTurnStatus: 'completed',
             latestTurnStatusObservedAt: now + 1, lastRuntimeIssue: null }]);
         if (count > 2) {
             expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children)
-                .toBe(`${count - 1} limited · next known reset ${time(laterResetAt)}`);
+                .toBe(`${count - 1} at usage limit · next known reset ${time(laterResetAt)}`);
         } else {
             expect(screen.findByTestId(`ip-worker-usage-limit-${ids[1]}`)?.props.children)
                 .toBe(`Usage limit: waits for reset, ${time(laterResetAt)}`);
@@ -895,7 +899,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
             return { ...current, seq: current.seq + 1, updatedAt: Date.now(), latestTurnStatus: 'failed' as const,
                 latestTurnStatusObservedAt: Date.now(), lastRuntimeIssue: usageLimitIssue(Date.now(), null) };
         }));
-        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} limited`);
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} at usage limit`);
         await screen.unmount();
     });
 
