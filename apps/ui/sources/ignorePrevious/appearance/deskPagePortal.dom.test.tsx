@@ -133,12 +133,12 @@ it('carries Voice identity into the body portal without leaking it to siblings',
 });
 
 
-it('targets the actual web Item host hook while preserving focus on other controls', async () => {
+it.each(['deskPageLight', 'deskPageDark', 'deskPageTokyo'] as const)('suppresses the competing Item outline in %s Voice only', async (name) => {
     const container = document.createElement('div');
     document.body.append(container);
     const root = createRoot(container);
     try {
-        await act(async () => root.render(<DeskPageScope name="deskPageTokyo" page="voice">
+        await act(async () => root.render(<DeskPageScope name={name} page="voice">
             <Pressable accessibilityRole="button" {...({ dataSet: { ipItemFocus: '' } })}><Text>Row</Text></Pressable>
             <button>Other control</button>
         </DeskPageScope>));
@@ -151,6 +151,10 @@ it('targets the actual web Item host hook while preserving focus on other contro
         expect(row.matches(reset.selectorText.replace(':focus-visible', ':is(*)'))).toBe(true);
         expect(other.matches(reset.selectorText.replace(':focus-visible', ':is(*)'))).toBe(false);
         expect(other.matches(focus.selectorText.replace(':focus-visible', ':is(*)'))).toBe(true);
+        await act(async () => root.render(<DeskPageScope name={name}>
+            <Pressable accessibilityRole="button" {...({ dataSet: { ipItemFocus: '' } })}><Text>Row</Text></Pressable>
+        </DeskPageScope>));
+        expect(container.querySelector('[data-ip-item-focus]')!.matches(reset.selectorText.replace(':focus-visible', ':is(*)'))).toBe(false);
     } finally {
         await act(async () => root.unmount());
         container.remove();

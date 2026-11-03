@@ -164,12 +164,16 @@ describe('Item keyboard focus', () => {
 });
 
 
-it.each([false, true])('keeps a single inside Terminal Voice ring on %s split rows without a test ID', async (split) => {
+it.each([
+    ['deskPageTokyo', false, false], ['deskPageTokyo', true, false], ['deskPageTokyo', true, true],
+    ['deskPageLight', false, false], ['deskPageLight', true, true],
+    ['deskPageDark', false, true], ['deskPageDark', true, false],
+] as const)('keeps the inside %s Voice ring on split=%s, test ID=%s', async (theme, split, hasTestId) => {
     const { Item } = await import('./Item');
     const { DeskVoicePageContext, DeskPageThemeContext } = await import('@/ignorePrevious/appearance/deskPageThemeContext');
     const screen = await renderScreen(
-        <DeskPageThemeContext.Provider value="deskPageTokyo"><DeskVoicePageContext.Provider value={true}>
-            <Item title="Row" onPress={() => {}} rightElementOutsidePressable={split} rightElement={split ? <React.Fragment>Action</React.Fragment> : undefined} />
+        <DeskPageThemeContext.Provider value={theme}><DeskVoicePageContext.Provider value={true}>
+            <Item testID={hasTestId ? "row" : undefined} title="Row" onPress={() => {}} rightElementOutsidePressable={split} rightElement={split ? <React.Fragment>Action</React.Fragment> : undefined} />
         </DeskVoicePageContext.Provider></DeskPageThemeContext.Provider>,
     );
     const row = () => screen.findAll((node) => node.props.dataSet?.ipItemFocus === '')[0];
@@ -183,5 +187,10 @@ it.each([false, true])('keeps a single inside Terminal Voice ring on %s split ro
     const ring = rings()[0];
     expect(ring.props.visible).toBe(true);
     expect(ring.props.placement).toBe('inside');
-    expect(ring.props.cornerRadii.borderTopLeftRadius).toBe(2);
+    if (theme === 'deskPageTokyo') expect(ring.props.cornerRadii.borderTopLeftRadius).toBe(2);
+    else expect(ring.props.cornerRadii.borderTopLeftRadius).toBeGreaterThan(2);
+    await act(async () => row().props.onBlur?.({}));
+    expect(rings()[0].props.visible).toBe(false);
+    await act(async () => row().props.onFocus?.({}));
+    expect(rings()[0].props.visible).toBe(true);
 });
