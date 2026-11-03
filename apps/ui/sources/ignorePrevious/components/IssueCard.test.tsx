@@ -149,8 +149,10 @@ describe('IssueCard', () => {
 
     it('includes the unheard note in the folded card label', async () => {
         const { IssueCard } = await import('./IssueCard');
+        const staleGroup = groupWorkersByIssue(group.workers.map(worker => worker.sessionId === group.stateWorker?.sessionId
+            ? { ...worker, unheardMinutes: 20 } : worker))[0];
         const screen = await renderScreen(<IssueCard
-            group={{ ...group, workers: [{ ...group.workers[0], unheardMinutes: 20 }] }}
+            group={staleGroup}
             open={false} onToggle={() => {}}
         />);
         expect(screen.findByTestId('ip-issue-ATR-6')!.findByType('Pressable').props.accessibilityLabel)

@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred, findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
@@ -11,6 +11,7 @@ import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS as STALE } from '@/sync/domains/
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
+import { t } from '@/text';
 
 import { DESK_TICK_MS } from '../model/useDeskNow';
 import { resetWorkCardCacheForTests } from '../model/useWorkCardData';
@@ -659,6 +660,9 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
             expect(text.indexOf('Demo card title')).toBeLessThan(text.indexOf('ATR-18'));
             expect(text).toContain('npm test');
             const label = screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable').props.accessibilityLabel;
+            const card = screen.findByTestId('ip-issue-ATR-18')!;
+            expect(StyleSheet.flatten(card.props.style).borderRadius).toBe(style === 'terminal' ? 0 : 10);
+            expect(StyleSheet.flatten(card.findByType('Pressable').props.style).borderRadius).toBe(style === 'terminal' ? 0 : 8);
             expect(label.indexOf('Demo card title')).toBeLessThan(label.indexOf('ATR-18'));
             expect(label).toContain('npm test');
             expect(label).toContain('Desk Demo');
@@ -678,6 +682,67 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         } finally {
             act(() => deskPrefs.set('chatStyle', previousStyle));
         }
+    });
+
+    it('R42: a fresh waiting state owner never borrows a stale idle sibling warning', async () => {
+        vi.useFakeTimers({ now: Date.now() });
+        const now = Date.now();
+        seed([
+            session('worker', '/fixture/atr-18', { active: true, activeAt: now, updatedAt: now - 1000,
+                agentState: { requests: { approval: { tool: 'Bash', arguments: { command: 'npm test' }, createdAt: now } } } }),
+            session('newer-idle', '/fixture/atr-18', { active: true, activeAt: now - STALE - 60_000, updatedAt: now }),
+        ]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        const card = screen.findByTestId('ip-issue-ATR-18')!;
+        expect(card.findByType('Pressable').props.accessibilityLabel).toContain('npm test');
+        expect(card.findByType('Pressable').props.accessibilityLabel).not.toContain(t('ignorePrevious.connection.unheard', { minutes: Math.floor((STALE + 60_000) / 60_000) }));
+        expect(screen.findByTestId('ip-worker-stale-newer-idle')).toBeNull();
+        expect(screen.findByTestId('ip-worker-stale-worker')).toBeNull();
+        await pressTestInstanceAsync(card.findByType('Pressable'));
+        expect(screen.findByTestId('ip-worker-stale-newer-idle')).not.toBeNull();
+        expect(screen.findByTestId('ip-worker-stale-worker')).toBeNull();
+        await screen.unmount();
+    });
+
+    it('R42: a folded issue names every limited worker and its known reset alongside an active sibling', async () => {
+        vi.useFakeTimers({ now: Date.now() });
+        const now = Date.now();
+        const resetAt = now + 60_000;
+        const laterResetAt = now + 3_600_000;
+        const limited = (id: string, reset: number | null, updatedAt: number) => session(id, '/fixture/atr-18', {
+            active: false, updatedAt, latestTurnStatus: 'failed',
+            latestTurnStatusObservedAt: now, lastRuntimeIssue: usageLimitIssue(now, reset),
+        });
+        seed([
+            session('worker', '/fixture/atr-18', { active: true, activeAt: now, thinking: true, thinkingAt: now }),
+            limited('limited-early', resetAt, now - 3000),
+            limited('limited-later', laterResetAt, now - 2000),
+            limited('limited-unknown', null, now - 1000),
+        ]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.findByTestId('ip-count-working')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(3);
+        expect(screen.findByTestId('ip-open-worker-worker')).toBeNull();
+        for (const [id, reset] of [['limited-early', resetAt], ['limited-later', laterResetAt]] as const) {
+            const line = screen.findByTestId(`ip-worker-usage-limit-${id}`);
+            expect(line).not.toBeNull();
+            expect(line!.props.children).toContain(`Title ${id}`);
+            expect(line!.props.children).toContain(new Date(reset).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+        }
+        expect(screen.findByTestId('ip-worker-usage-limit-limited-unknown')?.props.children)
+            .toBe('Title limited-unknown: Usage limit: waits for reset');
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')).toBeNull();
+
+        // Clearing one real limit removes only that worker's summary, without hiding siblings.
+        const recovered = storage.getState().sessions['limited-early'];
+        seed([{ ...recovered, seq: recovered.seq + 1, latestTurnStatus: 'completed',
+            latestTurnStatusObservedAt: now + 1, lastRuntimeIssue: null }]);
+        expect(screen.findByTestId('ip-worker-usage-limit-limited-early')).toBeNull();
+        expect(screen.findByTestId('ip-worker-usage-limit-limited-later')).not.toBeNull();
+        expect(screen.findByTestId('ip-worker-usage-limit-limited-unknown')).not.toBeNull();
+        await screen.unmount();
     });
 
     it('R42: a folded limited issue shows its real reset deadline and never invents one', async () => {
