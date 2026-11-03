@@ -4,14 +4,16 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { View } from 'react-native';
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { ApprovalsButton, ApprovalsDrawer } from './Approvals';
 
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
     const web = await import('react-native-web');
-    return createReactNativeWebMock({ View: web.View, Pressable: web.Pressable, Text: web.Text, ScrollView: web.ScrollView, Animated: web.Animated, Easing: web.Easing });
+    return createReactNativeWebMock({ View: web.View, Pressable: web.Pressable, Text: web.Text, ScrollView: web.ScrollView, TextInput: web.TextInput, Animated: web.Animated, Easing: web.Easing });
 });
+vi.mock('@/sync/ops', () => ({ sessionAllowWithAnswers: vi.fn(), sessionAllowResult: vi.fn(), sessionDenyResult: vi.fn() }));
 vi.mock('@react-navigation/native', async () => {
     const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
     return createReactNavigationNativeMock();
@@ -47,7 +49,7 @@ function Drawer({ width, draft = false }: { width: number; draft?: boolean }) {
     return <>
         <ApprovalsButton open={open} onPress={() => setOpen(value => !value)} openerRef={openerRef} />
         <input data-testid="chat" />
-        <ApprovalsDrawer open={open} width={width} openerRef={openerRef} onClose={() => setOpen(false)} hasHalfAnsweredCard={dirty}>
+        <ApprovalsDrawer open={open} width={width} openerRef={openerRef} onClose={() => setOpen(false)} hasHalfAnsweredCard={dirty} onDirtyChange={setDirty}>
             {draft ? <DraftCard onDirty={setDirty} /> : null}
         </ApprovalsDrawer>
     </>;
@@ -127,4 +129,18 @@ it('D-series: resizing across both thresholds preserves the mounted draft and cu
 it.each([390, 1100, 1440])('D-series: placement at %s never declares a modal', async (width) => {
     await render(width); await click('ip-approvals-open');
     expect(visible()).not.toBeNull(); expect(container.querySelector('[aria-modal="true"]')).toBeNull();
+});
+
+it('W5 / Q13: an actual picked question protects the drawer until the request disappears', async () => {
+    const session = createSessionFixture({ id: 'worker', active: true, agentState: { requests: {
+        request: { tool: 'AskUserQuestion', kind: 'user_action', arguments: { questions: [{
+            header: 'Version', question: 'Which release?', options: [{ label: 'Stable' }], multiSelect: false,
+        }] }, createdAt: 1 },
+    } } });
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([session]);
+    await render(1100); await click('ip-approvals-open');
+    await click('ip-waiting-option-request-0-0'); await click('chat');
+    expect(visible()).not.toBeNull();
+    await act(async () => storage.getState().applySessions([{ ...session, agentStateVersion: 2, agentState: { requests: {} } }]));
+    await click('chat'); expect(visible()).toBeNull();
 });

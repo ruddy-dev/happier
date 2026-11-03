@@ -5,6 +5,7 @@ import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
 import { DeskText } from '../typography/DeskText';
 import { MaskFace } from './MaskFace';
+import { DeskUsageButton } from './DeskUsageButton';
 
 export function DeskTopBar({ phone, sessionsRef, onSessions, waiting, settings }: { phone: boolean; sessionsRef: React.RefObject<View | null>; onSessions: () => void; waiting: React.ReactNode; settings: React.ReactNode }) {
     const { theme } = useUnistyles();
@@ -14,7 +15,7 @@ export function DeskTopBar({ phone, sessionsRef, onSessions, waiting, settings }
             <DeskText numberOfLines={1} style={{ color: theme.colors.text.primary, fontSize: 16, fontWeight: '700', flexShrink: 1 }}>{t('ignorePrevious.screenTitle')}</DeskText>
         </View>}
         <Pressable ref={sessionsRef} testID="ip-top-sessions" accessibilityRole="button" accessibilityLabel={t('ignorePrevious.topBar.sessions')} onPress={onSessions} style={{ padding: 8 }}>{phone ? <Icon name="list" size={20} color={theme.colors.text.primary} /> : <DeskText style={{ color: theme.colors.text.primary }}>{t('ignorePrevious.topBar.sessions')}</DeskText>}</Pressable>
-        <Pressable testID="ip-top-usage" accessibilityRole="button" accessibilityLabel={t('ignorePrevious.topBar.usage')} style={{ marginLeft: 'auto', padding: 8 }}><DeskText style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.topBar.usage')}</DeskText></Pressable>
+        <DeskUsageButton />
         {!phone && <View testID="ip-top-waiting">{waiting}</View>}
         <View testID="ip-top-settings">{settings}</View>
     </View>;
