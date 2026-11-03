@@ -77,6 +77,8 @@ function collectSessionWait(row: SessionListRenderableSession, session: Session 
 }
 
 export type DeskWaitsSummary = Readonly<{ count: number; ready: boolean }>;
+/** A string retains the existing exclusion scope; an object selects only that session. */
+export type DeskWaitsSummaryScope = string | Readonly<{ onlySessionId: string }>;
 type NotificationWaits = Readonly<{
     waitIds: readonly string[];
     /** Session ownership lets the pure alert rule recognize placeholders gaining request details. */
@@ -152,34 +154,44 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
     lastState = state;
     if (snapshot && snapshot.ready === desk.ready && shallow(snapshot.inputs, inputs) && shallow(snapshot.unloaded, unloaded)
         && shallow(snapshot.loadingSessionIds, loadingSessionIds)) return snapshot;
-    // Keep only currently reachable exclusions, and reuse unchanged projections across writes.
+    // Keep only currently reachable scopes, and reuse unchanged projections across writes.
     const projections = new Map(snapshot?.projections);
-    for (const id of projections.keys()) {
-        if (id !== undefined && !desk.lookup.has(id) && !desk.unreadable.some((row) => row.id === id)) projections.delete(id);
+    for (const key of projections.keys()) {
+        // Keys prefix the session id with its scope, so inclusion and exclusion never share a projection.
+        const id = key?.slice(key.indexOf(':') + 1);
+        if (id !== undefined && !desk.lookup.has(id) && !desk.unreadable.some((row) => row.id === id)) projections.delete(key);
     }
     snapshot = { inputs, unloaded, loadingSessionIds, ready: desk.ready, projections };
     return snapshot;
 }
 
-function selectProjection(state: State, excludeSessionId?: string): { snapshot: WaitSnapshot; projection: Projection } {
+function selectProjection(state: State, scope?: DeskWaitsSummaryScope): { snapshot: WaitSnapshot; projection: Projection } {
     const current = selectWaitSnapshot(state);
-    let projection = current.projections.get(excludeSessionId);
+    const onlySessionId = typeof scope === 'object' ? scope.onlySessionId : undefined;
+    const selected = onlySessionId === undefined ? undefined : sessionCache.get(onlySessionId)?.value;
+    // Global waits retain their placeholder counts. A session-only count is exact only once
+    // that session and its request sources are loaded and no unreadable wait remains.
+    const ready = current.ready && (onlySessionId === undefined
+        || (selected !== undefined && !selected.stillLoading && selected.unloaded === null));
+    const key = typeof scope === 'string' ? `exclude:${scope}` : scope ? `only:${scope.onlySessionId}` : undefined;
+    let projection = current.projections.get(key);
     if (projection?.sourceInputs === current.inputs && projection.sourceUnloaded === current.unloaded
         && projection.sourceLoading === current.loadingSessionIds
-        && projection.summary.ready === current.ready) return { snapshot: current, projection };
-    const inputs = current.inputs.filter((input) => input.row.id !== excludeSessionId);
-    const unloaded = current.unloaded.filter((item) => item.row.id !== excludeSessionId);
-    const loadingSessionIds = current.loadingSessionIds.filter((id) => id !== excludeSessionId);
-    if (!projection || projection.summary.ready !== current.ready
+        && projection.summary.ready === ready) return { snapshot: current, projection };
+    const inScope = (id: string) => onlySessionId === undefined ? id !== scope : id === onlySessionId;
+    const inputs = current.inputs.filter((input) => inScope(input.row.id));
+    const unloaded = current.unloaded.filter((item) => inScope(item.row.id));
+    const loadingSessionIds = current.loadingSessionIds.filter((id) => inScope(id));
+    if (!projection || projection.summary.ready !== ready
         || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)
         || !shallow(projection.loadingSessionIds, loadingSessionIds)) {
         const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
-        const summary = projection?.summary.count === count && projection.summary.ready === current.ready
-            ? projection.summary : { count, ready: current.ready };
+        const summary = projection?.summary.count === count && projection.summary.ready === ready
+            ? projection.summary : { count, ready };
         projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
             inputs, unloaded, loadingSessionIds, previousDetails: projection?.details ?? projection?.previousDetails,
             previousActivity: projection?.activity ?? projection?.previousActivity };
-        current.projections.set(excludeSessionId, projection);
+        current.projections.set(key, projection);
     }
     projection.sourceInputs = current.inputs;
     projection.sourceUnloaded = current.unloaded;
@@ -218,15 +230,18 @@ function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
 }
 
 /** Chrome subscribes only to count/readiness. Equivalent summaries retain their identity. */
-export function useDeskWaitsSummary(excludeSessionId?: string): DeskWaitsSummary {
+export function useDeskWaitsSummary(scope?: DeskWaitsSummaryScope): DeskWaitsSummary {
+    const excludeSessionId = typeof scope === 'string' ? scope : undefined;
+    const onlySessionId = typeof scope === 'object' ? scope.onlySessionId : undefined;
     const selector = React.useMemo(() => {
         let previous: DeskWaitsSummary | undefined;
+        const selectedScope = onlySessionId === undefined ? excludeSessionId : { onlySessionId };
         return (state: State) => {
-            const next = selectProjection(state, excludeSessionId).projection.summary;
+            const next = selectProjection(state, selectedScope).projection.summary;
             previous = previous && shallow(previous, next) ? previous : next;
             return previous;
         };
-    }, [excludeSessionId]);
+    }, [excludeSessionId, onlySessionId]);
     return storage(selector);
 }
 
@@ -269,8 +284,8 @@ export type DeskWaitsActivity = Readonly<{
     unloadedSessionIds: readonly string[];
 }>;
 /** Request identities for the header's event animation, without drawer labels or action models. */
-function selectActivity(state: State): DeskWaitsActivity {
-    const { projection } = selectProjection(state);
+function selectActivity(state: State, scope?: DeskWaitsSummaryScope): DeskWaitsActivity {
+    const { projection } = selectProjection(state, scope);
     if (!projection.activity) {
         const count = projection.summary.ready ? projection.summary.count : null;
         const requests = projection.inputs.flatMap(({ row, requests }) => requests.map(request => ({
@@ -288,6 +303,9 @@ function selectActivity(state: State): DeskWaitsActivity {
     return projection.activity;
 }
 
-export function useDeskWaitsActivity(): DeskWaitsActivity {
-    return storage(selectActivity);
+export function useDeskWaitsActivity(scope?: DeskWaitsSummaryScope): DeskWaitsActivity {
+    const excludeSessionId = typeof scope === 'string' ? scope : undefined;
+    const onlySessionId = typeof scope === 'object' ? scope.onlySessionId : undefined;
+    return storage(React.useCallback((state: State) => selectActivity(state,
+        onlySessionId === undefined ? excludeSessionId : { onlySessionId }), [excludeSessionId, onlySessionId]));
 }

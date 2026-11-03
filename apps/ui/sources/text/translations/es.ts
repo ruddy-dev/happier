@@ -11763,6 +11763,11 @@ settingsSession: {
         screenTitle: 'Sleeper Agents',
         coordinator: 'Coordinator',
         coordinatorNickname: 'Shog',
+        coordinatorCard: {
+            openChat: "Open Shog's chat",
+            waiting: ({ count }: { count: number }) => `${count} waiting on you`,
+            context: ({ percent }: { percent: string }) => `Context ${percent}`,
+        },
         coordinatorHeader: {
             role: 'coordinator',
             thinking: 'Thinking',
