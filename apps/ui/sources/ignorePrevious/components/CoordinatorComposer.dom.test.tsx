@@ -19,6 +19,7 @@ import { getDemoConversation } from '../fixtures/demoConversation';
 import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { deskPrefs } from '../deskPrefs';
 import { CoordinatorComposer } from './CoordinatorComposer';
+import { deskThemes } from '../palette';
 
 // Keep the real web hosts and Animated.Value; RN Web lacks RN's hook.
 vi.mock('react-native', async () => {
@@ -72,6 +73,7 @@ afterEach(async () => {
     await act(async () => { await root.unmount(); releaseFixture?.(); });
     container.remove(); releaseFixture = undefined; storage.setState(before, true);
     deskPrefs.set('chatStyle', 'mask');
+    deskPrefs.set('terminalPalette', 'tokyo');
     vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
@@ -370,6 +372,22 @@ it('R49 places phone shortcuts before the input and restores them when the real 
     expect(row()).toBeNull();
     await act(async () => handle.current!.setTextAndSelection('', { start: 0, end: 0 }));
     expect(row()!.querySelectorAll('button').length).toBeGreaterThanOrEqual(3);
+});
+
+it('uses the chosen Terminal palette and bracketed labels for the shared phone shortcuts', async () => {
+    deskPrefs.set('terminalPalette', 'gruvbox');
+    await act(async () => root.render(<CoordinatorComposer coordinatorId="coordinator" phone><Input /></CoordinatorComposer>));
+    const button = find('ip-brief-first')!;
+    expect(button.textContent).toMatch(/^\[ .+ \]$/);
+    expect(getComputedStyle(button).borderTopLeftRadius).toBe('0px');
+    const sample = document.createElement('span'); sample.style.color = deskThemes.gruvbox.mute;
+    expect(getComputedStyle(button.firstElementChild!).color).toBe(sample.style.color);
+    await act(async () => button.focus());
+    expect(getComputedStyle(button).borderTopWidth).toBe('2px');
+    await act(async () => deskPrefs.set('chatStyle', 'mask'));
+    expect(button.textContent).not.toMatch(/^\[ /);
+    expect(getComputedStyle(button).borderTopLeftRadius).toBe('10px');
+    deskPrefs.set('terminalPalette', 'tokyo');
 });
 
 

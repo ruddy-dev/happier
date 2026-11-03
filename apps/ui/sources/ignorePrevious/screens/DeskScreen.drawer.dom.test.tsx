@@ -8,7 +8,8 @@ import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { lightTheme } from '@/theme';
 import type { WaitingItem } from '../model/waitingItems';
-import { getApprovalsOpen, setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
+import { deskPrefs, getApprovalsOpen, setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
+import { deskThemes } from '../palette';
 import { DeskScreen } from './DeskScreen';
 
 const routerHandle = vi.hoisted(() => ({ navigate: vi.fn() }));
@@ -75,6 +76,7 @@ beforeEach(() => {
 afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); storage.setState(previous, true);
     setApprovalsOpen(false); setStoredCoordinatorId(null); setWorkCollapsed(false);
+    deskPrefs.set('chatStyle', 'mask'); deskPrefs.set('terminalPalette', 'tokyo');
 });
 function element(id: string) {
     const found = container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
@@ -182,6 +184,7 @@ it('shows desk chrome and phone panes at the agreed boundary', async () => {
     expect(element('ip-top-sessions')).toBeTruthy();
     expect(getComputedStyle(element('ip-work').parentElement!).display).toBe('none');
     await click('ip-tab-work');
+    expect(getComputedStyle(element('ip-tab-work')).borderTopWidth).toBe('2px');
     expect(element('ip-work')).toBeTruthy();
     expect(getComputedStyle(element('composer').closest('[data-testid="ip-coordinator-pane-wrapper"]')!).display).toBe('none');
     await click('ip-tab-shog');
@@ -255,6 +258,24 @@ it.each([390, 820])('keeps phone top bar controls and accessible tabs at %i', as
     expect(element('ip-tab-waiting').getAttribute('role')).toBe('tab');
     expect(element('ip-tab-waiting').closest('[role="tablist"]')).not.toBeNull();
     expect(element('ip-tab-shog').getAttribute('aria-selected')).toBe('true');
+});
+it('uses the selected desk palette for phone tabs and provides real focusable targets', async () => {
+    deskPrefs.set('chatStyle', 'terminal'); deskPrefs.set('terminalPalette', 'tokyo');
+    await render(390);
+    const shog = element('ip-tab-shog');
+    expect(shog.style.backgroundColor).toBe('rgb(192, 202, 245)');
+    expect(getComputedStyle(shog).minHeight).toBe('48px');
+    expect(getComputedStyle(element('ip-tab-work')).minHeight).toBe('48px');
+    expect(getComputedStyle(element('ip-tab-waiting')).minHeight).toBe('48px');
+    await click('ip-tab-work');
+    expect(element('ip-tab-work').getAttribute('aria-selected')).toBe('true');
+    expect(element('ip-tab-work').style.backgroundColor).toBe('rgb(192, 202, 245)');
+    await act(async () => deskPrefs.set('terminalPalette', 'gruvbox'));
+    const sample = document.createElement('span'); sample.style.backgroundColor = deskThemes.gruvbox.ink;
+    expect(element('ip-tab-work').style.backgroundColor).toBe(sample.style.backgroundColor);
+    await act(async () => deskPrefs.set('chatStyle', 'mask'));
+    expect(element('ip-tab-work').style.backgroundColor).not.toBe('');
+    deskPrefs.set('terminalPalette', 'tokyo');
 });
 it('M12: gives Usage the same visible and accessible text without a percentage', async () => {
     await render(1440);
