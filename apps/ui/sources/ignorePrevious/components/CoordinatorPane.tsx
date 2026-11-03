@@ -24,6 +24,7 @@ import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { useWaitingCount } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
 import { useDeskComposerControls } from '../model/useDeskComposerControls';
+import { useDeskDictationControls } from '../model/useDeskDictation';
 
 /**
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit
@@ -70,7 +71,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const placeholder = t('ignorePrevious.composer.placeholder');
     const enterHint = t('ignorePrevious.composer.enterHint');
     const coordinator = useSession(sessionId);
-    const controls = useDeskComposerControls(sessionId);
+    const controls = useDeskDictationControls(sessionId, useDeskComposerControls(sessionId));
     const composer = React.useMemo<SessionViewComposerOverrides>(() => ({
         ...controls,
         placeholder,

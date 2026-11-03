@@ -10797,6 +10797,16 @@ settingsSession: {
         },
     },
     ignorePrevious: {
+        dictation: {
+            start: 'Dictate',
+            stop: 'Stop dictation',
+            listening: 'Listening…',
+            instructions: 'Press the mic again to stop. Esc cancels.',
+            failed: 'Mic failed.',
+            privacyShort: 'Audio may go to Google',
+            error: 'Dictation failed. Check microphone permission and try again.',
+            privacy: 'Browser dictation may send audio to its speech service, such as Google.',
+        },
         notifications: {
             title: 'Notifications', tellMeWhen: 'Tell me when',
             every: 'Every new question', everyDetail: 'Each time something lands in Waiting on you.',
