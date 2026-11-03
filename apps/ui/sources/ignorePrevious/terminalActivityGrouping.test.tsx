@@ -180,14 +180,14 @@ describe('ATR-85 Terminal coordinator activity', () => {
         expect(request).toHaveBeenCalledWith(expect.objectContaining({ expanded: true, toolMessageIds: ['read-one', 'read-two'] }));
     });
 
-    it('keeps running question aliases standalone while only Terminal separates ordinary pending permissions', async () => {
+    it.each(['AskUserQuestion', 'ask_user_question'])('root: scopes missing metadata for %s and pending permissions to Terminal', async (name) => {
         storage.setState(state => ({ settings: { ...state.settings, transcriptGroupingMode: 'turns', transcriptGroupToolCalls: true,
             transcriptTurnToolCallsGroupStrategy: 'all_tools_in_turn', toolViewTimelineChromeMode: 'activity_feed' } }));
-        const question = { ...tool('alias', 'running'), tool: { ...tool('alias', 'running').tool, name: 'ask_user_question' } };
+        const question = { ...tool('alias', 'running'), tool: { ...tool('alias', 'running').tool, name } };
         writeMessages([tool('done'), question, tool('permission', 'running', { id: 'p', kind: 'permission', status: 'pending' })]);
         const ordinary = await renderHook(() => useRootProjection());
-        expect(standalone(ordinary.getCurrent().pipeline.decomposedItems)).toContain('alias');
-        expect(groups(ordinary.getCurrent().pipeline.decomposedItems)[0].toolMessageIds).toEqual(['done', 'permission']);
+        expect(standalone(ordinary.getCurrent().pipeline.decomposedItems)).not.toContain('alias');
+        expect(groups(ordinary.getCurrent().pipeline.decomposedItems)[0].toolMessageIds).toEqual(['done', 'alias', 'permission']);
         const terminal = await renderHook(() => useRootProjection(), { wrapper: Coordinator });
         expect(standalone(terminal.getCurrent().pipeline.decomposedItems)).toEqual(['alias', 'permission']);
         expect(groups(terminal.getCurrent().pipeline.decomposedItems)[0].toolMessageIds).toEqual(['done']);
@@ -195,6 +195,25 @@ describe('ATR-85 Terminal coordinator activity', () => {
         expect(standalone(terminal.getCurrent().pipeline.decomposedItems)).toEqual(['alias', 'permission']);
         await act(async () => writeMessages([tool('done'), { ...question, tool: { ...question.tool, state: 'completed' } }, tool('permission', 'completed', { id: 'p', kind: 'permission', status: 'approved' })]));
         expect(groups(terminal.getCurrent().pipeline.decomposedItems)[0].toolMessageIds).toEqual(['done', 'alias', 'permission']);
+    });
+
+    it.each(['AskUserQuestion', 'ask_user_question'])('chain: scopes missing metadata for %s to Terminal', async (name) => {
+        storage.setState(state => ({ settings: { ...state.settings, transcriptGroupingMode: 'turns', transcriptGroupToolCalls: true,
+            transcriptTurnToolCallsGroupStrategy: 'all_tools_in_turn', toolViewTimelineChromeMode: 'activity_feed' } }));
+        const question = { ...tool('alias', 'running'), tool: { ...tool('alias', 'running').tool, name } };
+        const chainMessages = [tool('done'), question, tool('permission', 'running', { id: 'p', kind: 'permission', status: 'pending' })];
+        const chain = <ChainTranscriptList sessionId={session.id} datasetKey="scope-chain" messages={chainMessages} metadata={null}
+            interaction={{ canSendMessages: true, canApprovePermissions: true }} />;
+        const ordinary = await renderScreen(<AppPaneProvider>{chain}</AppPaneProvider>);
+        const terminal = await renderScreen(<AppPaneProvider><Coordinator>{chain}</Coordinator></AppPaneProvider>);
+        const items = (screen: typeof ordinary): ChatTranscriptListItem[] => screen.tree.findAll(node => {
+            const hostType: unknown = node.type;
+            return hostType === 'LegendList' || hostType === 'FlashList';
+        })[0].props.data;
+        expect(standalone(items(ordinary))).not.toContain('alias');
+        expect(groups(items(ordinary))[0].toolMessageIds).toEqual(['done', 'alias', 'permission']);
+        expect(standalone(items(terminal))).toEqual(expect.arrayContaining(['alias', 'permission']));
+        expect(groups(items(terminal))[0].toolMessageIds).toEqual(['done']);
     });
 
     it('ordinary transcripts retain account grouping and collapsed previews outside the coordinator scope', async () => {
