@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY } from '@happier-dev/protocol';
 import { readSessionAppliedModelMetadataStateV1 } from '@happier-dev/agents';
 import { resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
@@ -24,6 +24,7 @@ import { workerUsageLimit } from '../model/workerUsageLimit';
 import { buildWorkerArchivePrState, deriveIssueArchive } from '../model/issueArchive';
 import { useDeskNow } from '../model/useDeskNow';
 import { useWorkCardData } from '../model/useWorkCardData';
+import { useDeskWaits } from '../model/useDeskWaits';
 import { bulbColour, useDeskPaint } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
@@ -74,31 +75,28 @@ const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'waiting', 'idle']
 
 /** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
 function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolean }) {
-    const { text, colours } = useDeskPaint();
+    const { text } = useDeskPaint();
     const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, waiting: 0, idle: 0 };
     for (const row of rows) counts[row.bulb] += 1;
 
-    const tile = (id: string, value: number, label: string, dot: string | null) => (
-        <View key={id} style={{ minWidth: 64, gap: 2 }}>
-            <Text
-                testID={`ip-count-${id}`}
-                style={{ color: text.primary, fontSize: 22, fontWeight: '600' }}
-            >
-                {/* Before the first sync a 0 would be a false count, so each tile shows a dash. */}
-                {ready ? value : '–'}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                {dot ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} /> : null}
-                <Text style={{ color: text.secondary, fontSize: 12 }}>{label}</Text>
-            </View>
-        </View>
-    );
+    const entries = [{ id: 'all', value: rows.length, label: t('ignorePrevious.countAll') },
+        ...COUNTED.map(bulb => ({ id: bulb, value: counts[bulb], label: bulbWord(bulb) }))];
 
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
-            {tile('all', rows.length, t('ignorePrevious.countAll'), null)}
-            {COUNTED.map((bulb) => tile(bulb, counts[bulb], bulbWord(bulb), bulbColour(colours, bulb)))}
-        </View>
+        <ScrollView
+            testID="ip-work-counts"
+            horizontal
+            focusable
+            accessibilityLabel={entries.map(({ value, label }) => `${label}: ${ready ? value : '–'}`).join('. ')}
+            style={{ minWidth: 0, maxWidth: '100%', flexGrow: 0 }}
+            contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 4 }}
+        >
+            {entries.map(({ id, value, label }) => (
+                <Text key={id} style={{ color: text.secondary, fontSize: 12 }}>
+                    {label}{' '}<Text testID={`ip-count-${id}`} style={{ fontWeight: '600' }}>{ready ? value : '–'}</Text>
+                </Text>
+            ))}
+        </ScrollView>
     );
 }
 
@@ -144,6 +142,16 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
     // Rows rebuild when the list, a full record, an issue key or the desk clock changes; nothing else.
     const rows = React.useMemo(() => toWorkerRows(live, lookup, issueKeys, nowMs), [live, lookup, issueKeys, nowMs]);
     const groups = React.useMemo(() => groupWorkersByIssue(rows), [rows]);
+    const waits = useDeskWaits(coordinatorId ?? undefined);
+    const attentionBySession = React.useMemo(() => {
+        const reasons = new Map<string, string>();
+        for (const wait of waits.items) {
+            if (!reasons.has(wait.sessionId)) reasons.set(wait.sessionId, wait.kind === 'user_action'
+                ? t('ignorePrevious.question')
+                : t('ignorePrevious.workList.approvalNeeded', { summary: wait.summary }));
+        }
+        return reasons;
+    }, [waits.items]);
 
     const toggle = React.useCallback((key: string) => {
         setOpenKeys((prev) => {
@@ -215,12 +223,21 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
             <View style={{ gap: 8, minWidth: 0, width: '100%' }}>
                 {groups.map((group) => {
                     const key = group.issueKey ?? '';
+                    const stateSession = group.stateWorker ? lookup.get(group.stateWorker.sessionId) : undefined;
+                    const stuckStatus = group.bulb === 'stuck' && stateSession ? getSessionStatus(stateSession, nowMs) : null;
+                    let attention: string | undefined;
+                    if (group.bulb === 'turn') {
+                        attention = attentionBySession.get(group.stateWorker?.sessionId ?? '') ?? t('ignorePrevious.needsLook');
+                    } else if (stuckStatus) {
+                        attention = stuckStatus.state === 'failed' ? t('ignorePrevious.workList.failed') : stuckStatus.statusText;
+                    }
                     return (
                         <IssueCard
                             key={key || 'no-issue'}
                             group={group}
                             item={key ? workData.items.get(key) : null}
                             projectName={key ? workData.projectNames?.get(key.split('-')[0]) : undefined}
+                            attention={attention}
                             archive={archiveStates.get(key)}
                             knownProjectCodes={workData.knownProjectCodes}
                             open={details || openKeys.has(key)}
