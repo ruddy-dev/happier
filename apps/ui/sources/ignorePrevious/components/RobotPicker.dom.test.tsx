@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MMKV } from 'react-native-mmkv';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { readReactNativeMmkvStubEntries } from '@/dev/testkit/mocks/mmkv';
+import { deskPrefs } from '../deskPrefs';
+import { terminalPalettes, type TerminalPalette } from '../palette';
 import { RobotPicker } from './RobotPicker';
 
 // Keep the real RN Web Pressable and DOM adapter: the native host stub hides missing ARIA state.
@@ -94,4 +96,61 @@ it('announces safe defaults for unknown stored choices without rewriting them on
     selected('unassigned', 'ip-no-worker-droid');
     selected('codex', 'ip-codex-robot-model');
     expect(readReactNativeMmkvStubEntries()).toEqual(before);
+});
+
+it('keeps selection, its caption and persistence unchanged when an unchecked radio receives focus', async () => {
+    await act(async () => root.render(<RobotPicker />));
+    const before = readReactNativeMmkvStubEntries();
+    const caption = option('ip-robot-caption-codex').textContent;
+    await act(async () => option('ip-codex-robot-loupe').focus());
+    expect(document.activeElement).toBe(option('ip-codex-robot-loupe'));
+    selected('codex', 'ip-codex-robot-model');
+    expect(option('ip-robot-caption-codex').textContent).toBe(caption);
+    expect(readReactNativeMmkvStubEntries()).toEqual(before);
+});
+
+it('draws legible whole-pixel choices and larger selected previews, including every member of the model trio', async () => {
+    await act(async () => root.render(<RobotPicker />));
+    function artwork(id: string, count: number, minimumCell: number) {
+        // SVG primitives are the native graphics boundary stub. Inspect the actual drawing geometry,
+        // not WorkerSprite props or CSS sizing, so shrinking the grid inside a large slot fails too.
+        const drawings = option(id).querySelectorAll('[testid="ip-sprite-pixels"]');
+        expect(drawings).toHaveLength(count);
+        for (const drawing of drawings) {
+            const cells = drawing.querySelectorAll('rect');
+            expect(cells.length).toBeGreaterThan(0);
+            for (const cell of cells) {
+                for (const field of ['x', 'y', 'width', 'height']) {
+                    expect(Number.isInteger(Number(cell.getAttribute(field)))).toBe(true);
+                }
+                expect(Number(cell.getAttribute('height'))).toBeGreaterThanOrEqual(minimumCell);
+            }
+        }
+    }
+    for (const id of ['ip-no-worker-droid', 'ip-no-worker-ipb', 'ip-codex-robot-prompt', 'ip-codex-robot-loupe', 'ip-codex-robot-lab']) {
+        artwork(id, 1, 2);
+    }
+    artwork('ip-codex-robot-model', 3, 2);
+    artwork('ip-robot-preview-unassigned', 1, 3);
+    artwork('ip-robot-preview-codex', 3, 3);
+    await act(async () => option('ip-codex-robot-lab').click());
+    artwork('ip-robot-preview-codex', 1, 3);
+});
+
+it('repaints the preview outlines for the selected Terminal palette without changing either role choice', async () => {
+    await act(async () => {
+        deskPrefs.set('chatStyle', 'terminal');
+        root.render(<RobotPicker />);
+    });
+    for (const name of Object.keys(terminalPalettes) as TerminalPalette[]) {
+        await act(async () => deskPrefs.set('terminalPalette', name));
+        for (const role of ['unassigned', 'codex']) {
+            const drawings = option(`ip-robot-preview-${role}`).querySelectorAll('[testid="ip-sprite-pixels"]');
+            for (const drawing of drawings) {
+                expect([...drawing.querySelectorAll('rect')].map(cell => cell.getAttribute('fill'))).toContain(terminalPalettes[name].off);
+            }
+        }
+        selected('unassigned', 'ip-no-worker-droid');
+        selected('codex', 'ip-codex-robot-model');
+    }
 });

@@ -80,7 +80,7 @@ describe('WorkerSprite', () => {
         expect(persisted.getString('ignorePrevious.codexRobot')).toBe(stored);
     });
 
-    it.each([24, 28, 40] as const)('uses whole pixel cells in the %s px slot', async (size) => {
+    it.each([24, 28, 32, 40, 48] as const)('uses whole pixel cells in the %s px slot', async (size) => {
         const { WorkerSprite } = await import('./WorkerSprite');
         const screen = await renderScreen(<WorkerSprite kind="ragdoll" bulb="turn" size={size} testID="face" />);
         expect(screen.findByTestId('face')!.props.style).toMatchObject({ width: size, height: size });
