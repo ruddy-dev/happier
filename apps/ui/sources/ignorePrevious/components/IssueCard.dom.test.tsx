@@ -13,6 +13,7 @@ import { groupWorkersByIssue } from '../model/groupWorkers';
 import { IssueCard } from './IssueCard';
 import { WorkColumn } from './WorkColumn';
 import { usageLimitIssue } from '../testkit/usageLimitFixtures';
+import { DeskFixtureRouteContext } from '../deskFixtureGate';
 
 // Exercise React Native Web's real accessibility-prop mapping to the rendered button.
 vi.mock('react-native', async () => vi.importActual('react-native-web'));
@@ -35,6 +36,8 @@ let container: HTMLDivElement;
 let previousStyle: DeskPrefValue<'chatStyle'>;
 let previousStorage: ReturnType<typeof storage.getState>;
 beforeEach(() => {
+    // Keep the shared desk-clock snapshot deterministic even before a session is connected.
+    vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 10, 4, 12, 0).getTime());
     previousStorage = storage.getState();
     storage.setState(storage.getInitialState(), true);
     vi.stubEnv('EXPO_PUBLIC_IP_WQ_DIR', '');
@@ -53,6 +56,34 @@ afterEach(async () => {
 });
 
 describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible name', style => {
+    it('keeps a known project while the issue record is unavailable, then falls back without inventing one', async () => {
+        deskPrefs.set('chatStyle', style);
+        const [group] = groupWorkersByIssue([{
+            sessionId: 'worker', title: 'Session fallback', issueKey: 'ATR-18', bulb: 'idle',
+            permissionMode: null, updatedAt: 1,
+        }]);
+        const render = (projectName?: string) => <IssueCard group={group} open={false} onToggle={() => {}} projectName={projectName} calm />;
+        await act(async () => root.render(render('Demo project')));
+        const button = () => container.querySelector('[data-testid="ip-issue-ATR-18"] [role="button"]');
+        expect(button()?.textContent).toContain('Demo project');
+        expect(button()?.getAttribute('aria-label')).toContain('Demo project');
+        expect(button()?.textContent).toContain('Session fallback');
+        await act(async () => root.render(render()));
+        expect(button()?.textContent).not.toContain('Demo project');
+        expect(button()?.getAttribute('aria-label')).not.toContain('Demo project');
+        expect(button()?.textContent).toContain('ATR-18');
+    });
+
+    it('identifies fixture inventory without inventing queue records or production project associations', async () => {
+        deskPrefs.set('chatStyle', style);
+        const render = (fixture: boolean) => <DeskFixtureRouteContext.Provider value={fixture}><WorkColumn /></DeskFixtureRouteContext.Provider>;
+        await act(async () => root.render(render(true)));
+        expect(container.querySelector('[data-testid="ip-work-sample-inventory"]')).not.toBeNull();
+        expect(container.querySelector('[data-testid="ip-count-all"]')?.textContent).toBe('–');
+        await act(async () => root.render(render(false)));
+        expect(container.querySelector('[data-testid="ip-work-sample-inventory"]')).toBeNull();
+    });
+
     it.each(['known', 'unknown', 'due'] as const)('names a usage-limit wait through Work with a %s reset', async reset => {
         deskPrefs.set('chatStyle', style);
         const now = new Date(2026, 10, 4, 12, 0).getTime();

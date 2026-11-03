@@ -669,7 +669,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
             expect(label.indexOf('Demo card title')).toBeLessThan(label.indexOf('ATR-18'));
             expect(label).toContain('npm test');
             expect(label).toContain('Desk Demo');
-            expect(screen.findByTestId('ip-work-context-ATR-18')?.props.children).toContain('Desk Demo');
+            expect(screen.findByTestId(style === 'terminal' ? 'ip-work-project-ATR-18' : 'ip-work-context-ATR-18')?.props.children).toContain('Desk Demo');
             expect(screen.findByTestId('ip-issue-none')).not.toBeNull();
             expect(screen.findByTestId('ip-issue-none')!.findByType('Pressable').props.accessibilityState).toEqual({ expanded: false });
             expect(screen.findByTestId('ip-count-all')?.props.children).toBe(3);
@@ -1038,7 +1038,8 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         const screen = await renderColumn();
         await flushHookEffects();
         expect(screen.getTextContent()).not.toContain('Demo card title');
-        expect(screen.getTextContent()).not.toContain('Desk Demo');
+        // The successfully read project inventory remains valid when the issue file fails.
+        expect(screen.getTextContent()).toContain('Desk Demo');
         expect(screen.getTextContent()).toContain('Title worker');
         await flushHookEffects({ advanceTimersMs: 295_000, cycles: 1 });
         expect(reads()).toHaveLength(2);
