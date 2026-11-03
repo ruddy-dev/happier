@@ -10,6 +10,7 @@ import { parseThemeColor, themeContrastRatioOverLayers } from '@/theme/themeCont
 import { CoordinatorTranscriptAppearanceProvider } from '../useCoordinatorTranscriptAppearance';
 import { deskPrefs } from '../deskPrefs';
 import { deskThemes, terminalPalettes, type TerminalPalette } from '../palette';
+import { DESK_FONT_STACK } from '../fonts/deskFont';
 
 const tool = makeToolCall({ id: 'palette-question', name: 'AskUserQuestion', state: 'running', input: { questions: [{
     header: 'Release', question: 'Which release?', multiSelect: false,
@@ -17,7 +18,7 @@ const tool = makeToolCall({ id: 'palette-question', name: 'AskUserQuestion', sta
     freeform: { placeholder: 'Another answer', description: 'Explain your choice' },
 }, {
     header: 'Checks', question: 'Which checks?', multiSelect: true,
-    options: [{ label: 'Tests', description: 'Run tests' }],
+    options: [{ label: 'Tests', description: 'Run tests' }, { label: 'Types', description: 'Check types' }],
 }] } });
 
 function contrast(ink: string, layers: readonly string[]) {
@@ -57,6 +58,56 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
     });
     const question = () => <AskUserQuestionView {...makeToolViewProps(tool, { sessionId: 'palette-session' })} />;
 
+    it('brackets real Terminal controls without changing labels, drafts, selection or unavailable semantics', async () => {
+        const screen = await renderScreen(<CoordinatorTranscriptAppearanceProvider>{question()}</CoordinatorTranscriptAppearanceProvider>);
+        const option = screen.findHostByTestId('ask-user-question.option:0:0')!;
+        const input = screen.findHostByTestId('ask-user-question.freeform:0')!;
+        expect.soft(StyleSheet.flatten(textNode(screen.root, 'Stable').props.style).fontFamily).toBe(DESK_FONT_STACK);
+        expect.soft(StyleSheet.flatten(input.props.style).fontFamily).toBe(DESK_FONT_STACK);
+        expect.soft(StyleSheet.flatten(option.props.style).borderRadius).toBeLessThanOrEqual(2);
+        const brackets = () => screen.root.findAll(node => typeof node.type === 'string' &&
+            node.props.accessibilityElementsHidden === true && node.children.some(child => typeof child === 'string' && /[\[\]]/.test(child)));
+        expect(brackets().length).toBeGreaterThan(0);
+        expect(brackets().every(node => node.props.importantForAccessibility === 'no')).toBe(true);
+        expect(brackets().every(node => node.props['aria-hidden'] === true)).toBe(true);
+        expect(option.props.accessibilityLabel).toBe('Stable');
+        act(() => option.props.onFocus());
+        const focused = StyleSheet.flatten(option.props.style);
+        expect(contrast(focused.borderColor, [paint.panel])).toBeGreaterThanOrEqual(3);
+        expect(contrast(StyleSheet.flatten(textNode(screen.root, 'Stable').props.style).color, [focused.backgroundColor])).toBeGreaterThanOrEqual(4.5);
+        act(() => option.props.onBlur());
+        await screen.pressByTestIdAsync('ask-user-question.option:0:0');
+        expect(option.props.accessibilityState.selected).toBe(true);
+        expect(brackets().some(node => node.children.includes('[✓ '))).toBe(true);
+        await screen.pressByTestIdAsync('ask-user-question.option:1:0');
+        await screen.pressByTestIdAsync('ask-user-question.option:1:1');
+        expect(screen.findHostByTestId('ask-user-question.option:1:0')!.props.accessibilityState.selected).toBe(true);
+        expect(screen.findHostByTestId('ask-user-question.option:1:1')!.props.accessibilityState.selected).toBe(true);
+        await screen.pressByTestIdAsync('ask-user-question.option:1:0');
+        expect(screen.findHostByTestId('ask-user-question.option:1:0')!.props.accessibilityState.selected).toBe(false);
+        expect(screen.findHostByTestId('ask-user-question.option:1:1')!.props.accessibilityState.selected).toBe(true);
+        act(() => input.props.onFocus());
+        const frame = screen.findHostByTestId('ask-user-question.freeform-frame:0')!;
+        const focusedInput = StyleSheet.flatten(frame.props.style);
+        expect(contrast(focusedInput.borderColor, [paint.panel])).toBeGreaterThanOrEqual(3);
+        act(() => screen.changeTextByTestId('ask-user-question.freeform:0', 'literal [answer]'));
+        expect(input.props.value).toBe('literal [answer]');
+        expect(option.props.accessibilityState.selected).toBe(false);
+        const session = storage.getState().sessions['palette-session'];
+        act(() => storage.setState({ sessions: { ...storage.getState().sessions, 'palette-session': {
+            ...session, agentState: { ...session.agentState, requests: {} },
+        } } }));
+        expect(input.props.editable).toBe(false);
+        expect(option.props.disabled).toBe(true);
+        expect(screen.findByTestId('ask-user-question.options-unavailable:0')).not.toBeNull();
+        expect(StyleSheet.flatten(option.props.style).backgroundColor).toBe('transparent');
+        expect(StyleSheet.flatten(option.props.style).borderColor).toBe(paint.mute);
+        await screen.pressByTestIdAsync('ask-user-question.option:0:0');
+        act(() => screen.changeTextByTestId('ask-user-question.freeform:0', 'blocked'));
+        expect(input.props.value).toBe('literal [answer]');
+        expect(option.props.accessibilityState.selected).toBe(false);
+    });
+
     it(`renders readable question, choices, selection and typed response with ${palette} over ${theme.dark ? 'dark' : 'light'} Happier`, async () => {
         const screen = await renderScreen(<CoordinatorTranscriptAppearanceProvider>{question()}</CoordinatorTranscriptAppearanceProvider>);
         const card = StyleSheet.flatten(screen.findByTestId('ip-question-card')!.props.style);
@@ -87,9 +138,9 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         checkText('Use the stable release', selectedPaint.backgroundColor);
         expect(contrast(selectedPaint.borderColor, [selectedPaint.backgroundColor])).toBeGreaterThanOrEqual(3);
         await screen.pressByTestIdAsync('ask-user-question.option:1:0');
-        const checkbox = screen.findByTestId('ask-user-question.option:1:0')!.findAll(node => node.props.name === 'check')[0];
-        expect(checkbox).toBeDefined();
-        expect(contrast(checkbox.props.color, [paint.hl])).toBeGreaterThanOrEqual(3);
+        const checkbox = screen.findHostByTestId('ask-user-question.option:1:0')!;
+        expect(checkbox.props.accessibilityState.selected).toBe(true);
+        expect(checkbox.findAll(node => typeof node.type === 'string' && node.children.includes('[✓ '))).toHaveLength(1);
         const submit = screen.findByTestId('ask-user-question.submit')!;
         expect(submit.props.disabled).toBe(false);
         checkText(submit.props.accessibilityLabel, StyleSheet.flatten(submit.props.style).backgroundColor);
@@ -155,6 +206,15 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         expect(input!.props.value).toBe('Keep this draft');
         expect(StyleSheet.flatten(textNode(screen.root, 'Which release?').props.style).color).toBe(theme.colors.text.primary);
         expect(StyleSheet.flatten(input!.props.style).backgroundColor).toBe(theme.colors.surface.base);
+        const expectRegularControls = (root: ReactTestInstance, regularInput: ReactTestInstance) => {
+            expect(StyleSheet.flatten(textNode(root, 'Stable').props.style).fontFamily).not.toBe(DESK_FONT_STACK);
+            expect(StyleSheet.flatten(regularInput.props.style).fontFamily).not.toBe(DESK_FONT_STACK);
+            const option = root.findAll(node => typeof node.type === 'string' && node.props.testID === 'ask-user-question.option:0:0')[0];
+            expect(StyleSheet.flatten(option.props.style).borderRadius).toBe(8);
+            expect(root.findAll(node => typeof node.type === 'string' && node.props['aria-hidden'] === true &&
+                node.children.some(child => typeof child === 'string' && /[\[\]]/.test(child)))).toHaveLength(0);
+        };
+        expectRegularControls(screen.root, input!);
         const slip = theme.dark ? deskThemes.night : deskThemes.paper;
         const slipCard = StyleSheet.flatten(screen.findByTestId('ip-question-card')!.props.style);
         expect(slipCard.borderColor).toBe(slip.edge);
@@ -167,5 +227,6 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         const plain = await renderScreen(question());
         expect(plain.findByTestId('ip-question-card')).toBeNull();
         expect(StyleSheet.flatten(textNode(plain.root, 'Which release?').props.style).color).toBe(theme.colors.text.primary);
+        expectRegularControls(plain.root, plain.findByTestId('ask-user-question.freeform:0')!);
     });
 }
