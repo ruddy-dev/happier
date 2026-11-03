@@ -121,6 +121,33 @@ describe('CoordinatorPane body', () => {
         await screen.unmount();
     });
 
+    it.each([['mask', 820, 72], ['mask', 821, 128], ['terminal', 820, 72], ['terminal', 821, 116]] as const)(
+        'uses the desk phone boundary for %s at %i', async (style, width, height) => {
+            viewport.width = width;
+            deskPrefs.set('chatStyle', style);
+            const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+            expect(StyleSheet.flatten(screen.findByTestId('ip-coord-header')!.props.style).height).toBe(height);
+            await screen.unmount();
+        },
+    );
+
+    it.each(['dracula', 'terminalPaper'] as const)('uses %s for header artwork and accessory', async palette => {
+        deskPrefs.set('chatStyle', 'terminal');
+        deskPrefs.set('terminalPalette', palette);
+        deskPrefs.set('creatureEnabled', true);
+        let accessoryColour = '';
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" headerAccessory={colour => {
+            accessoryColour = colour;
+            return null;
+        }} />);
+        const header = screen.findByTestId('ip-coord-header')!;
+        expect(header.findByType(DeskCreature).props.artTheme).toBe(palette === 'terminalPaper' ? 'light' : 'dark');
+        expect(header.findByProps({ testID: 'ip-coord-mask' }).props.colours.bone).toBe(deskThemes[palette].maskrim);
+        expect(header.findByProps({ testID: 'ip-coord-mask' }).props.colours.idleSignal).toBe(deskThemes[palette].idleSignal);
+        expect(accessoryColour).toBe(deskThemes[palette].ink);
+        await screen.unmount();
+    });
+
     it('M13 keeps the header creature mounted and pauses it until the Shog panel closes', async () => {
         deskPrefs.set('creatureEnabled', true);
         storage.getState().applySessions([createSessionFixture({ id: 'coord', active: true, activeAt: Date.now(), thinking: true, thinkingAt: Date.now() })]);
