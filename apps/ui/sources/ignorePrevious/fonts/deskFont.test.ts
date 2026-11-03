@@ -86,3 +86,31 @@ it('scopes terminal control geometry and phone copy backing to their owning rout
     scope.remove();
     unmount();
 });
+
+
+it('scopes Voice card and clipping geometry to Terminal without changing overflow or focus', () => {
+    const unmount = mountDeskFont(document);
+    const rules = Array.from(document.querySelector<HTMLStyleElement>('#ip-desk-font')!.sheet!.cssRules)
+        .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule);
+    const scope = document.createElement('div');
+    scope.setAttribute('data-ip-terminal', '');
+    scope.innerHTML = '<div data-testid="ip-voice-page"><div data-testid="item-group-card"><div data-testid="item-group-card-inner"><input></div></div></div><div data-testid="item-group-card"></div>';
+    document.body.append(scope);
+    const card = scope.querySelector('[data-testid="ip-voice-page"] [data-testid="item-group-card"]')!;
+    const inner = card.querySelector('[data-testid="item-group-card-inner"]')!;
+    const outside = scope.lastElementChild!;
+    const matches = (element: Element) => rules.filter(rule => rule.style.getPropertyValue('border-radius') === '2px' && element.matches(rule.selectorText));
+    for (const element of [card, inner]) {
+        const matching = matches(element);
+        expect(matching.length).toBeGreaterThan(0);
+        expect(matching.some(rule => rule.style.getPropertyPriority('border-radius') === 'important')).toBe(true);
+        expect(matching.every(rule => !rule.style.overflow && !rule.style.outline)).toBe(true);
+    }
+    expect(matches(outside)).toHaveLength(0);
+    expect(matches(card.querySelector('input')!).some(rule => rule.selectorText.includes('item-group-card'))).toBe(false);
+    scope.removeAttribute('data-ip-terminal');
+    expect(matches(card)).toHaveLength(0);
+    expect(matches(inner)).toHaveLength(0);
+    scope.remove();
+    unmount();
+});
