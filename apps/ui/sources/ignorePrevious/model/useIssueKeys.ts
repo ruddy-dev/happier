@@ -16,7 +16,7 @@ function readTag(lookup: DeskSessions['lookup'], id: string): string | null {
  * The issue each listed session works on, keyed by session id. The tag lives on the full record,
  * so weaker matches wait until the full metadata has caught up with the list row.
  */
-export function useIssueKeys({ list, lookup }: DeskSessions): ReadonlyMap<string, string | null> {
+export function useIssueKeys({ list, lookup }: DeskSessions, knownProjectCodes?: ReadonlySet<string>): ReadonlyMap<string, string | null> {
     // Stable while the list is, so the branch selector isn't rebuilt every render.
     const ids = React.useMemo(() => list.map((row) => row.id), [list]);
     const branches = useDeskBranches(ids);
@@ -35,10 +35,10 @@ export function useIssueKeys({ list, lookup }: DeskSessions): ReadonlyMap<string
                             title: getSessionDisplayTitle(row),
                             branch: branches[row.id] ?? null,
                             path: row.metadata?.path ?? null,
-                        }),
+                        }, knownProjectCodes),
                     ];
                 }),
             ),
-        [list, lookup, branches],
+        [list, lookup, branches, knownProjectCodes],
     );
 }

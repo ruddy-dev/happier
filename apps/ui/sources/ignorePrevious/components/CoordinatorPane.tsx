@@ -22,6 +22,7 @@ import { DeskText } from '../typography/DeskText';
 import { FloatingOverlay } from '@/components/ui/overlays/FloatingOverlay';
 import { useDeskPopup } from '../popups/useDeskPopup';
 import { useDeskComposerControls } from '../model/useDeskComposerControls';
+import { useDeskDictationControls } from '../model/useDeskDictation';
 
 /**
  * The dev-only desk fixture route (EXPO_PUBLIC_IP_FIXTURES=1) shows a fixed transcript here, because Happier's
@@ -74,7 +75,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     const placeholder = t('ignorePrevious.composer.placeholder');
     const enterHint = t('ignorePrevious.composer.enterHint');
     const coordinator = useSession(sessionId);
-    const controls = useDeskComposerControls(sessionId);
+    const controls = useDeskDictationControls(sessionId, useDeskComposerControls(sessionId));
     const composer = React.useMemo<SessionViewComposerOverrides>(() => ({
         ...controls,
         placeholder,

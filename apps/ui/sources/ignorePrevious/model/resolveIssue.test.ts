@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { resolveIssue } from './resolveIssue';
 
 describe('resolveIssue', () => {
+    it('N4 rejects unknown sources and tries the next source in the existing order', () => {
+        const codes = new Set(['ATR', 'HUB']);
+        expect(resolveIssue({ tag: 'FIX-12-build', title: 'SHA-256 fix', branch: 'wip-1-2', path: '/fixture/atr-18' }, codes)).toBe('ATR-18');
+        expect(resolveIssue({ tag: null, title: null, branch: 'fix-12-thing', path: '/fixture/atr-18' })).toBe('FIX-12');
+        expect(resolveIssue({ tag: null, title: 'HUB-59 build', branch: 'fix-12-thing', path: null }, codes)).toBe('HUB-59');
+    });
     it('N2 tag names the issue before branch, title and path', () =>
         expect(resolveIssue({ tag: 'ATR-6-build', title: 'ATR-7 x', branch: 'atr-8-x', path: '/w/atr-9-x' })).toBe('ATR-6'));
 

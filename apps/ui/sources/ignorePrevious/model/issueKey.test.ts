@@ -15,8 +15,26 @@ describe('issueKeyFromBranch', () => {
         expect(issueKeyFromBranch('feature/atr-6.5-release')).toBeNull();
     });
 
-    it.todo('N4: a branch that looks like a key but is not a wq project stays unassigned; item 2.7 owns the authoritative wq inventory');
-    it.todo('N4: folders such as my-app-2 and node-22 must not invent issues; item 2.7 owns the authoritative wq inventory');
+    it('N4: unknown branch projects are dropped only with a loaded inventory', () => {
+        const codes = new Set(['ATR', 'HUB']);
+        for (const branch of ['fix-12-thing', 'wip-1-2']) {
+            expect(issueKeyFromBranch(branch, codes)).toBeNull();
+            expect(issueKeyFromBranch(branch)).not.toBeNull();
+        }
+        expect(issueKeyFromBranch('atr-18', codes)).toBe('ATR-18');
+        expect(issueKeyFromBranch('HUB-59', codes)).toBe('HUB-59');
+        expect(issueKeyFromBranch('fix-12/atr-18', codes)).toBe('ATR-18');
+    });
+    it('N4: unknown folders are dropped and N1 real worktrees still resolve', () => {
+        const codes = new Set(['ATR', 'HUB']);
+        for (const folder of ['my-app-2', 'node-22', 'ml-2024-run']) {
+            expect(issueKeyFromPath(`/fixture/${folder}`, codes)).toBeNull();
+            expect(issueKeyFromPath(`/fixture/${folder}`)).not.toBeNull();
+        }
+        expect(issueKeyFromPath('/fixture/atr-18', codes)).toBe('ATR-18');
+        expect(issueKeyFromPath('/fixture/HUB-59/node-22', codes)).toBe('HUB-59');
+        expect(issueKeyFromPath('/fixture/node-22-atr-18', codes)).toBe('ATR-18');
+    });
     it.each([['atr_5', 'ATR-5'], ['ATR13', 'ATR-13']])('N5: branch and folder %s resolve to %s', (input, expected) => {
         expect(issueKeyFromBranch(input)).toBe(expected);
         expect(issueKeyFromPath(`/work/${input}`)).toBe(expected);

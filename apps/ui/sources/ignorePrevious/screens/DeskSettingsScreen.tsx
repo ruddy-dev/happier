@@ -11,6 +11,8 @@ import { useDeskPref } from '../deskPrefs';
 import { WorkerSprite } from '../components/WorkerSprite';
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { DeskText } from '../typography/DeskText';
+import { DeskNotificationSettings } from '../components/DeskNotificationSettings';
+import { DeskVoiceSettings } from '../components/DeskVoiceSettings';
 
 const robots = [
     { id: 'droid', kind: 'ipdroid', pref: 'robotDroid' },
@@ -138,6 +140,8 @@ export function DeskSettingsScreen() {
                         <DeskText style={{ color: theme.colors.text.primary }}>{t('ignorePrevious.settings.credit')}</DeskText>
                         <DeskText style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.settings.forkNotice')}</DeskText>
                     </View>
+                    <DeskNotificationSettings />
+                    <DeskVoiceSettings />
                 </View>
             </ScrollView>
         </DeskFontRoot>
