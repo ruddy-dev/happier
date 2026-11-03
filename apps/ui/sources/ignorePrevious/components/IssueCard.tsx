@@ -68,7 +68,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8, paddingLeft: 12, paddingRight: 6, minWidth: 0, borderRadius: 11 }}
             >
                 <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }}>
-                    <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
+                    <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} workerAgentId={group.stateWorker ? group.stateWorker.agentId ?? null : undefined} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 15, fontWeight: '600' }}>
@@ -100,7 +100,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                       <View key={worker.sessionId} style={{ minWidth: 0, gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: paint.rule }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                               <View testID={`ip-worker-face-${worker.sessionId}`}>
-                                  <WorkerSprite kind={spriteForModel(worker.model)} bulb={worker.bulb} size={24} faceStyle={faceStyle} calm={calm} />
+                                  <WorkerSprite kind={spriteForModel(worker.model)} workerAgentId={worker.agentId ?? null} bulb={worker.bulb} size={24} faceStyle={faceStyle} calm={calm} />
                               </View>
                               <Text style={{ color: paint.ink, fontSize: 14, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">
                                   {worker.title}

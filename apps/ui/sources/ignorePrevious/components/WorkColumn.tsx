@@ -1,8 +1,7 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY } from '@happier-dev/protocol';
-import { readSessionAppliedModelMetadataStateV1 } from '@happier-dev/agents';
-import { resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
+import { readSessionAppliedModelMetadataStateV1, resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
 import { matchesSessionControlProvider } from '@/sync/domains/sessionControl/readSessionControlMetadata';
 import { getModelOverrideForSpawn } from '@/sync/domains/models/modelOverride';
 import { resolveMetadataModelOverride } from '@/sync/domains/sessionAuthoring/sessionAuthoringNormalization';
@@ -42,7 +41,7 @@ export function toWorkerRows(
         // Mode and context size live on the full record, so they show once it has loaded.
         const loaded = lookup.get(row.id);
         const applied = loaded ? readSessionAppliedModelMetadataStateV1(loaded.metadata) : null;
-        const agentId = resolveAgentIdFromFlavor(loaded?.metadata?.flavor);
+        const agentId = resolveAgentIdFromSessionMetadata(loaded?.metadata ?? row.metadata);
         const appliedModel = applied && agentId && matchesSessionControlProvider({ agentId, metadata: loaded?.metadata, provider: applied.provider })
             ? applied.modelId : null;
         const meter = loaded ? sessionContextMeter(loaded) : null;
@@ -57,6 +56,7 @@ export function toWorkerRows(
             issueKey: issueKeys.get(row.id) ?? null,
             model: loaded ? appliedModel ?? getModelOverrideForSpawn(loaded)?.modelId
                 ?? resolveMetadataModelOverride(loaded).modelId ?? loaded.modelMode ?? null : null,
+            agentId,
             bulb: bulbFromSessionState(state, usageLimit !== null),
             usageLimit,
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
@@ -186,7 +186,7 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
                                 <View pointerEvents="none" accessible={false} style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 3, backgroundColor: bulbColour(colours, group.bulb) }} />
                             ) : null}
                             <View testID={`ip-rail-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 28, height: 28, flexShrink: 0 }}>
-                                <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} bulb={group.bulb} size={28} faceStyle={faceStyle} calm={calm} />
+                                <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} workerAgentId={group.stateWorker ? group.stateWorker.agentId ?? null : undefined} bulb={group.bulb} size={28} faceStyle={faceStyle} calm={calm} />
                             </View>
                             <Text style={{ color: text.primary, fontSize: 11, fontWeight: '600', maxWidth: '100%' }} numberOfLines={1} ellipsizeMode="tail">
                                 {label}

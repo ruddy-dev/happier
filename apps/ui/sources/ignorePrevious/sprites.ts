@@ -841,7 +841,7 @@ export const noWorkerSprite: SpriteKind = 'ipdroid';
 /** Explicit Codex choices; `model` keeps spriteForModel's tier mapping. */
 export const codexRobotSprites = { prompt: 'cxprompt', loupe: 'cxloupe', lab: 'cxlab' } as const;
 
-/** Match model identifiers, never the session's agent flavour. Unknown/unloaded models use the selected no-worker face. */
+/** Match model identifiers, never infer a tier from agent identity. Callers distinguish unresolved workers from unassigned issues. */
 export function spriteForModel(model: string | null | undefined): SpriteKind | 'no-worker' {
     const id = model?.trim().toLowerCase().replace(/_/g, '-') ?? '';
     const parts = id.split(/[-./:\s]+/);

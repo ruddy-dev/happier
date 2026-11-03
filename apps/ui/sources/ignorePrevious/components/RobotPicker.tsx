@@ -15,6 +15,14 @@ const captions = {
 } as const;
 type Choice = keyof typeof captions;
 
+function choiceLabel(choice: Choice) {
+    return t(`ignorePrevious.robots.${choice}`);
+}
+
+function choiceCaption(choice: Choice) {
+    return t(`ignorePrevious.robots.${captions[choice]}`);
+}
+
 function sprites(choice: Choice): readonly SpriteKind[] {
     if (choice === 'model') return [codexRobotSprites.loupe, codexRobotSprites.prompt, codexRobotSprites.lab];
     if (choice === 'droid') return ['ipdroid'];
@@ -55,10 +63,10 @@ function PickerRow<C extends Choice>({ role, choices, selected, onSelect }: {
                 const checked = selected === choice;
                 return <Pressable key={choice} testID={optionId(choice)}
                     ref={node => { if (node) refs.current.set(choice, node); else refs.current.delete(choice); }}
-                    accessibilityRole="radio" accessibilityLabel={t(`ignorePrevious.robots.${choice}`)}
+                    accessibilityRole="radio" accessibilityLabel={choiceLabel(choice)}
                     accessibilityState={{ checked }} onPress={() => onSelect(choice)}
                     onFocus={() => setFocused(choice)} onBlur={() => setFocused(null)}
-                    {...(Platform.OS === 'web' ? { onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => keyDown(event, index), tabIndex: checked ? 0 : -1 } : {})}
+                    {...(Platform.OS === 'web' ? { 'aria-checked': checked, onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => keyDown(event, index), tabIndex: checked ? 0 : -1 } : {})}
                     style={{ minWidth: 48, minHeight: 48, padding: focused === choice ? 5 : 6, alignItems: 'center', justifyContent: 'center', gap: 4,
                         borderWidth: focused === choice ? 2 : 1, borderColor: checked || focused === choice ? theme.colors.text.primary : theme.colors.border.default,
                         backgroundColor: checked ? theme.colors.surface.inset : theme.colors.surface.base }}>
@@ -67,7 +75,7 @@ function PickerRow<C extends Choice>({ role, choices, selected, onSelect }: {
                     </View>
                     <DeskText style={{ color: theme.colors.text.primary }}>
                         {chatStyle === 'terminal' ? t(checked ? 'ignorePrevious.robots.selectedTerminal' : 'ignorePrevious.robots.unselectedTerminal') : checked ? t('ignorePrevious.robots.selected') : ''}
-                        {' '}{t(`ignorePrevious.robots.${choice}`)}
+                        {' '}{choiceLabel(choice)}
                     </DeskText>
                 </Pressable>;
             })}
@@ -77,7 +85,7 @@ function PickerRow<C extends Choice>({ role, choices, selected, onSelect }: {
                 {sprites(selected).map(kind => <WorkerSprite key={kind} kind={kind} size={selected === 'model' ? 24 : 40} bulb="idle" faceStyle="A" preview calm />)}
             </View>
             <DeskText testID={`ip-robot-caption-${role}`} style={{ flex: 1, minWidth: 0, color: theme.colors.text.secondary }}>
-                {t(`ignorePrevious.robots.${captions[selected]}`)}
+                {choiceCaption(selected)}
             </DeskText>
         </View>
     </View>;

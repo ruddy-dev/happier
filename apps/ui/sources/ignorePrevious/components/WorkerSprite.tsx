@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Animated, Easing, View } from 'react-native';
 import Svg, { Path, Rect, Text as SvgText, TSpan } from 'react-native-svg';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
+import type { AgentId } from '@happier-dev/agents';
 
 import { useDeskPref } from '../deskPrefs';
 import type { Bulb } from '../model/bulb';
@@ -11,6 +12,8 @@ import { codexRobotSprites, noWorkerSprite, spriteAscii, spriteGrids, type Sprit
 
 export type WorkerSpriteProps = Readonly<{
     kind: SpriteKind | 'no-worker';
+    /** Pass null for an unidentified worker; omit for unassigned issues and literal sprites. */
+    workerAgentId?: AgentId | null;
     bulb: Bulb;
     /** Card 40, rail 28, worker row 24. The grid uses whole-number cell sizes. */
     size: 24 | 28 | 40;
@@ -26,12 +29,18 @@ const robotPreference: Partial<Record<SpriteKind, 'robotDroid' | 'robotIpb' | 'r
 };
 
 /** Approved grids and ASCII, a shared steady state cue, and just one finite IPB entrance. */
-export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKind, bulb, size, faceStyle: overrideFaceStyle, calm = false, preview = false, testID }: WorkerSpriteProps) {
+export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKind, workerAgentId, bulb, size, faceStyle: overrideFaceStyle, calm = false, preview = false, testID }: WorkerSpriteProps) {
     const [noWorker] = useDeskPref('noWorkerRobot');
     const [savedFaceStyle] = useDeskPref('workerFaces');
     const [codexRobot] = useDeskPref('codexRobot');
-    const isCodex = requestedKind === 'cxprompt' || requestedKind === 'cxloupe' || requestedKind === 'cxlab';
-    const kind = !preview && isCodex && codexRobot !== 'model' ? codexRobotSprites[codexRobot] : requestedKind === 'no-worker' ? (noWorker === 'ipb' ? 'ipb' : noWorkerSprite) : requestedKind;
+    const isCodex = workerAgentId === undefined
+        ? requestedKind === 'cxprompt' || requestedKind === 'cxloupe' || requestedKind === 'cxlab'
+        : workerAgentId === 'codex';
+    const kind = !preview && isCodex && codexRobot !== 'model'
+        ? codexRobotSprites[codexRobot]
+        : requestedKind === 'no-worker'
+            ? workerAgentId === undefined && noWorker === 'ipb' ? 'ipb' : noWorkerSprite
+            : requestedKind;
     const robotKey = robotPreference[kind] ?? 'robotDroid';
     const [preset] = useDeskPref(robotKey);
     const faceStyle = overrideFaceStyle ?? savedFaceStyle;
