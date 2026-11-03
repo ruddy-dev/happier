@@ -65,5 +65,6 @@ describe('isPublicRouteForUnauthenticated: dev-only desk fixture', () => {
         expect(isPublicRouteForUnauthenticated(['(app)', 'dev', 'logs'])).toBe(false);
         expect(isPublicRouteForUnauthenticated(['(app)', 'dev'])).toBe(false);
         expect(isPublicRouteForUnauthenticated(['(app)', 'desk'])).toBe(false);
+        expect(isPublicRouteForUnauthenticated(['(app)', 'settings', 'voice'])).toBe(false);
     });
 });

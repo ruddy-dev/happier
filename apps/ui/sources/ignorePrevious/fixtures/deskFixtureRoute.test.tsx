@@ -15,6 +15,10 @@ import { loadSessionListWarmCacheEntries, readPersistedSessionListWarmCacheEntri
 import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
 
 import DeskFixturePage from '@/app/(app)/dev/desk-fixture';
+import { VoiceProviderSection } from '@/voice/settings/panels/VoiceProviderSection';
+import { voiceSettingsDefaults } from '@/sync/domains/settings/voiceSettings';
+import { DeskVoicePageContext } from '@/ignorePrevious/appearance/deskPageThemeContext';
+import { Item } from '@/components/ui/lists/Item';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -142,17 +146,33 @@ describe('dev/desk-fixture route', () => {
         await screen.unmount();
     });
 
-    it('renders the real Voice page signed out without seeding a desk, and refuses it after sign-in', async () => {
-        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+    it('ignores a Voice surface request and leaves Voice settings unchanged', async () => {
         fixtureParams.surface = 'voice';
-        const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
-        expect(screen.findByTestId('ip-fixture-voice')).not.toBeNull();
-        expect(screen.findByTestId('ip-voice-mode-off')).not.toBeNull();
-        expect(Object.keys(storage.getState().sessions)).toHaveLength(0);
-        await act(async () => auth.set({ isAuthenticated: true }));
+        const voiceBefore = structuredClone(storage.getState().settings.voice);
+        const screen = await showFixtureDesk();
         expect(screen.findByTestId('ip-fixture-voice')).toBeNull();
+        expect(screen.findByTestId('ip-voice-mode-off')).toBeNull();
+        expect(storage.getState().settings.voice).toEqual(voiceBefore);
+        await act(async () => auth.set({ isAuthenticated: true }));
         expect(screen.findByTestId('ip-fixture-signed-in')).not.toBeNull();
+        expect(storage.getState().settings.voice).toEqual(voiceBefore);
         await screen.unmount();
+    });
+
+    it('allows all Voice provider explanations to wrap only in the desk Voice scope', async () => {
+        for (const deskVoice of [true, false]) {
+            const screen = await renderScreen(
+                <DeskVoicePageContext.Provider value={deskVoice}>
+                    <VoiceProviderSection voice={voiceSettingsDefaults} setVoice={() => {}} happierVoiceSupported />
+                </DeskVoicePageContext.Provider>,
+            );
+            // React's test renderer exposes the inner component of memoized Items.
+            const itemType = (Item as unknown as { type: React.ComponentType<React.ComponentProps<typeof Item>> }).type;
+            const rows = screen.root.findAllByType(itemType);
+            expect(rows).toHaveLength(4);
+            expect(rows.map((row) => row.props.subtitleLines)).toEqual(Array(4).fill(deskVoice ? 0 : undefined));
+            await screen.unmount();
+        }
     });
 
     it('treats any value but 1 as off', async () => {
