@@ -113,7 +113,8 @@ The overlay is English-only by design. `apps/ui/sources/text/i18n.integrity.test
 `/desk/settings` stores this device's chat style and Terminal palette in the desk preference store.
 Mask slips is the default: Happier message layout, the desk font, and the existing mask on agent replies.
 Terminal uses Tokyo Midnight by default, with Kanagawa Dragon, Gruvbox Hard, Dracula and Paper as choices.
-The five palettes reuse `ignorePrevious/palette.ts`; only the coordinator transcript receives their styles.
+The five palettes reuse `ignorePrevious/palette.ts`. The coordinator transcript and Work use the selected
+Terminal palette; Work scopes its paint through `DeskPaintContext`, leaving Mask slips and other surfaces unchanged.
 The nullable upstream `TranscriptAppearanceContext` leaves ordinary sessions unchanged. Its optional
 markdown colours keep text and inline surfaces together, including Paper on a dark Happier theme.
 Tool containers accept the style, while tool-row text retains its existing fonts and colours.

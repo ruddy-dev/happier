@@ -11711,6 +11711,7 @@ settingsSession: {
             stage: ({ stage }: { stage: string }) => `Stage: ${stage}`,
         },
         workList: {
+            sampleInventory: 'Sample session inventory',
             failed: 'Last turn failed',
             approvalNeeded: ({ summary }: { summary: string }) => `Approval needed: ${summary}`,
             workerCount: ({ count }: { count: number }) => count === 1 ? '1 worker' : `${count} workers`,

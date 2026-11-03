@@ -1,4 +1,5 @@
 // Copyright (c) 2026 ruddy-dev, MIT
+import * as React from 'react';
 import { useUnistyles } from 'react-native-unistyles';
 
 import type { Bulb } from './model/bulb';
@@ -27,19 +28,29 @@ export type IpColours = Readonly<{
     paleEye: string;
 }>;
 
-/** The current light/dark bridge; the future desk selector replaces this decision only. */
-export function useDeskPaint() {
+function useDefaultDeskPaint() {
     const { theme } = useUnistyles();
-    const selected = theme.dark
-        ? { paint: deskThemes.night, borderWidth: 1.5, colours: ipPalette.dark }
-        : { paint: deskThemes.paper, borderWidth: 2, colours: ipPalette.light };
-    return {
-        ...selected,
-        // Preserve existing Work chrome paint until the desk selector owns these roles too.
-        text: theme.colors.text,
-        inset: theme.colors.surface.inset,
-        strongBorder: theme.colors.border.strong,
-    };
+    return React.useMemo(() => {
+        const selected = theme.dark
+            ? { paint: deskThemes.night, borderWidth: 1.5, colours: ipPalette.dark }
+            : { paint: deskThemes.paper, borderWidth: 2, colours: ipPalette.light };
+        return {
+            ...selected,
+            text: theme.colors.text,
+            inset: theme.colors.surface.inset,
+            strongBorder: theme.colors.border.strong,
+            controlBorder: theme.colors.border.default,
+        };
+    }, [theme, theme.dark, theme.colors.text, theme.colors.surface.inset, theme.colors.border.strong, theme.colors.border.default]);
+}
+
+export type DeskPaint = Omit<ReturnType<typeof useDefaultDeskPaint>, 'paint'> & { paint: SpriteTheme };
+/** A region can consume the selected desk scheme without changing other overlay surfaces. */
+export const DeskPaintContext = React.createContext<DeskPaint | null>(null);
+
+export function useDeskPaint(): DeskPaint {
+    const fallback = useDefaultDeskPaint();
+    return React.useContext(DeskPaintContext) ?? fallback;
 }
 
 export function useIpColours(): IpColours {

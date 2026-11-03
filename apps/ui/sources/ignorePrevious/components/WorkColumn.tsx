@@ -32,6 +32,9 @@ import { IssueCard } from './IssueCard';
 import { useDeskSessions } from '../useDeskSessions';
 import { spriteForModel } from '../sprites';
 import { WorkerSprite, type WorkerSpriteProps } from './WorkerSprite';
+import { WorkAppearance } from './WorkAppearance';
+import { useDeskPref } from '../deskPrefs';
+import { DeskFixtureRouteContext } from '../deskFixtureGate';
 
 export function toWorkerRows(
     list: readonly SessionListRenderableSession[],
@@ -97,7 +100,7 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
             contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 4 }}
         >
             {entries.map(({ id, value, label }) => (
-                <Text key={id} style={{ color: text.secondary, fontSize: 12 }}>
+                <Text key={id} style={{ color: text.secondary, fontSize: 12, flexShrink: 0 }}>
                     {label}{' '}<Text testID={`ip-count-${id}`} style={{ fontWeight: '600' }}>{ready ? value : '–'}</Text>
                 </Text>
             ))}
@@ -110,8 +113,17 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
  * at a time; Details opens them all. `compact` draws just each issue's key and state, in a column
  * (the desk's collapsed rail) or a row (its narrow-screen strip).
  */
-export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 'row'; faceStyle?: WorkerSpriteProps['faceStyle']; calm?: boolean }) {
-    const { text, inset, colours } = useDeskPaint();
+type WorkColumnProps = { compact?: 'column' | 'row'; faceStyle?: WorkerSpriteProps['faceStyle']; calm?: boolean };
+
+export function WorkColumn(props: WorkColumnProps) {
+    return <WorkAppearance><WorkColumnContent {...props} /></WorkAppearance>;
+}
+
+function WorkColumnContent({ compact, faceStyle, calm }: WorkColumnProps) {
+    const { paint, text, inset, colours } = useDeskPaint();
+    const [style] = useDeskPref('chatStyle');
+    const terminal = style === 'terminal';
+    const fixture = React.useContext(DeskFixtureRouteContext);
     const desk = useDeskSessions();
     const { lookup, ready } = desk;
     // The coordinator is the chat beside this panel, not a worker: it gets no row, tile or card (L1).
@@ -174,7 +186,7 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
             style={{
                 paddingHorizontal: 10,
                 paddingVertical: 4,
-                borderRadius: 8,
+                borderRadius: terminal ? 2 : 8,
                 backgroundColor: active ? inset : 'transparent',
             }}
         >
@@ -215,8 +227,9 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
 
     return (
         <View style={{ gap: 10, minWidth: 0, maxWidth: '100%' }}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                <Text style={{ color: text.primary, fontSize: 18, fontWeight: '600' }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, ...(terminal ? { paddingBottom: 7, borderBottomWidth: 1, borderBottomColor: paint.rule } : {}) }}>
+                <Text accessibilityRole="header" style={{ color: terminal ? text.secondary : text.primary, fontSize: terminal ? 12 : 18, fontWeight: terminal ? '700' : '600', ...(terminal ? { textTransform: 'lowercase', letterSpacing: 0.48 } : {}) }}>
+                    {terminal ? <Text accessible={false} style={{ color: paint.bot }}># </Text> : null}
                     {t('ignorePrevious.work')}
                 </Text>
                 <View style={{ flexDirection: 'row', marginLeft: 'auto', gap: 4 }}>
@@ -225,7 +238,8 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
                 </View>
             </View>
             <WorkCounts rows={rows} ready={ready} />
-            <View style={{ gap: 8, minWidth: 0, width: '100%' }}>
+            {fixture ? <Text testID="ip-work-sample-inventory" style={{ color: text.secondary, fontSize: 12 }}>{t('ignorePrevious.workList.sampleInventory')}</Text> : null}
+            <View style={{ gap: terminal ? 4 : 8, minWidth: 0, width: '100%' }}>
                 {groups.map((group) => {
                     const key = group.issueKey ?? '';
                     const stateSession = group.stateWorker ? lookup.get(group.stateWorker.sessionId) : undefined;

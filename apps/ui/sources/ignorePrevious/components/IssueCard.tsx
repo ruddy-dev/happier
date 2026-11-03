@@ -52,7 +52,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
     const count = t('ignorePrevious.workList.workerCount', { count: group.workers.length });
     const secondary = { color: paint.mute, fontSize: 13 };
     const stage = item ? wqStage(item.status) : null;
-    const contextProject = item ? projectName : undefined;
+    const contextProject = group.issueKey ? projectName : undefined;
     const title = item?.title ?? newest?.title ?? label;
     const summary = [contextProject, title !== label ? label : null, stage ? t('ignorePrevious.workCard.stage', { stage: t(`ignorePrevious.workCard.${stage}`) }) : null].filter(Boolean).join('. ');
     const limitReason = group.bulb === 'waiting' && stateWorker?.usageLimit
@@ -64,15 +64,16 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
             testID={`ip-issue-${group.issueKey ?? 'none'}`}
             style={{
                 borderRadius: terminal ? 0 : 10,
-                borderWidth,
-                borderColor: group.bulb === 'stuck' ? bulbColour(colours, group.bulb) : paint.rule,
-                backgroundColor: paint.panel2,
+                borderWidth: terminal ? 0 : borderWidth,
+                borderLeftWidth: terminal ? 2 : borderWidth,
+                borderColor: group.bulb === 'stuck' || (terminal && group.bulb === 'turn') ? bulbColour(colours, group.bulb) : paint.rule,
+                backgroundColor: terminal ? 'transparent' : paint.panel2,
                 minWidth: 0,
                 maxWidth: '100%',
                 width: '100%',
             }}
         >
-            {group.bulb === 'turn' ? (
+            {!terminal && group.bulb === 'turn' ? (
                 <View pointerEvents="none" accessible={false} style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 5, borderRadius: 3, backgroundColor: bulbColour(colours, group.bulb) }} />
             ) : null}
             <Pressable
@@ -81,22 +82,25 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                 aria-expanded={open}
                 accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: title, state, count, summary, unheard: unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: unheardMinutes }) : '' })}
                 onPress={onToggle}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8, paddingLeft: 12, paddingRight: 8, minWidth: 0, borderRadius: terminal ? 0 : 8 }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: terminal ? 6 : 8, paddingLeft: terminal ? 8 : 12, paddingRight: 8, minWidth: 0, borderRadius: terminal ? 0 : 8 }}
             >
                 <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }}>
                     <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                    <Text numberOfLines={2} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 14, fontWeight: '600' }}>
+                    <Text numberOfLines={2} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: terminal ? 13.5 : 14, fontWeight: terminal ? '700' : '600', ...(terminal ? { lineHeight: 18 } : {}) }}>
                         {title}
                     </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 }}>
                         <BulbLabel bulb={group.bulb} />
-                        {attention ? <Text style={{ color: paint.ink, fontSize: 13, flexShrink: 1 }} numberOfLines={2} ellipsizeMode="tail">{attention}</Text> : null}
+                        {attention ? <Text style={{ color: paint.ink, fontSize: terminal ? 12 : 13, flexShrink: 1 }} numberOfLines={2} ellipsizeMode="tail">{attention}</Text> : null}
                         {open ? <Text testID={`ip-work-worker-count-${group.issueKey ?? 'none'}`} style={secondary}>{count}</Text> : null}
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 }}>
-                        <Text testID={`ip-work-context-${group.issueKey ?? 'none'}`} style={{ color: paint.mute, fontSize: 11 }}>{[contextProject, label].filter(Boolean).join(' · ')}</Text>
+                        {terminal ? <>
+                            {contextProject ? <Text testID={`ip-work-project-${group.issueKey}`} numberOfLines={1} style={{ maxWidth: '100%', color: group.bulb === 'turn' ? paint.yelink : paint.mute, backgroundColor: group.bulb === 'turn' ? paint.yel : 'transparent', borderWidth: 1, borderColor: group.bulb === 'turn' ? paint.yel : paint.mute, borderRadius: 2, paddingHorizontal: 5, fontSize: 12 }}>{contextProject}</Text> : null}
+                            <Text testID={`ip-work-context-${group.issueKey ?? 'none'}`} style={{ color: paint.mute, fontSize: 11 }}>{label}</Text>
+                        </> : <Text testID={`ip-work-context-${group.issueKey ?? 'none'}`} style={{ color: paint.mute, fontSize: 11 }}>{[contextProject, label].filter(Boolean).join(' · ')}</Text>}
                         {item ? <WorkCardStage issueKey={item.id} status={item.status} /> : null}
                     </View>
                     {!open && unheardMinutes != null ? (
