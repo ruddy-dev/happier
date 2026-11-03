@@ -1,0 +1,188 @@
+{
+  "marker": "ip-fixture-marker-7f3a",
+  "coordinatorId": "demo-coordinator",
+  "sessions": [
+    {
+      "id": "demo-coordinator",
+      "path": "/work",
+      "title": "Project coordinator",
+      "active": true
+    },
+    {
+      "id": "demo-weather-fix",
+      "path": "/work/tiny-weather",
+      "title": "WEATHER-14 Fix the blank forecast",
+      "active": false,
+      "transcript": [
+        {
+          "from": "you",
+          "text": "The forecast stays blank when a saved town has no hourly readings. Reproduce it, fix it, run the tests and open a PR for review.",
+          "ageMs": 1800000
+        },
+        {
+          "from": "agent",
+          "text": "Reproduced: an empty hourly list throws before the daily forecast renders. I am adding a regression test for a saved town with daily readings only.",
+          "ageMs": 1500000
+        },
+        {
+          "from": "agent",
+          "text": "Fixed the empty-list handling. The daily forecast now renders and the hourly section says there are no hourly readings yet.",
+          "ageMs": 900000
+        },
+        {
+          "from": "agent",
+          "text": "Regression tests and the full forecast test suite pass: 24 tests passing. Typecheck passes too.",
+          "ageMs": 600000
+        },
+        {
+          "from": "agent",
+          "text": "Opened PR #42: https://example.com/tiny-weather/pull/42 . It contains the fix and regression test, ready for review.",
+          "ageMs": 240000
+        }
+      ]
+    },
+    {
+      "id": "demo-weather-tests",
+      "path": "/work/tiny-weather",
+      "title": "WEATHER-15 Check forecast units",
+      "active": true,
+      "thinking": true,
+      "transcript": [
+        {
+          "from": "you",
+          "text": "Check switching between Celsius and Fahrenheit, including saved preferences. Keep this separate from the blank-forecast fix.",
+          "ageMs": 960000
+        },
+        {
+          "from": "agent",
+          "text": "The display conversion is correct. I am checking that changing units also updates the cached forecast without another refresh.",
+          "ageMs": 90000
+        }
+      ]
+    },
+    {
+      "id": "demo-recipe-search",
+      "path": "/work/recipe-box",
+      "title": "RECIPE-8 Add ingredient search",
+      "active": true,
+      "request": {
+        "tool": "AskUserQuestion",
+        "kind": "user_action",
+        "arguments": {
+          "questions": [
+            {
+              "header": "Search matching",
+              "question": "How should ingredient search match recipes?",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "All ingredients",
+                  "description": "Only show recipes containing every ingredient entered."
+                },
+                {
+                  "label": "Any ingredient",
+                  "description": "Show recipes containing at least one ingredient entered."
+                },
+                {
+                  "label": "Best matches first",
+                  "description": "Show all matches, ranked by the number of matching ingredients."
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "transcript": [
+        {
+          "from": "you",
+          "text": "Add ingredient search to the recipe list. Ask me before choosing how multiple ingredients should match.",
+          "ageMs": 1080000
+        },
+        {
+          "from": "agent",
+          "text": "The search input and recipe filtering are in place. One choice needs your answer: match all ingredients, any ingredient, or rank the best matches first?",
+          "ageMs": 120000
+        }
+      ]
+    },
+    {
+      "id": "demo-notes-export",
+      "path": "/work/notes-cli",
+      "title": "NOTES-3 Export notes as Markdown",
+      "active": true,
+      "thinking": true,
+      "transcript": [
+        {
+          "from": "you",
+          "text": "Add a Markdown export command. Preserve note headings and code blocks, and test an empty notebook.",
+          "ageMs": 840000
+        },
+        {
+          "from": "agent",
+          "text": "Markdown export now preserves headings and fenced code blocks. I am running the empty-notebook and filename collision tests.",
+          "ageMs": 60000
+        }
+      ]
+    },
+    {
+      "id": "demo-recipe-approval",
+      "path": "/work/recipe-box",
+      "title": "RECIPE-9 Check recipe import",
+      "active": true,
+      "request": {
+        "tool": "Bash",
+        "kind": "permission",
+        "arguments": {
+          "command": "npm test -- recipe-import"
+        }
+      },
+      "transcript": [
+        {
+          "from": "you",
+          "text": "Check that importing a recipe twice does not create duplicates. Run the targeted tests before changing anything.",
+          "ageMs": 720000
+        },
+        {
+          "from": "agent",
+          "text": "I found the import tests. I am waiting for approval to run npm test -- recipe-import.",
+          "ageMs": 30000
+        }
+      ]
+    }
+  ],
+  "coordinatorBody": {
+    "composerPlaceholder": "Message the coordinator",
+    "transcript": [
+      {
+        "from": "you",
+        "text": "Fix the blank forecast in tiny-weather. While that runs, check the unit switch, add recipe ingredient search, and build Markdown export for notes-cli.",
+        "ageMs": 2100000
+      },
+      {
+        "from": "agent",
+        "text": "The workers are on separate tasks. I will bring back the forecast PR and ask you about any product choices before they continue.",
+        "ageMs": 2040000
+      },
+      {
+        "from": "you",
+        "text": "Keep the forecast fix separate from the unit checks. Ask before choosing how recipe search matches ingredients. I am stepping away for a bit.",
+        "ageMs": 1920000
+      },
+      {
+        "from": "agent",
+        "text": "Understood. The recipe import check is separate too. Its worker will wait for approval before running the targeted test command.",
+        "ageMs": 1860000
+      },
+      {
+        "from": "you",
+        "text": "Brief me after my break. What finished, what is still running, and what needs my answer?",
+        "ageMs": 15000
+      },
+      {
+        "from": "agent",
+        "text": "The blank-forecast fix is ready: tests pass and PR #42 is open at https://example.com/tiny-weather/pull/42 . Two workers are still checking forecast units and Markdown export. The ingredient-search worker has a question about matching: all ingredients, any ingredient, or best matches first. The recipe-import worker is waiting for approval to run its targeted tests. Answer the search question first, then review the forecast PR.",
+        "ageMs": 10000
+      }
+    ]
+  }
+}

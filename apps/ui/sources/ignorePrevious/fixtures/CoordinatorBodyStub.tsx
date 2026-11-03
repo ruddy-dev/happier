@@ -10,12 +10,15 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/ui/text/Text';
 
 import scenario from './desk-fixture.json';
+import demo from './demo/desk-demo.json';
+import { storage } from '@/sync/domains/state/storage';
 import { CreatureFixture } from './CreatureFixture';
 import { FreshStartFixture } from './FreshStartFixture';
 
 export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingActions }: { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
-    const { transcript, composerPlaceholder } = scenario.coordinatorBody;
+    const hasDemo = storage(state => Boolean(state.sessions[demo.coordinatorId]));
+    const { transcript, composerPlaceholder } = (hasDemo ? demo : scenario).coordinatorBody;
     return (
         <ScrollView testID="ip-fixture-coordinator-body" style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }}>
             <CreatureFixture />
