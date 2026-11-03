@@ -11093,6 +11093,7 @@ settingsSession: {
     friendAcceptedGeneric: "好友请求已接受",
   },
     ignorePrevious: {
+        transcriptQuestionChrome: { title: 'Question for you', context: 'Mentions' },
         demo: {
             noteTitle: 'Demo desk',
             sampleNote: 'An interactive demo with made-up work. Nothing is connected or sent.',

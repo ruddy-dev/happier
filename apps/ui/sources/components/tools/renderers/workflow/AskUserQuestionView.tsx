@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
+import { DeskQuestionCard } from '@/ignorePrevious/components/DeskQuestionCard';
 import { View, TouchableOpacity, type GestureResponderEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { ToolViewProps } from '../core/_registry';
@@ -282,8 +284,13 @@ const styles = StyleSheet.create((theme) => ({
     },
 }));
 
+function QuestionChrome({ enabled, active, contextText, children }: { enabled: boolean; active: boolean; contextText: readonly string[]; children: React.ReactNode }) {
+    return enabled ? <DeskQuestionCard active={active} contextText={contextText}>{children}</DeskQuestionCard> : <>{children}</>;
+}
+
 export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId, interaction }) => {
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
     const [selections, setSelections] = React.useState<Map<number, Set<number>>>(new Map());
     const [freeformAnswers, setFreeformAnswers] = React.useState<Map<number, string>>(new Map());
     const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -323,6 +330,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
         return null;
     }
 
+    const contextText = questions.flatMap(q => [q.header, q.question].filter((v): v is string => typeof v === 'string'));
     const effectiveFreeformAnswers = new Map<number, string>();
     questions.forEach((question, questionIndex) => {
         if (freeformAnswers.has(questionIndex)) {
@@ -570,6 +578,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
     if (isSubmitted || tool.state === 'completed') {
         const answersFromResult = parseAskUserQuestionAnswersFromToolResult(tool.result);
         return (
+            <QuestionChrome enabled={appearance !== null} active={false} contextText={contextText}>
             <ToolSectionView>
                 <View style={styles.submittedContainer}>
                     {questions.map((q, qIndex) => {
@@ -599,10 +608,12 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                     })}
                 </View>
             </ToolSectionView>
+            </QuestionChrome>
         );
     }
 
     return (
+        <QuestionChrome enabled={appearance !== null} active={tool.state === 'running'} contextText={contextText}>
         <ToolSectionView>
             <View testID="ask-user-question" style={styles.container}>
                 {!canApprovePermissions && isRunning ? (
@@ -767,5 +778,6 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                 )}
             </View>
         </ToolSectionView>
+        </QuestionChrome>
     );
 });

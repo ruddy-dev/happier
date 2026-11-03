@@ -8,6 +8,7 @@ export type TranscriptAppearance = Readonly<{
     toolContainerStyle?: StyleProp<ViewStyle>;
     fontFamily?: string;
     agentLeading?: React.ReactNode;
+    userLeading?: React.ReactNode;
     // Native text does not inherit View colours. Markdown owns its text and inset surfaces.
     markdownColors?: Readonly<{
         text: { primary: string; secondary: string; link: string };
@@ -17,3 +18,7 @@ export type TranscriptAppearance = Readonly<{
 }>;
 
 export const TranscriptAppearanceContext = React.createContext<TranscriptAppearance | null>(null);
+
+// Kept separate from appearance: tool content resets text styling, but nested transcripts
+// must retain the coordinator's grouping scope. Null preserves account preferences.
+export const TranscriptToolCallsGroupingContext = React.createContext<'collapsed-per-turn' | null>(null);
