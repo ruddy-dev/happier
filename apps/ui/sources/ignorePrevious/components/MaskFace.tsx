@@ -2,7 +2,7 @@ import * as React from 'react';
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 
 import type { Bulb } from '../model/bulb';
-import { bulbColour, useIpColours } from '../palette';
+import { bulbColour, useIpColours, type IpColours } from '../palette';
 
 export type MaskFaceProps = Readonly<{
     size: number;
@@ -11,14 +11,16 @@ export type MaskFaceProps = Readonly<{
     /** Half-closed eyes for a worker that is busy or idle; open eyes when it wants you. */
     sleepy: boolean;
     testID?: string;
+    colours?: IpColours;
 }>;
 
 /**
  * The Ignore Previous robot mask, drawn from the mockup's face. Static on purpose: no looping
  * animation (apps/ui/AGENTS.md). State shows through the bulb colour and the eyes.
  */
-export const MaskFace = React.memo(function MaskFace({ size, bulb, sleepy, testID }: MaskFaceProps) {
-    const colours = useIpColours();
+export const MaskFace = React.memo(function MaskFace({ size, bulb, sleepy, testID, colours: override }: MaskFaceProps) {
+    const defaultColours = useIpColours();
+    const colours = override ?? defaultColours;
     // The mask bulb sits on ink, never on the page, so turn keeps brand yellow (ATR-32).
     const fill = bulb === 'rest' ? colours.red : bulb === 'turn' ? colours.yellow : bulbColour(colours, bulb);
     const ink = colours.ink;

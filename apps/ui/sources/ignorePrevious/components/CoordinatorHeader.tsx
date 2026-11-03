@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Platform, Pressable, View, useWindowDimensions } from 'react-native';
 
-import { isMobileLayoutWidth } from '@/components/sessions/layout/isMobileLayoutWidth';
+import { isDeskPhoneWidth } from '../model/drawerPlacement';
 
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
@@ -25,16 +25,19 @@ export function CoordinatorHeader({ session, onOpenShog, shogOpen = false, shogO
     shogOpenerRef?: React.RefObject<View | null>;
     shogCreatureOpenerRef?: React.RefObject<View | null>;
     shogPanelId?: string;
-    accessory?: React.ReactNode;
+    accessory?: (colour: string) => React.ReactNode;
 }) {
     const [style] = useDeskPref('chatStyle');
     const [creatureEnabled] = useDeskPref('creatureEnabled');
     const [terminalPalette] = useDeskPref('terminalPalette');
     const { width: windowWidth } = useWindowDimensions();
-    const phone = isMobileLayoutWidth(windowWidth);
+    const phone = isDeskPhoneWidth(windowWidth);
     const desk = useDeskPaint();
     const terminal = style === 'terminal';
     const paint = terminal ? terminalPalettes[terminalPalette] : desk.paint;
+    const artTheme = terminal ? (terminalPalette === 'terminalPaper' ? 'light' : 'dark') : undefined;
+    const maskColours = terminal ? { ...desk.colours, bone: paint.maskrim, red: paint.brandred,
+        yellow: paint.yel, work: paint.work, off: paint.off, idleSignal: paint.idleSignal, turnSignal: paint.turnSignal } : undefined;
     const height = phone ? 72 : terminal ? 116 : 128;
     const [width, setWidth] = React.useState(0);
     const narrow = width > 0 && width < 860;
@@ -73,15 +76,15 @@ export function CoordinatorHeader({ session, onOpenShog, shogOpen = false, shogO
                 flexDirection: 'row', alignItems: 'center', gap: terminal ? 10 : 14, paddingHorizontal: padding }}>
             {creatureEnabled ? <Pressable ref={shogCreatureOpenerRef} accessible={false} focusable={false}
                 {...(Platform.OS === 'web' ? { tabIndex: -1 as const } : {})} onPress={onOpenShog}
-                style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
+                style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, opacity: 0.75 }}>
                 <DeskCreature style={terminal ? 'terminal' : 'slips'} redEyes={Math.min(waits.count ?? 0, 8)} mode={mode}
-                    playback={shogOpen ? 'paused' : undefined} height={height} anchor={anchor} scale={scale} />
+                    playback={shogOpen ? 'paused' : undefined} artTheme={artTheme} maskColours={maskColours} height={height} anchor={anchor} scale={scale} />
             </Pressable> : null}
             <Pressable ref={shogOpenerRef} testID="ip-shog-open" aria-expanded={shogOpen} accessibilityState={{ expanded: shogOpen }} accessibilityRole="button" accessibilityLabel={t(shogOpen ? 'ignorePrevious.shogPanel.close' : 'ignorePrevious.openShog')}
                 aria-controls={Platform.OS === 'web' ? shogPanelId : undefined}
                 onPress={onOpenShog} hitSlop={6} style={{ marginLeft: maskLeft, marginRight: phone ? 8 : narrow ? 18 : 34, flexShrink: 0 }}>
                 <MaskFace testID="ip-coord-mask" size={maskSize}
-                    bulb={waits.count === null ? 'idle' : waits.count > 0 ? 'turn' : 'rest'} sleepy={false} />
+                    colours={maskColours} bulb={waits.count === null ? 'idle' : waits.count > 0 ? 'turn' : 'rest'} sleepy={false} />
             </Pressable>
             <View style={[scrim, { minWidth: 0, flexShrink: 1, gap: 4, paddingHorizontal: 6, paddingVertical: 2 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
@@ -99,7 +102,7 @@ export function CoordinatorHeader({ session, onOpenShog, shogOpen = false, shogO
                         style={{ color: paint.ink, fontSize: 13.5, flexShrink: 1 }}>{stateText}</DeskText>
                 </View> : null}
             </View>
-            {accessory ? <View style={[scrim, { marginLeft: 'auto', padding: 4, flexShrink: 0 }]}>{accessory}</View> : null}
+            {accessory ? <View style={[scrim, { marginLeft: 'auto', padding: 4, flexShrink: 0 }]}>{accessory(paint.ink)}</View> : null}
         </View>
     );
 }
