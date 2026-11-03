@@ -17,8 +17,8 @@ vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
     return createReactNativeWebMock({
         Pressable: ({ children, style, ...props }: PressableProps) => React.createElement('Pressable', {
-            ...props, style: typeof style === 'function' ? style({ pressed: false }) : style,
-        }, typeof children === 'function' ? children({ pressed: false }) : children),
+            ...props, style: typeof style === 'function' ? style({ pressed: false, hovered: false }) : style,
+        }, typeof children === 'function' ? children({ pressed: false, hovered: false }) : children),
     });
 });
 vi.mock('@react-navigation/native', async () => {
