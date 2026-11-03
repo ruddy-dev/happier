@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import { t } from '@/text';
 import { DeskCreature } from '../creature/DeskCreature';
 import { deskPrefs } from '../deskPrefs';
 import { terminalPalettes } from '../palette';
@@ -59,9 +61,12 @@ describe('ShogView', () => {
         deskPrefs.set('creatureEnabled', true);
     });
     afterEach(() => {
-        storage.setState(previousState, true);
-        deskPrefs.set('chatStyle', 'mask');
-        deskPrefs.set('terminalPalette', 'tokyo');
+        act(() => {
+            storage.setState(previousState, true);
+            deskPrefs.set('chatStyle', 'mask');
+            deskPrefs.set('terminalPalette', 'tokyo');
+        });
+        vi.restoreAllMocks();
         vi.useRealTimers();
     });
 
@@ -94,27 +99,30 @@ describe('ShogView', () => {
 
     it('plays for about six seconds, then stands still', async () => {
         const screen = await renderShog();
-        expect(screen.findByTestId('ip-shog-pause')).toBeTruthy();
+        expect(screen.findByTestId('ip-shog-pause')!.props.disabled).toBe(false);
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.shogPanel.playing'));
         await act(async () => {
             vi.advanceTimersByTime(6000);
         });
-        expect(screen.findByTestId('ip-shog-pause')).toBeNull();
+        expect(screen.findByTestId('ip-shog-pause')!.props.disabled).toBe(true);
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.shogPanel.still'));
         expect(screen.findByTestId('ip-shog-replay')).toBeTruthy();
     });
 
-    it('pauses, and replays from the start with a fresh six seconds', async () => {
+    it('pauses, and gives Replay a fresh six seconds', async () => {
         const screen = await renderShog();
         await act(async () => {
             vi.advanceTimersByTime(3000);
         });
         await screen.pressByTestIdAsync('ip-shog-pause');
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.shogPanel.paused'));
         expect(screen.findByTestId('ip-shog-replay')).toBeTruthy();
         await screen.pressByTestIdAsync('ip-shog-replay');
         await act(async () => {
             vi.advanceTimersByTime(4000);
         });
         // The first play's timer would have ended it here; Replay starts the six seconds again.
-        expect(screen.findByTestId('ip-shog-pause')).toBeTruthy();
+        expect(screen.findByTestId('ip-shog-pause')!.props.disabled).toBe(false);
         await act(async () => {
             vi.advanceTimersByTime(2000);
         });
@@ -124,14 +132,46 @@ describe('ShogView', () => {
     it('stands still from the start when the system asks for reduced motion', async () => {
         state.reducedMotion = true;
         const screen = await renderShog();
-        expect(screen.findByTestId('ip-shog-pause')).toBeNull();
-        expect(screen.findByTestId('ip-shog-replay')).toBeNull();
+        expect(screen.findByTestId('ip-shog-pause')!.props.disabled).toBe(true);
+        expect(screen.findByTestId('ip-shog-replay')!.props.disabled).toBe(true);
+        expect(screen.findByTestId('ip-shog-replay')!.props.accessibilityState.disabled).toBe(true);
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.shogPanel.calm'));
+        expect(screen.tree.root.findByType(DeskCreature).props.playback).toBe('paused');
+    });
+
+    it('changing the motion preference stops playback and does not auto-restart when re-enabled', async () => {
+        const screen = await renderShog();
+        await act(async () => deskPrefs.set('creatureEnabled', false));
+        expect(screen.findByTestId('ip-shog-replay')!.props.disabled).toBe(true);
+        expect(screen.tree.root.findByType(DeskCreature).props.playback).toBe('paused');
+        await act(async () => deskPrefs.set('creatureEnabled', true));
+        expect(screen.tree.root.findByType(DeskCreature).props.playback).toBe('paused');
+        expect(screen.findByTestId('ip-shog-replay')!.props.disabled).toBe(false);
+        await screen.pressByTestIdAsync('ip-shog-replay');
+        expect(screen.tree.root.findByType(DeskCreature).props.playback).toBe('playing');
+    });
+
+    it.each(['ios', 'android'] as const)('describes the static %s fallback without offering playback', async os => {
+        const previousOS = Platform.OS;
+        Object.defineProperty(Platform, 'OS', { configurable: true, value: os });
+        try {
+            seed([waitingSession('worker')]);
+            const screen = await renderShog();
+            expect(screen.getTextContent()).toContain(t('ignorePrevious.coordinatorHeader.waiting', { count: 1 }));
+            expect(screen.getTextContent()).toContain(t('ignorePrevious.shogPanel.nativeStill'));
+            expect(screen.findByTestId('ip-shog-pause')!.props.disabled).toBe(true);
+            expect(screen.findByTestId('ip-shog-replay')!.props.disabled).toBe(true);
+            expect(screen.tree.root.findByType(DeskCreature).props.playback).toBe('paused');
+        } finally {
+            Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+        }
     });
 
     it.each([0, 3, 8, 12])('M13 sends %i shared waits to the real creature, capped at eight eyes', async count => {
         seed(Array.from({ length: count }, (_, i) => waitingSession(`worker-${i}`)));
         const screen = await renderShog();
         expect(redEyes(screen)).toBe(Math.min(count, 8));
+        expect(screen.getTextContent()).toContain(count === 0 ? t('ignorePrevious.shogCalm') : t('ignorePrevious.shogWaiting', { count }));
     });
 
     it('F4 keeps all eyes pale until the first waits snapshot is ready', async () => {
@@ -139,6 +179,8 @@ describe('ShogView', () => {
         act(() => storage.setState({ isDataReady: false }));
         const screen = await renderShog();
         expect(redEyes(screen)).toBe(0);
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.connecting'));
+        expect(screen.getTextContent()).not.toContain(t('ignorePrevious.shogCalm'));
         act(() => storage.getState().applyReady());
         expect(redEyes(screen)).toBe(1);
     });
