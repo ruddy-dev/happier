@@ -13,6 +13,20 @@ afterEach(() => {
 });
 
 describe('device-local desk prefs', () => {
+    it('defaults hold Space on without writing and round-trips both boolean choices', async () => {
+        const hook = await renderHook(() => useDeskPref('deskHoldSpace'));
+        expect(hook.getCurrent()[0]).toBe(true);
+        expect(readReactNativeMmkvStubEntries()).toEqual([]);
+        for (const [choice, stored] of [[false, '0'], [true, '1']] as const) {
+            await act(async () => hook.getCurrent()[1](choice));
+            expect(new MMKV().getString('ignorePrevious.deskHoldSpace')).toBe(stored);
+            expect(deskPrefs.get('deskHoldSpace')).toBe(choice);
+        }
+        // Boolean prefs recognize only '1' as enabled, using the existing flag decoder.
+        new MMKV().set('ignorePrevious.deskHoldSpace', 'invalid');
+        expect(deskPrefs.get('deskHoldSpace')).toBe(false);
+    });
+
     it('reads defaults without writing, including the enabled creature', async () => {
         const hook = await renderHook(() => useDeskPref('creatureEnabled'));
         expect(hook.getCurrent()[0]).toBe(true);
