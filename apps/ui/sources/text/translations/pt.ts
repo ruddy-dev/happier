@@ -11806,6 +11806,10 @@ settingsSession: {
         openSession: 'Open session',
         agentSays: ({ name }: { name: string }) => `${name} says:`,
         waiting: {
+            earlierSending: 'An answer to earlier contents is still sending. Open the session before answering this version.',
+            earlierUnconfirmed: 'An answer to earlier contents was sent, but its target cannot be confirmed here. Open the session to check.',
+            earlierFailed: 'The answer to earlier contents failed or could not be confirmed. Open the session to check.',
+            inspectRequest: 'This ID has conflicting request history. Open the session to check which request still needs an answer.',
             heading: 'Waiting on you',
             requestChanged: 'Request changed. Open the details again before answering.',
             workerUnknown: 'Worker status unknown. Open the session to check before answering.',

@@ -17,7 +17,9 @@ import { useSessionListRenderable, useSocketStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { useDeskNow } from '../model/useDeskNow';
 import { workerLastSignalAt, workerUnheardMinutes } from '../model/workerFreshness';
-import { waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
+import { waitingItemGenerationKey, waitingRequestContent, type WaitingItem } from '../model/waitingItems';
+import { observePendingSessionRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { canReuseTranscriptRenderableAggregateRequestStates } from '@/sync/domains/messages/transcriptRenderableAggregate';
 import { readDeskWaits } from '../model/useDeskWaits';
 import { forgetWaitingAction, idleWaitingAction, setWaitingAction, type WaitingHistory } from '../model/waitingHistory';
 
@@ -164,11 +166,14 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
     const requestKey = `${item.sessionId}\u0000${item.requestId}`;
     const generation = waitingItemGenerationKey(item);
     const action = useStore(actions, state => state.actions.get(generation) ?? idleWaitingAction);
+    const earlier = useStore(actions, state => [...state.actions.entries()].find(([key, candidate]) => key !== generation
+        && (candidate.phase === 'sending' || candidate.phase === 'changed') && candidate.requestKey === item.key)?.[1]);
     const { phase } = action;
-    const busy = phase === 'sending';
+    const busy = phase === 'sending' || earlier?.phase === 'sending';
+    const changedAnswer = earlier?.phase === 'changed' ? earlier : action.phase === 'changed' ? action : null;
     const { status } = useSocketStatus();
     const disconnected = status !== 'connected';
-    const disabled = disconnected || refreshing || phase !== 'idle' || !expanded;
+    const disabled = disconnected || refreshing || phase !== 'idle' || !!earlier || !!item.requiresInspection || !expanded;
     const request = storage(state => state.sessions[item.sessionId]?.agentState?.requests?.[item.requestId]);
     const questions = React.useMemo(() => {
         if (isCoordinator || item.kind !== 'user_action') return null;
@@ -180,12 +185,32 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
             || storage.getState().socketStatus !== 'connected' || !storage.getState().isDataReady) return;
         // A request can change between the displayed detail and this press, before React commits.
         const current = readDeskWaits().items.find(current => current.key === item.key);
-        if (!current || current.disabledReason) return;
-        if (current.requestContent !== content) {
+        if (!current || current.disabledReason || current.requiresInspection) return;
+        if ([...actions.getState().actions.entries()].some(([key, candidate]) => key !== generation
+            && (candidate.phase === 'sending' || candidate.phase === 'changed') && candidate.requestKey === item.key)) return;
+        if (current.requestContent !== content || (current.createdAt !== null && item.createdAt !== null && current.createdAt !== item.createdAt)) {
             onRequestChanged();
             return;
         }
-        const sending = { phase: 'sending' } as const;
+        const sending = { phase: 'sending', requestKey: item.key, attempt: {} } as const;
+        const ownsAttempt = () => {
+            const current = actions.getState().actions.get(generation);
+            return current?.phase === 'sending' && current.attempt === sending.attempt;
+        };
+        const contentsChanged = () => {
+            const action = actions.getState().actions.get(generation);
+            if (action?.phase === 'sending' && action.contentsChanged) return true;
+            const state = storage.getState();
+            const session = state.sessions[item.sessionId];
+            if (!session) return false;
+            const aggregate = state.sessionMessages[item.sessionId]?.renderableAggregate;
+            const transcriptState = aggregate && canReuseTranscriptRenderableAggregateRequestStates(aggregate, session.agentState?.completedRequests ?? null)
+                ? aggregate.requestStates.get(item.requestId) : undefined;
+            const observation = observePendingSessionRequest(session, item.requestId, transcriptState);
+            if (observation.status !== 'pending') return false;
+            const current = observation.request;
+            return waitingRequestContent(current) !== content || (current.createdAt !== null && item.createdAt !== null && current.createdAt !== item.createdAt);
+        };
         // History owns occurrence feedback. A fresh dispatch guard lets a surviving card answer
         // a later occurrence, while the shared registry still locks any actual in-flight call.
         const guard = createPermissionActionDispatchGuard(requestKey, { holdAfterSuccess: false });
@@ -198,15 +223,23 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
                 const result = await call();
                 if (result && !result.ok) throw result;
             });
-            if (sent && actions.getState().actions.get(generation) === sending) {
-                const outcome = kind === 'allow' ? 'allowed' : 'denied';
-                setWaitingAction(actions, generation, { phase: 'sent', outcome });
+            if (sent && ownsAttempt()) {
+                if (contentsChanged()) {
+                    setWaitingAction(actions, generation, { phase: 'changed', requestKey: item.key, result: 'sent' });
+                } else {
+                    const outcome = kind === 'allow' ? 'allowed' : 'denied';
+                    setWaitingAction(actions, generation, { phase: 'sent', outcome });
+                }
             } else if (!sent && mounted.current && (actions.getState().actions.get(generation) ?? idleWaitingAction).phase === 'idle') {
                 setWaitingAction(actions, generation, { phase: 'idle', elsewhere: true });
             }
         } catch (error) {
             // This completion belongs to the reviewed version, even if the row now shows another.
-            if (actions.getState().actions.get(generation) !== sending) return;
+            if (!ownsAttempt()) return;
+            if (contentsChanged()) {
+                setWaitingAction(actions, generation, { phase: 'changed', requestKey: item.key, result: 'unconfirmed' });
+                return;
+            }
             if (actions.getState().departed.has(generation)) {
                 forgetWaitingAction(actions, generation);
                 return;
@@ -242,6 +275,11 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
     );
 
     return <>
+            {earlier || phase === 'changed' || (action.phase === 'sending' && action.contentsChanged) ? <Text testID={`ip-waiting-earlier-${item.requestId}`} accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.secondary}>
+                {t(earlier?.phase === 'sending' || phase === 'sending' ? 'ignorePrevious.waiting.earlierSending'
+                    : changedAnswer?.result === 'unconfirmed' ? 'ignorePrevious.waiting.earlierFailed' : 'ignorePrevious.waiting.earlierUnconfirmed')}
+            </Text> : null}
+            {item.requiresInspection ? <Text testID={`ip-waiting-inspect-${item.requestId}`} style={styles.secondary}>{t('ignorePrevious.waiting.inspectRequest')}</Text> : null}
             {phase === 'unavailable' ? <Text style={styles.secondary}>{t('ignorePrevious.waiting.alreadyAnswered')}</Text> : null}
             {item.disabledReason ? (
                 <Text style={styles.secondary}>
@@ -256,10 +294,10 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
                 </Text>
             ) : null}
             {questions ? <WaitingQuestion key={JSON.stringify([questions, item.disabledReason])} sessionId={item.sessionId} requestId={item.requestId} questions={questions}
-                readOnly={Boolean(item.disabledReason)} disabled={disabled} busy={busy} sent={phase === 'sent'} error={action.phase === 'idle' && action.error ? t('ignorePrevious.waiting.answerFailed') : null}
+                readOnly={Boolean(item.disabledReason || item.requiresInspection || earlier || phase === 'changed')} disabled={disabled} busy={busy} sent={phase === 'sent'} error={action.phase === 'idle' && action.error ? t('ignorePrevious.waiting.answerFailed') : null}
                 onDirtyChange={onDirtyChange} onSend={call => void send('allow', call)} /> : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {item.kind === 'user_action' || item.disabledReason ? null : (
+                {item.kind === 'user_action' || item.disabledReason || item.requiresInspection ? null : (
                     <>
                         {answerButton('allow', t('ignorePrevious.allow', { tool: item.tool }), () =>
                             sessionAllowResult(item.sessionId, item.requestId),

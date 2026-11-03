@@ -1,3 +1,4 @@
+import { permissionPayloadMatches } from '../helpers/sidechainPermissions';
 import type { ToolCall } from '../../domains/messages/messageTypes';
 import type { TracedMessage } from '../reducerTracer';
 import type { ReducerMessage, ReducerState } from '../reducer';
@@ -232,13 +233,17 @@ export function runSidechainsPhase(params: Readonly<{
                         result: undefined,
                     };
 
-                    // If there's a permission message, copy its permission info
+                    // Pending metadata can be shared. Completion matching happens after the batch is indexed.
                     if (existingPermissionMessageId != null) {
                         const permissionMessage = state.messages.get(existingPermissionMessageId);
-                        if (permissionMessage?.tool?.permission) {
-                            toolCall.permission = { ...permissionMessage.tool.permission };
-                            // Update the permission message to show it's running
-                            if (permissionMessage.tool.state !== 'completed' && permissionMessage.tool.state !== 'error') {
+                        if (permissionMessage?.tool?.permission?.status === 'pending') {
+                            const matches = permissionPayloadMatches(toolCall, { tool: permissionMessage.tool.name, arguments: permissionMessage.tool.input });
+                            // A known permission ID with conflicting contents remains inspectable.
+                            // It supplies no authority to answer the child or change the current mirror.
+                            toolCall.permission = matches ? { ...permissionMessage.tool.permission }
+                                : { id: permissionMessage.tool.permission.id, status: 'pending', requiresInspection: true };
+                            // Update the matching permission message to show it's running.
+                            if (matches && permissionMessage.tool.state !== 'completed' && permissionMessage.tool.state !== 'error') {
                                 permissionMessage.tool.state = 'running';
                                 permissionMessage.tool.startedAt = msg.createdAt;
                                 permissionMessage.tool.description = c.description;
@@ -263,7 +268,9 @@ export function runSidechainsPhase(params: Readonly<{
                     existingSidechain.push(toolMsg);
 
                     // Map sidechain tool separately to avoid overwriting permission mapping
-                    state.sidechainToolIdToMessageId.set(c.id, mid);
+                    const occurrences = state.sidechainToolIdToMessageId.get(c.id) ?? [];
+                    occurrences.push({ messageId: mid, sidechainId });
+                    state.sidechainToolIdToMessageId.set(c.id, occurrences);
                 } else if (c.type === 'tool-result') {
                     // Process tool result in sidechain - update BOTH messages
                     const toolResult = {
@@ -293,7 +300,10 @@ export function runSidechainsPhase(params: Readonly<{
                     const permissionMessageId = resolveSidechainPermissionMirror(state, c.tool_use_id);
                     if (permissionMessageId != null) {
                         const permissionMessage = state.messages.get(permissionMessageId);
-                        if (permissionMessage?.tool?.permission) {
+                        const child = sidechainMessageId ? state.messages.get(sidechainMessageId)?.tool : null;
+                        if (permissionMessage?.tool?.permission && child
+                            && permissionPayloadMatches(permissionMessage.tool, { tool: child.name, arguments: child.input })
+                            && permissionMessage.tool.createdAt <= child.createdAt) {
                             applyToolResultUpdateToReducerMessage({
                                 message: permissionMessage,
                                 messageId: permissionMessageId,

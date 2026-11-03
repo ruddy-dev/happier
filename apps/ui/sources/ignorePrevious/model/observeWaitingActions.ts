@@ -4,7 +4,7 @@ import { observePendingSessionRequest } from '@/sync/domains/session/pending/lis
 import { canReuseTranscriptRenderableAggregateRequestStates } from '@/sync/domains/messages/transcriptRenderableAggregate';
 import { waitingItemGenerationKey, waitingRequestContent, type WaitingItem } from './waitingItems';
 import { isUserFacingSession } from '@/sync/domains/session/listing/isUserFacingSession';
-import { forgetWaitingAction, type WaitingHistory } from './waitingHistory';
+import { forgetWaitingAction, setWaitingAction, type WaitingHistory } from './waitingHistory';
 
 type State = ReturnType<typeof storage.getState>;
 type Watch = { item: WaitingItem; source?: readonly unknown[] };
@@ -82,7 +82,13 @@ function startObserving(history: WaitingHistory) {
                 || waitingRequestContent(request) !== item.requestContent
                 || (request.createdAt !== null && item.createdAt !== null && request.createdAt !== item.createdAt)) {
                 // Retire feedback only. The shared transport guard still owns the actual call.
-                forgetWaitingAction(history, key);
+                const action = history.getState().actions.get(key);
+                if (action?.phase === 'sending' && !action.contentsChanged) {
+                    setWaitingAction(history, key, { ...action, contentsChanged: true });
+                }
+                if (action?.phase !== 'sending' && (action?.phase !== 'changed' || history.getState().departed.has(key))) {
+                    forgetWaitingAction(history, key);
+                }
             }
         }
     };

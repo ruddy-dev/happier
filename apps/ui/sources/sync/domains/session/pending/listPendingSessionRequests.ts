@@ -22,6 +22,8 @@ export type SessionPendingRequest = Readonly<{
     arguments: unknown;
     createdAt: number | null;
     permissionSuggestions?: unknown;
+    /** Conflicting same-ID evidence cannot safely select an occurrence for an ID-only answer. */
+    requiresInspection?: true;
 }>;
 
 type PendingRequestFlags = Readonly<{
@@ -53,6 +55,7 @@ export type TranscriptRequestState = (
     }>) & Readonly<{
         /** Older hard outcomes still suppress stale agent details after a later pending contribution. */
         hardTerminalCreatedAt?: number;
+        hardTerminalRequest?: SessionPendingRequest;
     }>;
 
 /**
@@ -96,15 +99,21 @@ function arePendingRequestsEquivalent(left: SessionPendingRequest, right: Sessio
         return true;
     }
 
-    return left.createdAt !== null && right.createdAt !== null && left.createdAt === right.createdAt;
+    return (!leftArgs || !rightArgs) && left.createdAt !== null && right.createdAt !== null && left.createdAt === right.createdAt;
 }
 
 function mergePendingRequestMetadata(
     preferred: SessionPendingRequest,
     secondary: SessionPendingRequest,
 ): SessionPendingRequest {
+    const { requiresInspection, ...metadata } = preferred;
+    if (requiresInspection && preferred.id === secondary.id && !secondary.requiresInspection) {
+        // A live producer request disambiguates the current payload, not the old occurrence's time.
+        return { ...metadata, ...secondary };
+    }
     return {
-        ...preferred,
+        ...metadata,
+        ...(requiresInspection && (preferred.id !== secondary.id || secondary.requiresInspection) ? { requiresInspection } : {}),
         arguments: typeof preferred.arguments !== 'undefined' ? preferred.arguments : secondary.arguments,
         createdAt: preferred.createdAt ?? secondary.createdAt,
         ...(preferred.permissionSuggestions
@@ -155,7 +164,9 @@ export function mergeTranscriptRequestState(
         readHardTerminalCreatedAt(nextState) ?? -Infinity,
     );
     return hardTerminalCreatedAt > (readHardTerminalCreatedAt(winner) ?? -Infinity)
-        ? { ...winner, hardTerminalCreatedAt }
+        ? { ...winner, hardTerminalCreatedAt,
+            hardTerminalRequest: readHardTerminalCreatedAt(nextState) === hardTerminalCreatedAt
+                ? nextState.hardTerminalRequest : previousState.hardTerminalRequest }
         : winner;
 }
 
@@ -202,6 +213,7 @@ export function collectTranscriptRequestStates(
                         kind: resolveAgentRequestKind({ toolName, requestKind: permission.kind }),
                         arguments: message.tool?.input,
                         createdAt,
+                        ...(permission.requiresInspection ? { requiresInspection: true as const } : {}),
                         ...(Array.isArray(permission.suggestions) && permission.suggestions.length > 0
                             ? { permissionSuggestions: permission.suggestions }
                             : {}),
@@ -211,6 +223,7 @@ export function collectTranscriptRequestStates(
                 updateTranscriptRequestState(states, requestId, {
                     status: 'terminal',
                     createdAt,
+                    hardTerminalRequest: { id: requestId, tool: toolName, kind: resolveAgentRequestKind({ toolName, requestKind: permission.kind }), arguments: message.tool.input, createdAt },
                     terminalKind: isRequestInterruptedPlaceholder({
                         permission,
                         result: message.tool?.result as { error?: unknown } | null | undefined,
@@ -281,7 +294,8 @@ function listPendingAgentStateRequests(agentState: AgentState | null | undefined
 
 function isAgentRequestSuppressedByTranscript(request: SessionPendingRequest, state: TranscriptRequestState | undefined): boolean {
     const hardTerminalCreatedAt = readHardTerminalCreatedAt(state);
-    return hardTerminalCreatedAt !== null && (request.createdAt ?? 0) <= hardTerminalCreatedAt;
+    return hardTerminalCreatedAt !== null && (request.createdAt ?? 0) <= hardTerminalCreatedAt
+        && (!state?.hardTerminalRequest || arePendingRequestsEquivalent(request, state.hardTerminalRequest));
 }
 
 /**
@@ -317,8 +331,14 @@ export function observePendingSessionRequest(
 function readUncoveredTranscriptRequest(session: Session, state: TranscriptRequestState | undefined): SessionPendingRequest | null {
     if (state?.status !== 'pending') return null;
     const request = state.request;
+    if (request.requiresInspection) return request;
     return isPendingRequestCoveredByCompleted(session.agentState?.completedRequests,
-        request.id, request.createdAt, request) ? null : request;
+        request.id, request.createdAt, request) ? null
+        : session.agentState?.completedRequests?.[request.id]
+            && !arePendingRequestsEquivalent(request, {
+                ...request, tool: session.agentState.completedRequests[request.id].tool,
+                arguments: session.agentState.completedRequests[request.id].arguments,
+            }) ? { ...request, requiresInspection: true } : request;
 }
 
 function listUncoveredTranscriptRequests(session: Session, states: Map<string, TranscriptRequestState>): SessionPendingRequest[] {

@@ -24,6 +24,7 @@ export type WaitingItem = {
     createdAt: number | null;
     /** Set for a shared session you may watch but not approve in: the card shows no Allow or Deny. */
     disabledReason: WaitingDisabledReason;
+    requiresInspection?: true;
 };
 
 /** Local answer state must never transfer to different content under the same request id. */
@@ -190,6 +191,7 @@ export function toWaitingItems(
             agentNote: optionalDisplayText(stringField(parseArguments(request.arguments), 'description')),
             createdAt: request.createdAt,
             disabledReason,
+            ...(request.requiresInspection ? { requiresInspection: true as const } : {}),
         })),
     );
     return items.sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

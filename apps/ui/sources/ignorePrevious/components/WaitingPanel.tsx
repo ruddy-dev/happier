@@ -116,10 +116,10 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange, onFocusFal
         }
         const actions = previous.actions;
         // A removed row may still settle into Answered; a later occurrence starts fresh.
-        const pendingAnswers = new Set(nextAnswered.map(entry => waitingItemGenerationKey(entry.item)));
         const reappeared = new Set(previous.answered.filter(entry => currentKeys.has(entry.item.key)).map(entry => waitingItemGenerationKey(entry.item)));
-        const kept = new Map([...actions].filter(([key, action]) => !reappeared.has(key)
-            && (currentGenerations.has(key) || (action.phase === 'sending' && pendingAnswers.has(key)))));
+        const kept = new Map([...actions].filter(([key, action]) => action.phase === 'sending'
+            || (action.phase === 'changed' && currentKeys.has(action.requestKey))
+            || (!reappeared.has(key) && currentGenerations.has(key))));
         currentHistory.setState({ previous: items, answered: nextAnswered, actions: kept.size === actions.size ? actions : kept });
     }, [items, unloaded, ready, status, desk.list, desk.lookup, currentHistory, answered]);
     const navigateToSession = useDeskSessionNavigation();

@@ -4,7 +4,8 @@ import { waitingItemGenerationKey, type WaitingItem } from './waitingItems';
 export type WaitingOutcome = 'allowed' | 'denied' | 'unavailable';
 export type WaitingAction =
     | Readonly<{ phase: 'idle'; elsewhere?: boolean; error?: boolean }>
-    | Readonly<{ phase: 'sending' }>
+    | Readonly<{ phase: 'sending'; requestKey?: string; attempt?: object; contentsChanged?: true }>
+    | Readonly<{ phase: 'changed'; requestKey: string; result: 'sent' | 'unconfirmed' }>
     | Readonly<{ phase: 'sent'; outcome: 'allowed' | 'denied' }>
     | Readonly<{ phase: 'unavailable'; outcome: 'unavailable' }>;
 
