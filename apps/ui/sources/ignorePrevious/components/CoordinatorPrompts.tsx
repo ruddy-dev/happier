@@ -6,7 +6,7 @@ import { Modal } from '@/modal';
 import { readComposerText, requestComposerText } from '@/components/sessions/model/composerRequests';
 import { t } from '@/text';
 
-import { readDeskWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
+import { readDeskAttentionWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
 
 /** The waiting list as the coordinator reads it: what each request runs, not only the agent's description. */
@@ -71,7 +71,7 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
             {count > 0
                 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () =>
                       // Read the details only on press, so the closed chip keeps only the count subscription.
-                      fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskWaits(coordinatorId)) })),
+                      fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskAttentionWaits(coordinatorId)) })),
                   )
                 : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}
