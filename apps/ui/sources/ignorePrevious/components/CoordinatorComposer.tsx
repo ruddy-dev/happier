@@ -1,7 +1,6 @@
 import * as React from 'react';
-import { Platform, useWindowDimensions, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { t } from '@/text';
-import { layout } from '@/components/ui/layout/layout';
 import { useDeskPref } from '../deskPrefs';
 import { terminalPalettes } from '../palette';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
@@ -26,6 +25,7 @@ function WebCoordinatorComposer({ children }: React.PropsWithChildren) {
         prompt: terminal ? <DeskText testID="ip-composer-prompt" aria-hidden style={{ color: paint.user, fontSize: 13, fontWeight: '700' }}>
             {t('ignorePrevious.composer.prompt')}<DeskText style={{ color: paint.mute }}>{' ~ '}</DeskText>{'> '}
         </DeskText> : null,
+        panelFooter: terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null,
         textStyle: terminal ? { fontFamily: DESK_FONT_STACK, color: paint.ink } : undefined,
     }), [observer, terminal, paint]);
     // CSS changes only this instance's existing web composer hosts. It neither discovers inputs
@@ -47,7 +47,6 @@ function WebCoordinatorComposer({ children }: React.PropsWithChildren) {
         <View nativeID={scope} style={{ flex: 1, minHeight: 0 }}>
             <style>{chrome}</style>
             <View style={{ flex: 1, minHeight: 0 }}>{children}</View>
-            {terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null}
         </View>
     </CoordinatorComposerInputContext.Provider>;
 }
@@ -57,21 +56,18 @@ function ComposerStatusStrip({ observer, paint }: {
 }) {
     const draft = React.useSyncExternalStore(observer.subscribe, observer.getSnapshot, observer.getSnapshot);
     const waits = useDeskWaitsSummary();
-    const { width } = useWindowDimensions();
     const cell = { paddingHorizontal: 9, paddingVertical: 4, fontSize: 12 };
-    return <View style={{ paddingHorizontal: width > 700 ? 16 : 8, paddingBottom: 8 }}>
-        <View testID="ip-composer-status-strip" style={{ flexDirection: 'row', flexWrap: 'wrap', alignSelf: 'center', width: '100%', maxWidth: layout.maxWidth,
-            borderTopWidth: 1, borderColor: paint.rule, backgroundColor: paint.bg }}>
-            <DeskText testID="ip-composer-draft-status" style={{ ...cell, color: paint.bg, backgroundColor: draft.writing ? paint.user : paint.bot, fontWeight: '700' }}>
-                {t(draft.writing ? 'ignorePrevious.composer.writing' : 'ignorePrevious.composer.ready')}
-            </DeskText>
-            {draft.multiline ? <DeskText testID="ip-composer-position" style={{ ...cell, color: paint.ink, backgroundColor: paint.panel2 }}>
-                {t('ignorePrevious.composer.position', { line: draft.line, column: draft.column })}
-            </DeskText> : null}
-            <View style={{ flex: 1 }} />
-            <DeskText testID="ip-composer-waiting" style={{ ...cell, color: paint.yelink, backgroundColor: paint.yel, fontWeight: '700' }}>
-                {waits.ready ? t('ignorePrevious.composer.waiting', { count: waits.count }) : t('ignorePrevious.composer.waitingUnknown')}
-            </DeskText>
-        </View>
+    return <View testID="ip-composer-status-strip" style={{ flexDirection: 'row', flexWrap: 'wrap', flexShrink: 0, width: '100%',
+        borderTopWidth: 1, borderColor: paint.rule, backgroundColor: paint.bg }}>
+        <DeskText testID="ip-composer-draft-status" style={{ ...cell, color: paint.bg, backgroundColor: draft.writing ? paint.user : paint.bot, fontWeight: '700' }}>
+            {t(draft.writing ? 'ignorePrevious.composer.writing' : 'ignorePrevious.composer.ready')}
+        </DeskText>
+        {draft.multiline ? <DeskText testID="ip-composer-position" style={{ ...cell, color: paint.ink, backgroundColor: paint.panel2 }}>
+            {t('ignorePrevious.composer.position', { line: draft.line, column: draft.column })}
+        </DeskText> : null}
+        <View style={{ flex: 1 }} />
+        <DeskText testID="ip-composer-waiting" style={{ ...cell, color: paint.yelink, backgroundColor: paint.yel, fontWeight: '700' }}>
+            {waits.ready ? t('ignorePrevious.composer.waiting', { count: waits.count }) : t('ignorePrevious.composer.waitingUnknown')}
+        </DeskText>
     </View>;
 }

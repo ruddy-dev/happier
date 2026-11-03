@@ -29,6 +29,7 @@ export function createCoordinatorComposerObserver() {
 export const CoordinatorComposerInputContext = React.createContext<Readonly<{
     observer: ReturnType<typeof createCoordinatorComposerObserver>;
     prompt: React.ReactNode;
+    panelFooter: React.ReactNode;
     textStyle?: Readonly<{ fontFamily: string; color: string }>;
 }> | null>(null);
 
@@ -36,4 +37,10 @@ export const CoordinatorComposerInputContext = React.createContext<Readonly<{
 export function useCoordinatorComposerInput(testID: string | undefined) {
     const context = React.useContext(CoordinatorComposerInputContext);
     return testID === 'session-composer-input' ? context : null;
+}
+
+/** The real composer box owns this child, so hidden or replaced sessions unmount it. */
+export function useCoordinatorComposerPanelFooter(testID: string | undefined) {
+    const context = React.useContext(CoordinatorComposerInputContext);
+    return testID === 'agent-input-drop-zone' ? context?.panelFooter : null;
 }

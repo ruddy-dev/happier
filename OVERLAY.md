@@ -162,6 +162,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/components/sessions/files/repositoryTree/WebDropTargetView.tsx` | ATR-84 appends the coordinator context's footer only to the web `agent-input-drop-zone` host. The strip lives inside the real composer box and unmounts with it; other drop targets, ordinary composers and native hosts get no footer. No DOM discovery or polling. |
 | `apps/ui/sources/components/ui/forms/MultiTextInput.web.tsx` | ATR-84 reads a nullable coordinator-only context for the Terminal prompt/font and a per-instance draft/selection observer. Existing change, selection, imperative-edit and reconciliation paths notify it from the actual textarea. Other web inputs and native inputs retain their existing rendering and behavior. |
 | `apps/ui/sources/app/(app)/index.tsx` | ATR-55 redirects the ordinary authenticated web root to `/desk` only when there are no query parameters and no pending terminal connection. Any root query, including server overrides, legacy `url`/`auto` links and unrelated parameters, keeps its existing owner. Native redirect behavior, signed-out welcome, session links, non-root URLs and the existing Tauri setup/home branch are preserved. Component coverage lives in `ignorePrevious/screens/startPage.test.tsx`. |
 | `apps/ui/sources/components/navigation/shell/SidebarNavigator.tsx` | Hides the shared sidebar on the desk route; coverage lives beside it in `SidebarNavigator.collapsed.test.tsx`. |
