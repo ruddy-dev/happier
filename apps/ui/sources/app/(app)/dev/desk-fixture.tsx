@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Redirect, Stack } from 'expo-router';
+import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { View } from 'react-native';
 
@@ -35,6 +35,8 @@ function loadFixture(): Promise<typeof import('@/ignorePrevious/fixtures/applyDe
 }
 
 function FixtureDesk() {
+    const { data } = useLocalSearchParams<{ data?: string }>();
+    const dataset = data === 'demo' ? 'demo' : undefined;
     const auth = useAuth();
     const profile = useProfile();
     const signedIn = auth.isAuthenticated || auth.credentials != null || Boolean(profile.id);
@@ -48,7 +50,7 @@ function FixtureDesk() {
             .then(({ applyDeskFixture }) => {
                 // The store is filled before DeskScreen mounts, so its first render already has the desk.
                 if (!live || resolveWarmCacheAccountScope(storage.getState().profile.id)) return;
-                release = applyDeskFixture();
+                release = applyDeskFixture(Date.now(), dataset);
                 setReady(true);
             })
             .catch((error: unknown) => {
@@ -59,7 +61,7 @@ function FixtureDesk() {
             release?.();
             setReady(false);
         };
-    }, [signedIn]);
+    }, [signedIn, dataset]);
     if (failure) throw failure;
     if (signedIn) return <SignedInNotice />;
     return ready ? (
