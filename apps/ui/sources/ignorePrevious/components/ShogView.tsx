@@ -64,7 +64,7 @@ export function ShogView({ onClose, contentRef, panelId, height = 360 }: {
                     anchor={PANEL_ANCHOR} scale={PANEL_SCALE} artTheme={artTheme} maskColours={maskColours} playback={!calm && playback === 'playing' ? 'playing' : 'paused'} />
                 {maskSize > 0 && Platform.OS !== 'ios' && Platform.OS !== 'android' ? <View pointerEvents="none" accessible={false}
                     style={{ position: 'absolute', left: (width - maskSize) / 2, top: (stageHeight - maskSize * 1.08) / 2, transform: [{ rotate: '-6deg' }] }}>
-                    <MaskFace size={maskSize} colours={maskColours} bulb={redEyes > 0 ? 'turn' : 'rest'} sleepy={false} />
+                    <MaskFace size={maskSize} shadow colours={maskColours} bulb={redEyes > 0 ? 'turn' : 'rest'} />
                 </View> : null}
             </View>
             <View testID="ip-shog-footer" style={{ paddingHorizontal: 16, paddingVertical: 10, gap: 10, borderTopWidth: 1,
