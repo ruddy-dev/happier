@@ -1,7 +1,8 @@
 import type { ActionId } from '@happier-dev/protocol';
 import { getActionSpec, listActionSpecs } from '@happier-dev/protocol';
 
-import type { Message } from '@/sync/domains/messages/messageTypes';
+import { readStoredSessionMessages } from '@/sync/domains/messages/readStoredSessionMessages';
+import type { Session } from '@/sync/domains/state/storageTypes';
 import { sync } from '@/sync/sync';
 import { storage } from '@/sync/domains/state/storage';
 import { trackPermissionResponse } from '@/track';
@@ -9,9 +10,8 @@ import { voiceActivityController } from '@/voice/activity/voiceActivityControlle
 import { createDefaultActionExecutor } from '@/sync/ops/actions/defaultActionExecutor';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { areServerProfileIdentifiersEquivalent } from '@/sync/domains/server/serverProfiles';
-import { resolveAgentRequestKind, type AgentRequestKind } from '@/utils/sessions/permissions/permissionPromptPolicy';
-import { listPendingPermissionRequests, listPendingUserActionRequests } from '@/utils/sessions/sessionUtils';
-import { isPendingSessionRequestActionable, type SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import type { AgentRequestKind } from '@/utils/sessions/permissions/permissionPromptPolicy';
+import { isPendingSessionRequestActionable, listPendingSessionRequests, observePendingSessionRequest, type SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { resolveAskUserQuestionDecisionAnswers } from '@/voice/requests/resolveAskUserQuestionDecisionAnswers';
 
 function normalizeId(raw: unknown): string {
@@ -65,85 +65,16 @@ type VoicePendingRequest = Readonly<{
   request: SessionPendingRequest;
 }>;
 
-function getPendingSessionRequests(session: unknown): VoicePendingRequest[] {
-  if ((session as any)?.active !== true) {
-    return [];
-  }
-  const requests = (session as any)?.agentState?.requests as Record<string, unknown> | undefined;
-  if (!requests || typeof requests !== 'object') return [];
-  const out: VoicePendingRequest[] = [];
-  for (const [requestId, raw] of Object.entries(requests)) {
-    const normalizedId = normalizeId(requestId);
-    const record = asPlainObject(raw);
-    const toolName = typeof record?.tool === 'string' ? record.tool.trim() : '';
-    if (!normalizedId || !toolName) continue;
-    const requestKind = resolveAgentRequestKind({ toolName, requestKind: record?.kind });
-    out.push({
-      requestId: normalizedId,
-      toolName,
-      requestKind,
-      request: {
-        id: normalizedId, tool: toolName,
-        kind: requestKind,
-        arguments: record?.arguments,
-        createdAt: typeof record?.createdAt === 'number' && Number.isFinite(record.createdAt) ? record.createdAt : null,
-      },
-    });
-  }
-  return out;
-}
-
-function getStoredSessionMessages(sessionId: string): ReadonlyArray<Message> | undefined {
-  const messages = (storage.getState() as any)?.sessionMessages?.[sessionId]?.messages;
-  return Array.isArray(messages) ? (messages as ReadonlyArray<Message>) : undefined;
-}
-
-function getPendingRequestsForSession(sessionId: string, session: unknown): VoicePendingRequest[] {
-  const candidateSession = session && typeof session === 'object'
-    ? (session as Parameters<typeof listPendingPermissionRequests>[0])
-    : null;
-  if (!candidateSession) {
-    return getPendingSessionRequests(session);
-  }
-
-  if ((candidateSession as any).active !== true) {
-    return [];
-  }
-
-  const permissionRequests = (() => {
-    try {
-      return listPendingPermissionRequests(candidateSession, getStoredSessionMessages(sessionId));
-    } catch {
-      return [];
-    }
-  })();
-  const userActionRequests = (() => {
-    try {
-      return listPendingUserActionRequests(candidateSession, getStoredSessionMessages(sessionId));
-    } catch {
-      return [];
-    }
-  })();
-  const resolved = [
-    ...permissionRequests.map((request) => ({
-      requestId: request.id,
-      toolName: request.tool,
-      requestKind: request.kind,
-      request,
-    })),
-    ...userActionRequests.map((request) => ({
-      requestId: request.id,
-      toolName: request.tool,
-      requestKind: request.kind,
-      request,
-    })),
-  ];
-
-  if (resolved.length > 0) {
-    return resolved;
-  }
-
-  return getPendingSessionRequests(session);
+function getPendingRequestsForSession(sessionId: string, session: Session | null | undefined): VoicePendingRequest[] {
+  if (session?.active !== true) return [];
+  const state = storage.getState();
+  const states = state.sessionMessages?.[sessionId]?.renderableAggregate?.requestStates;
+  // An empty canonical result is authoritative. Without an index, the shared
+  // reader accepts both normalized records and legacy message arrays.
+  return listPendingSessionRequests(session,
+    states ? undefined : readStoredSessionMessages(state, sessionId),
+    states ? { states } : undefined,
+  ).map(request => ({ requestId: request.id, toolName: request.tool, requestKind: request.kind, request }));
 }
 
 function listMatchingPendingRequestsAcrossSessions(
@@ -151,7 +82,7 @@ function listMatchingPendingRequestsAcrossSessions(
   explicitRequestId: unknown,
 ): Array<Readonly<{ sessionId: string; requestId: string }>> {
   const explicit = normalizeId(explicitRequestId);
-  const sessions = (storage.getState() as any)?.sessions ?? {};
+  const sessions = storage.getState().sessions ?? {};
   const matches: Array<Readonly<{ sessionId: string; requestId: string }>> = [];
 
   for (const [sessionId, session] of Object.entries(sessions)) {
@@ -197,7 +128,7 @@ export function createVoiceToolHandlers(
 
   const selectPendingRequestId = (
     sessionId: string,
-    session: unknown,
+    session: Session | null | undefined,
     kind: AgentRequestKind,
     explicitRequestId: unknown,
   ): { ok: true; requestId: string; request: SessionPendingRequest } | { ok: false; errorCode: string; payload?: Record<string, unknown> } => {
@@ -223,24 +154,28 @@ export function createVoiceToolHandlers(
       };
     }
     if (candidates.length > 0) return { ok: false, errorCode: 'permission_request_requires_inspection' };
+    // Raw entries are evidence of the current target, never authority to act.
+    // Do not reinterpret a completed/inspect-only current item as an empty session.
+    if (session?.active === true && Object.keys(session.agentState?.requests ?? {}).length > 0) {
+      return { ok: false, errorCode: 'permission_request_not_found' };
+    }
     return { ok: false, errorCode: 'no_permission_request' };
   };
 
   const resolvePendingRequestRecord = (
     sessionId: string,
-    session: unknown,
+    session: Session | null | undefined,
     kind: AgentRequestKind,
     requestId: string,
   ) => {
-    const candidateSession = session && typeof session === 'object'
-      ? session as Parameters<typeof listPendingPermissionRequests>[0]
-      : null;
-    if (!candidateSession) return null;
-    const messages = getStoredSessionMessages(sessionId);
-    const requests = kind === 'user_action'
-      ? listPendingUserActionRequests(candidateSession, messages)
-      : listPendingPermissionRequests(candidateSession, messages);
-    return requests.find((request) => request.id === requestId) ?? null;
+    if (session?.active !== true) return null;
+    const states = storage.getState().sessionMessages?.[sessionId]?.renderableAggregate?.requestStates;
+    if (states) {
+      const observed = observePendingSessionRequest(session, requestId, states.get(requestId));
+      return observed.status === 'pending' && observed.request.kind === kind ? observed.request : null;
+    }
+    return getPendingRequestsForSession(sessionId, session)
+      .find(request => request.requestId === requestId && request.requestKind === kind)?.request ?? null;
   };
 
   const resolvePendingRequestSession = async (
@@ -252,7 +187,7 @@ export function createVoiceToolHandlers(
     | { ok: true; sessionId: string; requestId: string; request: SessionPendingRequest }
     | { ok: false; errorCode: string; payload?: Record<string, unknown> }
   > => {
-    const sessions = (storage.getState() as any)?.sessions ?? {};
+    const sessions = storage.getState().sessions ?? {};
     const resolvedSession = sessions?.[resolvedSessionId] ?? null;
     let selected = selectPendingRequestId(resolvedSessionId, resolvedSession, kind, explicitRequestId);
     if (selected.ok) {
@@ -262,11 +197,11 @@ export function createVoiceToolHandlers(
     if (selected.errorCode === 'no_permission_request') {
       const ensureVisible = (sync as any).ensureSessionVisibleForMessageRoute;
       if (typeof ensureVisible === 'function') {
-        await Promise.resolve(ensureVisible(resolvedSessionId)).catch(() => {});
+        await ensureVisible(resolvedSessionId);
       }
       const refreshSessionMessages = (sync as any).refreshSessionMessages;
       if (typeof refreshSessionMessages === 'function') {
-        await Promise.resolve(refreshSessionMessages(resolvedSessionId)).catch(() => {});
+        await refreshSessionMessages(resolvedSessionId);
       }
       const hydratedSessions = (storage.getState() as any)?.sessions ?? {};
       const hydratedResolvedSession = hydratedSessions?.[resolvedSessionId] ?? null;
@@ -276,7 +211,7 @@ export function createVoiceToolHandlers(
       }
       if (selected.errorCode === 'no_permission_request') {
         if (typeof ensureVisible === 'function') {
-          await Promise.resolve(ensureVisible(resolvedSessionId, { forceRefresh: true })).catch(() => {});
+          await ensureVisible(resolvedSessionId, { forceRefresh: true });
         }
         const refreshedSessions = (storage.getState() as any)?.sessions ?? {};
         const refreshedResolvedSession = refreshedSessions?.[resolvedSessionId] ?? null;
@@ -456,8 +391,7 @@ export function createVoiceToolHandlers(
     const decision = data.decision === 'allow' || data.decision === 'deny' ? data.decision : null;
     if (!decision) return jsonError('invalid_parameters', 'invalid_parameters');
 
-    const current = getPendingRequestsForSession(sessionId, storage.getState().sessions?.[sessionId])
-      .find(request => request.requestId === selected.requestId)?.request;
+    const current = resolvePendingRequestRecord(sessionId, storage.getState().sessions?.[sessionId], 'permission', requestId);
     if (!current || !isPendingSessionRequestActionable(selected.request, current)) {
       return jsonError('permission_request_changed', 'permission_request_changed', { sessionId, requestId });
     }
@@ -551,8 +485,7 @@ export function createVoiceToolHandlers(
       return jsonError('invalid_parameters', 'invalid_parameters', { sessionId });
     }
 
-    const current = getPendingRequestsForSession(sessionId, storage.getState().sessions?.[sessionId])
-      .find(request => request.requestId === selected.requestId)?.request;
+    const current = resolvePendingRequestRecord(sessionId, storage.getState().sessions?.[sessionId], 'user_action', requestId);
     if (!current || !isPendingSessionRequestActionable(selected.request, current)) {
       return jsonError('permission_request_changed', 'permission_request_changed', { sessionId, requestId });
     }
@@ -596,8 +529,16 @@ export function createVoiceToolHandlers(
 
   // Voice surface overrides (extra UX behavior).
   handlers.sendSessionMessage = sendSessionMessage;
-  handlers.processPermissionRequest = processPermissionRequest;
-  handlers.answerUserActionRequest = answerUserActionRequest;
+  const failClosed = (handler: (parameters: unknown) => Promise<string>) => async (parameters: unknown): Promise<string> => {
+    try {
+      return await handler(parameters);
+    } catch {
+      // A failed read/refresh cannot establish an empty session or authorize a fallback.
+      return jsonError('permission_request_unavailable');
+    }
+  };
+  handlers.processPermissionRequest = failClosed(processPermissionRequest);
+  handlers.answerUserActionRequest = failClosed(answerUserActionRequest);
 
   return Object.freeze(handlers);
 }
