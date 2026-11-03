@@ -21,6 +21,29 @@ export function mountDeskFont(doc: Document): () => void {
 }
 [data-ip-font="desk"] { font-family: ${DESK_FONT_STACK}; }
 [data-ip-page-scope] :focus-visible { outline: 3px solid var(--ip-page-focus) !important; outline-offset: 2px; }
+/* The mobile welcome copy crosses the inherited planet; opaque theme canvas keeps it readable. */
+@media (max-width: 720px) {
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-question-title"],
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-question-subtitle"],
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-private-key-copy"],
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-signup-disabled"],
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-server-loading"] {
+        background-color: var(--ip-page-surface); box-shadow: 0 0 8px 4px var(--ip-page-surface);
+    }
+}
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-primary-start"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-secondary-login"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-create-account"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-signup-provider"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-login-provider"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-mtls-login"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-change-relay"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-retry-server"],
+[data-ip-terminal] [data-testid="restore-manual-secret-input"],
+[data-ip-terminal] [data-testid="restore-manual-submit"],
+[data-ip-terminal] [data-testid="ip-voice-page"] :is(button, input, select, textarea, [role="button"]) {
+    border-radius: 2px !important;
+}
 `;
         installation = { style, mounts: 0 };
         installations.set(doc, installation);

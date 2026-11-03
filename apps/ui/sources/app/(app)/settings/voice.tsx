@@ -37,7 +37,7 @@ function VoiceSettingsContent() {
     ?? null;
 
   return (
-    <View style={{ flex: 1 }} ref={popoverBoundaryRef}>
+    <View testID="ip-voice-page" style={{ flex: 1 }} ref={popoverBoundaryRef}>
       <ItemList>
         <VoiceProviderSection voice={voice} setVoice={setVoice} happierVoiceSupported={happierVoiceSupported} />
 

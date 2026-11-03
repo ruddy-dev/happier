@@ -5,10 +5,10 @@ import { mountDeskFont } from '../fonts/deskFont';
 import { DeskPageThemeContext } from './deskPageThemeContext';
 import type { DeskPageThemeName } from './deskPageThemes';
 
-function PageFocusScope({ children }: React.PropsWithChildren) {
+function PageFocusScope({ children, name }: React.PropsWithChildren<{ name: DeskPageThemeName }>) {
     const { theme } = useUnistyles();
     if (Platform.OS !== 'web') return <>{children}</>;
-    return <div data-ip-page-scope="" style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, '--ip-page-focus': theme.colors.text.primary } as React.CSSProperties}>{children}</div>;
+    return <div data-ip-page-scope="" data-ip-terminal={name !== 'deskPageLight' && name !== 'deskPageDark' ? '' : undefined} style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, '--ip-page-focus': theme.colors.text.primary, '--ip-page-surface': theme.colors.background.canvas } as React.CSSProperties}>{children}</div>;
 }
 
 export function DeskPageScope({ name, children }: Readonly<{ name: DeskPageThemeName; children: React.ReactNode }>) {
@@ -18,7 +18,7 @@ export function DeskPageScope({ name, children }: Readonly<{ name: DeskPageTheme
     }, []);
     return (
         <DeskPageThemeContext.Provider value={name}>
-            <ScopedTheme name={name}><PageFocusScope>{children}</PageFocusScope></ScopedTheme>
+            <ScopedTheme name={name}><PageFocusScope name={name}>{children}</PageFocusScope></ScopedTheme>
         </DeskPageThemeContext.Provider>
     );
 }
@@ -26,5 +26,5 @@ export function DeskPageScope({ name, children }: Readonly<{ name: DeskPageTheme
 /** Body portals retain React context but need to re-establish Unistyles' CSS-variable scope. */
 export function DeskPagePortalScope({ children }: React.PropsWithChildren) {
     const name = React.useContext(DeskPageThemeContext);
-    return name ? <ScopedTheme name={name}><PageFocusScope>{children}</PageFocusScope></ScopedTheme> : <>{children}</>;
+    return name ? <ScopedTheme name={name}><PageFocusScope name={name}>{children}</PageFocusScope></ScopedTheme> : <>{children}</>;
 }

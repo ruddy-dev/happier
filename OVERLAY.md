@@ -221,7 +221,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/sync/ops/__tests__/sessionAbortResult.test.ts` | Covers result-bearing abort failures, success recovery, error propagation and legacy compatibility at the RPC boundary. |
 | `apps/ui/sources/app/(app)/index.tsx` | ATR-56 wraps only the unauthenticated sign-in branch in `DeskPageAppearance`; authenticated Home is unchanged. Sign-in explicitly disables scoped stack-header options. |
 | `apps/ui/sources/app/(app)/restore/manual.tsx` | ATR-56 wraps the existing secret-key restore content in the opt-in appearance scope; recovery, reveal and authentication behavior remain upstream-owned. |
-| `apps/ui/sources/app/(app)/settings/voice.tsx` | ATR-56 adds the opt-in appearance wrapper around the existing Voice settings content. |
+| `apps/ui/sources/app/(app)/settings/voice.tsx` | ATR-56 adds the opt-in appearance wrapper around the existing Voice settings content; ATR-93 marks its content root for route-scoped control styling. |
 | `apps/ui/sources/components/ui/text/Text.tsx` | ATR-56 appends the existing desk font stack to Text and TextInput only inside the local appearance context; scaling, selection and unrelated fonts remain unchanged. |
 | `apps/ui/sources/unistyles.web.ts` | ATR-56 registers two named scopes derived from the existing Ignore Previous profiles; leaves the global light/dark preference and startup selection unchanged. |
 | `apps/ui/sources/unistyles.ts` | ATR-56 registers the same names for consistent Unistyles types, but no native page opts in; native startup selection is unchanged. |
