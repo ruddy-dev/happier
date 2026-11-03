@@ -10,7 +10,7 @@ import { parseThemeColor, themeContrastRatioOverLayers } from '@/theme/themeCont
 import { CoordinatorTranscriptAppearanceProvider } from '../useCoordinatorTranscriptAppearance';
 import { deskPrefs } from '../deskPrefs';
 import { deskThemes, terminalPalettes, type TerminalPalette } from '../palette';
-import { DESK_FONT_STACK } from '../fonts/deskFont';
+import { deskMonoFontFamily } from '../fonts/deskFont';
 
 const tool = makeToolCall({ id: 'palette-question', name: 'AskUserQuestion', state: 'running', input: { questions: [{
     header: 'Release', question: 'Which release?', multiSelect: false,
@@ -62,8 +62,8 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         const screen = await renderScreen(<CoordinatorTranscriptAppearanceProvider>{question()}</CoordinatorTranscriptAppearanceProvider>);
         const option = screen.findHostByTestId('ask-user-question.option:0:0')!;
         const input = screen.findHostByTestId('ask-user-question.freeform:0')!;
-        expect.soft(StyleSheet.flatten(textNode(screen.root, 'Stable').props.style).fontFamily).toBe(DESK_FONT_STACK);
-        expect.soft(StyleSheet.flatten(input.props.style).fontFamily).toBe(DESK_FONT_STACK);
+        expect.soft(StyleSheet.flatten(textNode(screen.root, 'Stable').props.style).fontFamily).toBe(deskMonoFontFamily());
+        expect.soft(StyleSheet.flatten(input.props.style).fontFamily).toBe(deskMonoFontFamily());
         expect.soft(StyleSheet.flatten(option.props.style).borderRadius).toBeLessThanOrEqual(2);
         const brackets = () => screen.root.findAll(node => typeof node.type === 'string' &&
             node.props.accessibilityElementsHidden === true && node.children.some(child => typeof child === 'string' && /[\[\]]/.test(child)));
@@ -207,8 +207,8 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         expect(StyleSheet.flatten(textNode(screen.root, 'Which release?').props.style).color).toBe(theme.colors.text.primary);
         expect(StyleSheet.flatten(input!.props.style).backgroundColor).toBe(theme.colors.surface.base);
         const expectRegularControls = (root: ReactTestInstance, regularInput: ReactTestInstance) => {
-            expect(StyleSheet.flatten(textNode(root, 'Stable').props.style).fontFamily).not.toBe(DESK_FONT_STACK);
-            expect(StyleSheet.flatten(regularInput.props.style).fontFamily).not.toBe(DESK_FONT_STACK);
+            expect(StyleSheet.flatten(textNode(root, 'Stable').props.style).fontFamily).not.toBe(deskMonoFontFamily());
+            expect(StyleSheet.flatten(regularInput.props.style).fontFamily).not.toBe(deskMonoFontFamily());
             const option = root.findAll(node => typeof node.type === 'string' && node.props.testID === 'ask-user-question.option:0:0')[0];
             expect(StyleSheet.flatten(option.props.style).borderRadius).toBe(8);
             expect(root.findAll(node => typeof node.type === 'string' && node.props['aria-hidden'] === true &&
