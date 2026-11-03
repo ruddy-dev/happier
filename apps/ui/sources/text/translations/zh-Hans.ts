@@ -11103,6 +11103,16 @@ settingsSession: {
             error: 'Dictation failed. Check microphone permission and try again.',
             privacy: 'Browser dictation may send audio to its speech service, such as Google.',
         },
+        notifications: {
+            title: 'Notifications', tellMeWhen: 'Tell me when',
+            every: 'Every new question', everyDetail: 'Each time something lands in Waiting on you.',
+            blocked: 'Only when nothing can move without me', blockedDetail: 'When every worker is waiting on you, stuck or done.',
+            note: 'Alerts come from this browser tab while it is open. Phone alerts from Happier still arrive for each request. The alert itself only says "Waiting on you", so nothing about your work shows on a locked screen.',
+            on: 'on', allow: 'Allow browser alerts', denied: 'blocked in this browser; change it in the site settings',
+            unsupported: "this browser can't show alerts", native: 'Alerts are browser-only. You can still save your choice here.',
+            permissionFailed: "This browser couldn't allow alerts. Try again or check the site settings.",
+            alertTitle: 'Waiting on you',
+        },
         topBar: { sessions: 'Sessions', usage: 'Usage', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         usage: {
             maxWeek: 'Max week', lastFiveHours: 'Last five hours', fableShare: 'Fable share',
