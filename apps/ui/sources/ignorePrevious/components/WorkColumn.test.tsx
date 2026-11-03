@@ -967,29 +967,107 @@ describe('L4/N issue Archive on the real store', () => {
         projectManager.clear();
     });
 
-    it('L4: merge is button-only; stopped sessions archive while an idle running session and its card stay', async () => {
-        const running = session('running', '/fixture/atr-6', { active: true, activeAt: Date.now() });
-        const stopped = session('stopped', '/fixture/atr-6');
-        seed([session('coord', '/fixture/atr-6'), running, stopped]);
-        merged('stopped');
+    it('Round 3: keeps the stopped carrier while a running worker remains, then retries without new evidence', async () => {
+        const running = session('running', '/fixture/atr-6-running', { active: true, activeAt: Date.now() });
+        seed([
+            session('coord', '/fixture/atr-6-coord'), running,
+            session('carrier', '/fixture/atr-6-carrier'), session('stopped', '/fixture/atr-6-stopped'),
+        ]);
+        merged('carrier');
         const screen = await openIssue();
         expect(response).not.toHaveBeenCalled();
-        const archive = screen.findByTestId('ip-issue-archive-ATR-6');
-        expect(archive).not.toBeNull();
-        await pressTestInstanceAsync(archive!);
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
         expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/stopped/archive']);
         expect(apiSocket.sessionRPC).not.toHaveBeenCalled();
         expect(storage.getState().sessions.running.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
         expect(storage.getState().sessions.stopped.archivedAt).toBe(archivedAt);
         expect(storage.getState().sessions.coord.archivedAt).toBeFalsy();
         expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
-        // A later inactive worker needs its own current evidence after the first operation ended.
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).toBeNull();
         seed([{ ...running, seq: 2, updatedAt: Date.now(), active: false }]);
-        merged('running');
         expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
         await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual([
+            '/v2/sessions/stopped/archive', '/v2/sessions/running/archive', '/v2/sessions/carrier/archive',
+        ]);
         expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
         expect(screen.findByTestId('ip-count-all')?.props.children).toBe(0);
+    });
+
+    it('Round 3: unchanged merged snapshot republished after ten minutes still shows Archive and dispatches', async () => {
+        seed([session('carrier', '/fixture/atr-6-carrier')]);
+        const snapshot = prSnapshot({ fetchedAt: Date.now() - 660_000 });
+        snapshot.pullRequest = { ...snapshot.pullRequest!, state: 'merged' };
+        act(() => storage.getState().updateSessionProjectScmSnapshot('carrier', snapshot));
+        const screen = await openIssue();
+        const refreshed = { ...snapshot, fetchedAt: Date.now() };
+        act(() => storage.getState().updateSessionProjectScmSnapshot('carrier', refreshed));
+        // Exercise the real store's timestamp-only suppression without clearing its snapshot.
+        expect(storage.getState().getSessionProjectScmSnapshot('carrier')?.fetchedAt).toBe(snapshot.fetchedAt);
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(storage.getState().sessions.carrier.archivedAt).toBe(archivedAt);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it.each(['stopped', 'idle-active', 'failed'] as const)('Round 3: %s worker joining mid-operation stops carrier dispatch', async kind => {
+        seed([session('carrier', '/fixture/atr-6-carrier'), session('first', '/fixture/atr-6-first')]);
+        merged('carrier');
+        const deferred = createDeferred<Response>();
+        response.mockReturnValueOnce(deferred.promise);
+        const screen = await openIssue();
+        let pending: Promise<unknown> = Promise.resolve();
+        await act(async () => { pending = screen.findByTestId('ip-issue-archive-ATR-6')!.props.onPress(); });
+        seed([session('joined', '/fixture/atr-6-joined', {
+            active: kind !== 'stopped', activeAt: Date.now(),
+            ...(kind === 'failed' ? { latestTurnStatus: 'failed', latestTurnStatusObservedAt: Date.now() } : {}),
+        })]);
+        await act(async () => {
+            deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
+            await pending;
+        });
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/first/archive']);
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.joined.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).toBeNull();
+        seed([{ ...storage.getState().sessions.joined, seq: 2, updatedAt: Date.now(), active: false }]);
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual([
+            '/v2/sessions/first/archive', '/v2/sessions/joined/archive', '/v2/sessions/carrier/archive',
+        ]);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it('Round 3: rechecks live membership again between two carrier dispatches', async () => {
+        seed([
+            session('first-carrier', '/fixture/atr-6-first', { updatedAt: 20 }),
+            session('last-carrier', '/fixture/atr-6-last'),
+        ]);
+        merged('first-carrier');
+        merged('last-carrier');
+        const deferred = createDeferred<Response>();
+        response.mockReturnValueOnce(deferred.promise);
+        const screen = await openIssue();
+        let pending: Promise<unknown> = Promise.resolve();
+        await act(async () => { pending = screen.findByTestId('ip-issue-archive-ATR-6')!.props.onPress(); });
+        seed([session('joined', '/fixture/atr-6-joined')]);
+        await act(async () => {
+            deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
+            await pending;
+        });
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/first-carrier/archive']);
+        expect(storage.getState().sessions['first-carrier'].archivedAt).toBe(archivedAt);
+        expect(storage.getState().sessions['last-carrier'].archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.joined.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual([
+            '/v2/sessions/first-carrier/archive', '/v2/sessions/joined/archive', '/v2/sessions/last-carrier/archive',
+        ]);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
     });
 
     it('L4: partial failure names the failed worker, keeps Work and allows retry', async () => {
@@ -1033,7 +1111,7 @@ describe('L4/N issue Archive on the real store', () => {
         expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
     });
 
-    it.each(['fresh', 'old', 'missing', 'invalid'] as const)('Round 2 freshness: %s merged evidence controls display and dispatch recheck', async age => {
+    it.each(['fresh', 'old', 'missing', 'invalid'] as const)('Round 3: %s merged evidence never expires for display or dispatch', async age => {
         seed([session('carrier', '/fixture/atr-6')]);
         merged('carrier');
         const screen = await openIssue();
@@ -1041,10 +1119,10 @@ describe('L4/N issue Archive on the real store', () => {
         expect(archive).not.toBeNull();
         const archivePress = archive.props.onPress;
         merged('carrier', 'merged', age);
-        expect(Boolean(screen.findByTestId('ip-issue-archive-ATR-6'))).toBe(age === 'fresh');
-        // A callback captured before the snapshot changed must also refuse stale evidence.
+        expect(Boolean(screen.findByTestId('ip-issue-archive-ATR-6'))).toBe(true);
+        // A captured callback must also accept merged evidence regardless of its age.
         await act(async () => { await archivePress(); });
-        expect(response.mock.calls.length).toBe(age === 'fresh' ? 1 : 0);
+        expect(storage.getState().sessions.carrier.archivedAt).toBe(archivedAt);
     });
 
     it.each(['old', 'missing', 'invalid', 'open', 'unknown'] as const)('Round 2 dispatch recheck refuses changed PR evidence: %s', async kind => {
@@ -1054,19 +1132,20 @@ describe('L4/N issue Archive on the real store', () => {
         const archive = screen.findByTestId('ip-issue-archive-ATR-6')!;
         const archivePress = archive.props.onPress;
         if (kind === 'open' || kind === 'unknown') merged('sibling', kind);
-        else merged('carrier', 'merged', kind);
+        else merged('sibling', 'closed', kind);
         await act(async () => { await archivePress(); });
         expect(response).not.toHaveBeenCalled();
         expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
     });
 
-    it.each(['open', 'unknown', 'stale', 'no-pr', 'no-pr-snapshot', 'merged', 'closed'] as const)('Round 2 mixed PRs: merged plus %s', async kind => {
+    it.each(['open', 'unknown', 'stale', 'undated', 'invalid', 'no-pr', 'no-pr-snapshot', 'merged', 'closed'] as const)('Round 2 mixed PRs: merged plus %s', async kind => {
         seed([session('carrier', '/fixture/atr-6-carrier'), session('sibling', '/fixture/atr-6-sibling')]);
         merged('carrier');
         if (kind === 'no-pr-snapshot') {
             act(() => storage.getState().updateSessionProjectScmSnapshot('sibling', prSnapshot({ fetchedAt: Date.now(), pullRequest: null })));
         } else if (kind !== 'no-pr') {
-            merged('sibling', kind === 'stale' ? 'merged' : kind, kind === 'stale' ? 'old' : 'fresh');
+            merged('sibling', kind === 'stale' || kind === 'undated' || kind === 'invalid' ? 'closed' : kind,
+                kind === 'stale' ? 'old' : kind === 'undated' ? 'missing' : kind === 'invalid' ? 'invalid' : 'fresh');
         }
         const screen = await openIssue();
         const allowed = kind === 'no-pr' || kind === 'no-pr-snapshot' || kind === 'merged' || kind === 'closed';
@@ -1080,14 +1159,14 @@ describe('L4/N issue Archive on the real store', () => {
     });
 
     it.each(['old', 'open'] as const)('Round 2 rechecks PR evidence before the next dispatch: %s', async kind => {
-        seed([session('first', '/fixture/atr-6-first', { updatedAt: 20 }), session('carrier', '/fixture/atr-6-carrier')]);
+        seed([session('first', '/fixture/atr-6-first', { updatedAt: 20 }), session('carrier', '/fixture/atr-6-carrier'), session('sibling', '/fixture/atr-6-sibling')]);
         merged('carrier');
         const deferred = createDeferred<Response>();
         response.mockReturnValueOnce(deferred.promise);
         const screen = await openIssue();
         let pending: Promise<unknown> = Promise.resolve();
         await act(async () => { pending = screen.findByTestId('ip-issue-archive-ATR-6')!.props.onPress(); });
-        if (kind === 'old') merged('carrier', 'merged', 'old');
+        if (kind === 'old') merged('sibling', 'closed', 'old');
         else merged('carrier', 'open');
         await act(async () => {
             deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
