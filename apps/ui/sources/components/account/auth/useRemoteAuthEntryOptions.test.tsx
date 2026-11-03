@@ -9,6 +9,7 @@ import {
 } from './useRemoteAuthEntryOptions';
 import { RemoteWelcomeDecisionPanel } from './RemoteWelcomeDecisionPanel';
 import { lightTheme } from '@/theme';
+import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
 
 const noop = () => {};
 
@@ -133,6 +134,26 @@ describe('deriveRemoteAuthEntryOptions', () => {
 
 describe('RemoteWelcomeDecisionPanel', () => {
     afterEach(standardCleanup);
+
+    it('keeps the loading indicator and copy together in the status block', async () => {
+        const screen = await renderScreen(
+            <RemoteWelcomeDecisionPanel
+                options={deriveRemoteAuthEntryOptions(createInput({ serverAvailability: 'loading' }))}
+                isDesktopShell={false}
+                layout="portrait"
+                onAnonymousSignup={noop}
+                onChangeRelay={noop}
+                onKeylessProviderLogin={noop}
+                onMtlsLogin={noop}
+                onOpenSetup={noop}
+                onProviderSignup={noop}
+                onRestore={noop}
+            />,
+        );
+        const status = screen.findByTestId('welcome-server-loading-block');
+        expect(status?.findByProps({ testID: 'welcome-server-loading' })).toBeTruthy();
+        expect(status?.findByType(ActivitySpinner)).toBeTruthy();
+    });
 
     it('renders the first-time question copy for anonymous signup', async () => {
         const screen = await renderScreen(
