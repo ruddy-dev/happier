@@ -1,6 +1,6 @@
 import { shallow } from 'zustand/shallow';
 import { storage } from '@/sync/domains/state/storage';
-import { listPendingSessionRequests } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { observePendingSessionRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { canReuseTranscriptRenderableAggregateRequestStates } from '@/sync/domains/messages/transcriptRenderableAggregate';
 import { waitingItemGenerationKey, waitingRequestContent, type WaitingItem } from './waitingItems';
 import { isUserFacingSession } from '@/sync/domains/session/listing/isUserFacingSession';
@@ -48,19 +48,23 @@ function startObserving(history: WaitingHistory) {
             if (!session.agentState && !aggregate) continue;
             if (entry && (!aggregate || !canReuseTranscriptRenderableAggregateRequestStates(aggregate,
                 session.agentState?.completedRequests ?? null))) continue;
+            const transcriptState = aggregate?.requestStates.get(item.requestId);
             const source = [session.agentState?.requests?.[item.requestId], session.agentState?.completedRequests,
-                aggregate?.requestStates.get(item.requestId), session.pendingPermissionRequestCount, session.pendingUserActionRequestCount,
+                transcriptState, entry?.isLoaded, session.agentState?.requests !== undefined,
+                session.pendingPermissionRequestCount, session.pendingUserActionRequestCount,
                 session.active, row.archivedAt, isUserFacingSession(row)];
             if (watch.source && shallow(watch.source, source)) continue;
             watch.source = source;
-            // Delegate classification and completion coverage to the same pending-request owner.
-            // An explicit empty transcript forbids its implicit storage-read fallback.
-            const requests = session.active && !row.archivedAt && isUserFacingSession(row)
-                ? listPendingSessionRequests(session, [], aggregate ? { states: aggregate.requestStates } : undefined) : [];
-            const request = requests.find(request => request.id === item.requestId);
+            const available = session.active && !row.archivedAt && isUserFacingSession(row);
+            // Per-ID terminal evidence survives a lagging count. Absence without readable details
+            // remains unknown, including a partial transcript or a genuine R24 placeholder.
+            const observation = available ? observePendingSessionRequest(session, item.requestId, transcriptState)
+                : { status: 'absent' as const };
+            const request = available && observation.status === 'pending' ? observation.request : null;
             if (!request) {
-                if (session.active && !row.archivedAt && isUserFacingSession(row) && requests.length === 0
-                    && ((session.pendingPermissionRequestCount ?? 0) > 0 || (session.pendingUserActionRequestCount ?? 0) > 0)) continue;
+                if (available && observation.status === 'absent'
+                    && (((session.pendingPermissionRequestCount ?? 0) > 0 || (session.pendingUserActionRequestCount ?? 0) > 0)
+                        || (entry?.isLoaded !== true && !session.agentState?.requests))) continue;
                 history.setState(current => current.departed.has(key) ? current
                     : { departed: new Set(current.departed).add(key) });
             } else if (history.getState().departed.has(key)

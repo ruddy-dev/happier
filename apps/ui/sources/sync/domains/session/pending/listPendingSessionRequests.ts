@@ -34,8 +34,6 @@ export type SessionPendingRequestLists = Readonly<{
     userActionRequests: readonly SessionPendingRequest[];
 }>;
 
-type AgentRequestRecord = NonNullable<AgentState['requests']>;
-
 const PENDING_REQUEST_COVERAGE_OPTIONS = {
     equivalentSources: [CLAUDE_LOCAL_PERMISSION_BRIDGE_REQUEST_SOURCE],
     equivalentCompletedStatuses: ['canceled'],
@@ -269,29 +267,61 @@ export function listPendingTranscriptRequests(
         .flatMap((state) => (state.status === 'pending' ? [state.request] : []));
 }
 
-function listPendingAgentStateRequests(agentState: AgentState | null | undefined): SessionPendingRequest[] {
-    const requests = agentState?.requests;
-    if (!requests) return [];
-    const completed = agentState?.completedRequests ?? null;
+function readAgentStateRequest(agentState: AgentState | null | undefined, id: string): SessionPendingRequest | null {
+    const request = agentState?.requests?.[id];
+    if (!request || typeof request !== 'object') return null;
+    const toolName = typeof request.tool === 'string' ? request.tool.trim() : '';
+    if (!toolName) return null;
+    return {
+        id,
+        tool: toolName,
+        kind: resolveAgentRequestKind({ toolName, requestKind: request.kind }),
+        arguments: request.arguments,
+        createdAt: typeof request.createdAt === 'number' ? request.createdAt : null,
+        ...(getRequestPermissionSuggestions(request) ? { permissionSuggestions: getRequestPermissionSuggestions(request) } : {}),
+    };
+}
 
-    return Object.entries(requests as AgentRequestRecord).flatMap(([id, request]) => {
-        if (!request || typeof request !== 'object') return [];
-        const toolName = typeof request.tool === 'string' ? request.tool.trim() : '';
-        if (!toolName) return [];
-        const createdAt = typeof request.createdAt === 'number' ? request.createdAt : null;
-        if (isPendingRequestCoveredByCompleted(completed as Record<string, unknown> | null | undefined, id, createdAt, request)) return [];
-        return [{
-            id,
-            tool: toolName,
-            kind: resolveAgentRequestKind({
-                toolName,
-                requestKind: request.kind,
-            }),
-            arguments: request.arguments,
-            createdAt,
-            ...(getRequestPermissionSuggestions(request) ? { permissionSuggestions: getRequestPermissionSuggestions(request) } : {}),
-        }];
+function listPendingAgentStateRequests(agentState: AgentState | null | undefined): SessionPendingRequest[] {
+    return Object.keys(agentState?.requests ?? {}).flatMap(id => {
+        const request = readAgentStateRequest(agentState, id);
+        if (!request || isPendingRequestCoveredByCompleted(agentState?.completedRequests, id, request.createdAt,
+            agentState?.requests?.[id])) return [];
+        return [request];
     });
+}
+
+function isAgentRequestSuppressedByTranscript(request: SessionPendingRequest, state: TranscriptRequestState | undefined): boolean {
+    return state?.status === 'terminal' && state.terminalKind === 'hard'
+        && (request.createdAt ?? 0) <= state.createdAt;
+}
+
+/**
+ * Observe one producer ID without enumerating historical transcript states. This shares
+ * normalization, completion coverage, terminal precedence and metadata equivalence with the list.
+ * Cross-ID deduplication remains a list presentation concern, not evidence that an ID departed.
+ * `absent` alone says nothing about transcript completeness or projected-count readability.
+ */
+export function observePendingSessionRequest(
+    session: Session,
+    requestId: string,
+    transcriptState: TranscriptRequestState | undefined,
+): Readonly<{ status: 'pending'; request: SessionPendingRequest }> | Readonly<{ status: 'terminal' | 'absent' }> {
+    const agentRequest = readAgentStateRequest(session.agentState, requestId);
+    const covered = agentRequest !== null && isPendingRequestCoveredByCompleted(session.agentState?.completedRequests,
+        requestId, agentRequest.createdAt, session.agentState?.requests?.[requestId]);
+    if (!session.active) {
+        return agentRequest && !covered && agentRequest.kind === 'user_action'
+            ? { status: 'pending', request: agentRequest } : { status: covered ? 'terminal' : 'absent' };
+    }
+    if (agentRequest && !covered && !isAgentRequestSuppressedByTranscript(agentRequest, transcriptState)) {
+        return { status: 'pending', request: transcriptState?.status === 'pending'
+            && arePendingRequestsEquivalent(transcriptState.request, agentRequest)
+            ? mergePendingRequestMetadata(transcriptState.request, agentRequest) : agentRequest };
+    }
+    if (transcriptState?.status === 'pending') return { status: 'pending', request: transcriptState.request };
+    return { status: (transcriptState?.status === 'terminal' && transcriptState.terminalKind === 'hard') || covered
+        ? 'terminal' : 'absent' };
 }
 
 export function derivePendingRequestFlagsFromAgentState(agentState: AgentState | null | undefined): PendingRequestFlags {
@@ -433,11 +463,7 @@ export function listPendingSessionRequests(
     if (pendingAgentStateRequests.length > 0) {
         for (const request of pendingAgentStateRequests) {
             const transcriptState = transcriptStates.get(request.id);
-            if (
-                transcriptState?.status === 'terminal'
-                && transcriptState.terminalKind === 'hard'
-                && (request.createdAt ?? 0) <= transcriptState.createdAt
-            ) {
+            if (isAgentRequestSuppressedByTranscript(request, transcriptState)) {
                 continue;
             }
 
