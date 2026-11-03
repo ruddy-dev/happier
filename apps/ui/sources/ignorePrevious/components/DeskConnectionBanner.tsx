@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/ui/text/Text';
 import { useLastSyncAt, useSocketStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
+import { DeskDemoContext } from '../deskFixtureGate';
 
 /** Connection timestamps come from the sync store, not from worker freshness. */
 export function DeskConnectionBanner() {
+    const demo = useContext(DeskDemoContext);
     const { status, lastDisconnectedAt } = useSocketStatus();
     const lastSyncAt = useLastSyncAt();
     const { theme } = useUnistyles();
@@ -15,6 +17,13 @@ export function DeskConnectionBanner() {
     const [droppedAt, setDroppedAt] = useState<number | null>(null);
     const current = status === 'connected' ? null : (droppedAt ?? lastDisconnectedAt ?? lastSyncAt);
     if (current !== droppedAt) setDroppedAt(current);
+    if (demo) return (
+        <View testID="ip-demo-note" style={{ padding: 12, backgroundColor: theme.colors.surface.inset }}>
+            <Text style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
+                {t('ignorePrevious.demo.sampleNote')}
+            </Text>
+        </View>
+    );
     if (status === 'connected') return null;
     const stamp = current === null ? null : new Date(current);
     const today = new Date();

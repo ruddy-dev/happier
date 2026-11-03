@@ -3,6 +3,7 @@ import { act } from 'react-test-renderer';
 import { renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import { DeskCreature } from '../creature/DeskCreature';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,11 +41,9 @@ async function renderShog() {
 }
 
 function redEyes(screen: Awaited<ReturnType<typeof renderShog>>): number {
-    const ids = new Set<string>();
-    for (const node of screen.tree.root.findAll((n) => typeof n.props?.testID === 'string' && n.props.testID.startsWith('ip-shog-eye-red-'))) {
-        ids.add(node.props.testID);
-    }
-    return ids.size;
+    const creatures = screen.tree.root.findAllByType(DeskCreature);
+    expect(creatures).toHaveLength(1);
+    return creatures[0].props.redEyes;
 }
 
 describe('ShogView', () => {
@@ -95,15 +94,19 @@ describe('ShogView', () => {
         expect(screen.findByTestId('ip-shog-replay')).toBeNull();
     });
 
-    it('has one red eye for each thing that waits on you, up to eight', async () => {
-        seed([waitingSession('a'), waitingSession('b'), waitingSession('c')]);
-        let screen = await renderShog();
-        expect(redEyes(screen)).toBe(3);
-        await screen.unmount();
+    it.each([0, 3, 8, 12])('M13 sends %i shared waits to the real creature, capped at eight eyes', async count => {
+        seed(Array.from({ length: count }, (_, i) => waitingSession(`worker-${i}`)));
+        const screen = await renderShog();
+        expect(redEyes(screen)).toBe(Math.min(count, 8));
+    });
 
-        seed(Array.from({ length: 11 }, (_, i) => waitingSession(`s${i}`)));
-        screen = await renderShog();
-        expect(redEyes(screen)).toBe(8);
+    it('F4 keeps all eyes pale until the first waits snapshot is ready', async () => {
+        seed([waitingSession('worker')]);
+        act(() => storage.setState({ isDataReady: false }));
+        const screen = await renderShog();
+        expect(redEyes(screen)).toBe(0);
+        act(() => storage.getState().applyReady());
+        expect(redEyes(screen)).toBe(1);
     });
 
     it('opens another red eye when a request arrives while it is showing', async () => {

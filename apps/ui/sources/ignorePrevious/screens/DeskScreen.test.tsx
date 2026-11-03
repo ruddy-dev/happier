@@ -2,14 +2,19 @@ import * as React from 'react';
 import { act } from 'react';
 import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderScreen } from '@/dev/testkit';
+import { createDeferred, renderScreen } from '@/dev/testkit';
 import { readReactNativeMmkvStubEntries, resetReactNativeMmkvStub } from '@/dev/testkit/mocks/mmkv';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
-import { setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
+import { apiSocket } from '@/sync/api/session/apiSocket';
+import { upsertAndActivateServer } from '@/sync/domains/server/serverRuntime';
+import { projectManager } from '@/sync/runtime/orchestration/projectManager';
+import { prSnapshot } from '../testkit/prSnapshot';
+import { archiveIssueSessions } from '../model/archiveIssueSessions';
+import { deskPrefs, getStoredCoordinatorId, setCoordinatorOverride, setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -224,7 +229,8 @@ describe('DeskScreen', () => {
         const screen = await renderDesk();
         await screen.pressByTestIdAsync('ip-shog-open');
         const { ShogView } = await import('../components/ShogView');
-        expect(state.showModal).toHaveBeenCalledWith(expect.objectContaining({ component: ShogView }));
+        expect(screen.tree.root.findAllByType(ShogView)).toHaveLength(1);
+        expect(state.showModal).not.toHaveBeenCalled();
     });
 
     it('reads the sidebar list on a cold load, before any session record has loaded', async () => {
@@ -246,6 +252,78 @@ describe('DeskScreen', () => {
         expect(screen.findByTestId('ip-count-all')?.props.children).toBe(1);
         // s2's request lives in a record not loaded yet, so it counts as one thing to look at.
         expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe(1);
+    });
+
+    it.each(['success', 'failure'] as const)('Round 2 coordinator exclusion lasts for the entire archive operation across mounted pickers: %s', async outcome => {
+        upsertAndActivateServer({ serverUrl: 'http://localhost:53289', scope: 'tab' });
+        projectManager.clear();
+        storage.setState(storage.getInitialState(), true);
+        const worker = (id: string, updatedAt: number) => session(id, { active: false, updatedAt,
+            metadata: { ...session(id).metadata!, path: `/fixture/atr-6-${id}` },
+        });
+        seed([session('coord'), worker('carrier', 30), worker('first', 20), worker('last', 10)]);
+        setStoredCoordinatorId('coord');
+        const snapshot = prSnapshot({ fetchedAt: Date.now() });
+        snapshot.pullRequest = { ...snapshot.pullRequest!, state: 'merged' };
+        act(() => storage.getState().updateSessionProjectScmSnapshot('carrier', snapshot));
+        const first = createDeferred<Response>();
+        const last = createDeferred<Response>();
+        function httpRequest(path: string, init?: RequestInit): Promise<Response>;
+        function httpRequest<T>(path: string, init: RequestInit | undefined, consume: (result: Response) => Promise<T>): Promise<T>;
+        async function httpRequest<T>(path: string, _init?: RequestInit, consume?: (result: Response) => Promise<T>): Promise<Response | T> {
+            const result = path.includes('/first/') ? await first.promise
+                : path.includes('/last/') ? await last.promise
+                    : new Response(JSON.stringify({ success: true, archivedAt: Date.now() }));
+            return consume ? consume(result) : result;
+        }
+        const request = vi.spyOn(apiSocket, 'request').mockImplementation(httpRequest);
+        const one = await renderDesk();
+        const two = await renderDesk();
+        await one.pressByTestIdAsync('ip-coordinator-change');
+        await two.pressByTestIdAsync('ip-coordinator-change');
+        let operation: Promise<readonly string[]> = Promise.resolve([]);
+        try {
+            await act(async () => { operation = archiveIssueSessions('ATR-6'); });
+            for (const screen of [one, two]) {
+                expect(screen.findByTestId('ip-pick-carrier')?.props.disabled).toBe(true);
+                expect(screen.findByTestId('ip-pick-first')?.props.accessibilityState).toMatchObject({ disabled: true });
+                // Even a stale handler or another preferences consumer cannot bypass admission.
+                await screen.pressByTestIdAsync('ip-pick-first');
+                expect(screen.findByTestId('ip-pick-carrier')).not.toBeNull();
+            }
+            act(() => {
+                setStoredCoordinatorId('carrier');
+                deskPrefs.set('coordinatorSessionId', 'last');
+                setCoordinatorOverride('first');
+            });
+            expect(getStoredCoordinatorId()).toBe('coord');
+            await act(async () => { first.resolve(new Response(JSON.stringify({ success: true, archivedAt: Date.now() }))); });
+            // The first request ended; remaining targets stay excluded until the issue operation ends.
+            expect(two.findByTestId('ip-pick-carrier')?.props.disabled).toBe(true);
+            await act(async () => {
+                last.resolve(new Response(JSON.stringify(outcome === 'success' ? { success: true, archivedAt: Date.now() } : { error: 'unavailable' }), { status: outcome === 'success' ? 200 : 503 }));
+                await operation;
+            });
+            if (outcome === 'failure') {
+                expect(two.findByTestId('ip-pick-carrier')?.props.disabled).toBe(false);
+                await two.pressByTestIdAsync('ip-pick-carrier');
+                expect(getStoredCoordinatorId()).toBe('carrier');
+            } else {
+                expect(two.findByTestId('ip-pick-carrier')).toBeNull();
+                // A reappearing unarchived row is selectable; no exclusion leaks past success.
+                seed([{ ...worker('carrier', Date.now()), seq: 2, archivedAt: null }]);
+                expect(two.findByTestId('ip-pick-carrier')?.props.disabled).toBe(false);
+                await two.pressByTestIdAsync('ip-pick-carrier');
+                expect(getStoredCoordinatorId()).toBe('carrier');
+            }
+        } finally {
+            first.resolve(new Response(JSON.stringify({ error: 'cleanup' }), { status: 503 }));
+            last.resolve(new Response(JSON.stringify({ error: 'cleanup' }), { status: 503 }));
+            await act(async () => { await operation; });
+            request.mockRestore();
+            setCoordinatorOverride(null);
+            projectManager.clear();
+        }
     });
 
     it('opens the chat of the session picked in the picker and remembers it', async () => {

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
@@ -9,6 +10,7 @@ import { buildSessionListRenderableFromSession } from '@/sync/domains/session/li
 import { readReactNativeMmkvStubEntries } from '@/dev/testkit/mocks/mmkv';
 import { storage } from '@/sync/domains/state/storage';
 import { setCoordinatorOverride } from '../deskPrefs';
+import { robotPresets } from '../palette';
 
 const modelRpc = vi.hoisted(() => vi.fn());
 vi.mock('@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc', () => ({ machineRpcWithServerScope: (request: unknown) => modelRpc(request) }));
@@ -106,6 +108,98 @@ describe('/desk/settings', () => {
         expect(screen.findAllByProps({ 'data-ip-font': 'desk' })).toHaveLength(1);
         await screen.pressByTestIdAsync('ip-settings-back');
         expect(state.navigate).toHaveBeenCalledWith('/desk');
+    });
+
+    describe('Voice section', () => {
+        let settingsWrite: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            settingsWrite = vi.spyOn(storage.getState(), 'applySettings');
+        });
+        afterEach(() => {
+            expect(settingsWrite).not.toHaveBeenCalled();
+            settingsWrite.mockRestore();
+        });
+
+        it('shows the browser engine and privacy warning without engine choices or storage writes', async () => {
+            const settings = storage.getState().settings;
+            const screen = await renderScreen(await settingsPage());
+            expect(screen.getTextContent()).toContain("Dictation: Browser's own");
+            expect(screen.getTextContent()).toContain('May send your audio to Google');
+            expect(screen.getTextContent()).toContain('A speech server that keeps audio on this PC is planned.');
+            expect(screen.getTextContent()).not.toContain('Local model on this PC');
+            expect(readReactNativeMmkvStubEntries()).toEqual([]);
+            expect(storage.getState().settings).toBe(settings);
+        });
+
+        it.each([null, '', 'ja-JP'])('reads Happier language %j, follows updates, and links to its owner', async language => {
+            const settings = storage.getState().settings;
+            storage.setState({ settings: { ...settings, voice: { ...settings.voice, assistantLanguage: language } } });
+            const screen = await renderScreen(await settingsPage());
+            expect(screen.findByTestId('ip-voice-language')?.props.children).toContain(language || 'Browser default');
+            await act(async () => {
+                const current = storage.getState().settings;
+                storage.setState({ settings: { ...current, voice: { ...current.voice, assistantLanguage: 'fr-FR' } } });
+            });
+            expect(screen.findByTestId('ip-voice-language')?.props.children).toContain('fr-FR');
+            await screen.pressByTestIdAsync('ip-voice-settings-link');
+            expect(state.navigate).toHaveBeenCalledWith('/settings/voice');
+            expect(readReactNativeMmkvStubEntries()).toEqual([]);
+        });
+
+        it('stores only a pressed hold Space choice and restores it on remount', async () => {
+            const settings = storage.getState().settings;
+            const screen = await renderScreen(await settingsPage());
+            expect(screen.findByTestId('ip-voice-hold-space')?.props.accessibilityRole).toBe('switch');
+            expect(screen.findByTestId('ip-voice-hold-space')?.props.accessibilityState).toEqual({ checked: true });
+            await screen.pressByTestIdAsync('ip-voice-hold-space');
+            expect(readReactNativeMmkvStubEntries()).toEqual([['ignorePrevious.deskHoldSpace', '0']]);
+            await screen.unmount();
+            const remounted = await renderScreen(await settingsPage());
+            expect(remounted.findByTestId('ip-voice-hold-space')?.props.accessibilityState).toEqual({ checked: false });
+            expect(readReactNativeMmkvStubEntries()).toEqual([['ignorePrevious.deskHoldSpace', '0']]);
+            expect(storage.getState().settings).toBe(settings);
+        });
+
+        it.each(['ios', 'android'] as const)('keeps the switch on %s with a browser-only note', async os => {
+            const previousPlatform = Platform.OS;
+            Platform.OS = os;
+            try {
+                const screen = await renderScreen(await settingsPage());
+                expect(screen.getTextContent()).toContain('Hold Space works in the browser only.');
+                await screen.pressByTestIdAsync('ip-voice-hold-space');
+                expect(readReactNativeMmkvStubEntries()).toEqual([['ignorePrevious.deskHoldSpace', '0']]);
+                await screen.unmount();
+            } finally {
+                Platform.OS = previousPlatform;
+            }
+        });
+    });
+
+    it('saves named robot swatches and face choices and updates the preview', async () => {
+        const screen = await renderScreen(await settingsPage());
+        for (const robot of ['droid', 'ipb', 'prompt', 'loupe', 'lab']) {
+            for (const [preset, name] of [['purple', 'Purple'], ['violet', 'Violet'], ['green', 'Green'], ['orange', 'Orange'], ['blue', 'Blue'], ['magenta', 'Magenta'], ['steel', 'Steel']]) {
+                const button = screen.findByTestId(`ip-robot-${robot}-${preset}`)!;
+                expect(button.props.accessibilityRole).toBe('radio');
+                expect(button.props.accessibilityLabel).toBe(name);
+            }
+        }
+        const swatch = screen.findByTestId('ip-robot-droid-steel')!;
+        expect(swatch.props.accessibilityRole).toBe('radio');
+        expect(swatch.props.accessibilityLabel).toBe('Steel');
+        expect(swatch.props.accessibilityState).toEqual({ checked: false });
+        await screen.pressByTestIdAsync('ip-robot-droid-steel');
+        expect(screen.findByTestId('ip-robot-droid-steel')!.props.accessibilityState).toEqual({ checked: true });
+        expect(readReactNativeMmkvStubEntries()).toContainEqual(['ignorePrevious.robotDroid', 'steel']);
+        const preview = screen.findByTestId('ip-robot-preview-droid')!;
+        expect(preview.findAll(node => node.props.fill === robotPresets.steel.body).length).toBeGreaterThan(0);
+        await screen.pressByTestIdAsync('ip-faces-B');
+        expect(screen.findByTestId('ip-faces-B')!.props.accessibilityState).toEqual({ checked: true });
+        expect(screen.findByTestId('ip-robot-preview-droid')!.findAllByProps({ testID: 'ip-sprite-ascii' })).toHaveLength(1);
+        await screen.pressByTestIdAsync('ip-no-worker-ipb');
+        expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+        expect(readReactNativeMmkvStubEntries()).toContainEqual(['ignorePrevious.noWorkerRobot', 'ipb']);
+        expect(readReactNativeMmkvStubEntries()).toContainEqual(['ignorePrevious.workerFaces', 'B']);
     });
 
     it('does not materialize defaults in storage on mount or remount', async () => {

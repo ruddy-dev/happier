@@ -13,13 +13,13 @@ import type { DeskCreatureProps } from './DeskCreature.types';
 export const CREATURE_RUN_CAP_MS = 5000;
 let liveOwner: symbol | null = null;
 
-export function DeskCreature({ style, redEyes, mode, width = '100%', height = 128 }: DeskCreatureProps) {
+export function DeskCreature({ style, redEyes, mode, playback, width = '100%', height = 128, anchor, scale }: DeskCreatureProps) {
     const { theme } = useUnistyles();
     const reducedMotion = useReducedMotionPreference();
     const container = React.useRef<HTMLDivElement>(null);
     const sync = React.useRef<(() => void) | null>(null);
-    const current = React.useRef({ style, redEyes, mode, reducedMotion, light: !theme.dark });
-    current.current = { style, redEyes, mode, reducedMotion, light: !theme.dark };
+    const current = React.useRef({ style, redEyes, mode, playback, reducedMotion, light: !theme.dark, anchor, scale });
+    current.current = { style, redEyes, mode, playback, reducedMotion, light: !theme.dark, anchor, scale };
     const [running, setRunning] = React.useState(false);
     const [loadFailed, setLoadFailed] = React.useState(false);
 
@@ -32,7 +32,7 @@ export function DeskCreature({ style, redEyes, mode, width = '100%', height = 12
         let onscreen = false;
         let lastMode = current.current.mode;
         let remaining = CREATURE_RUN_CAP_MS;
-        let applied: { redEyes: number; sea: boolean; theme: 'light' | 'dark' } | null = null;
+        let applied: { redEyes: number; sea: boolean; theme: 'light' | 'dark'; anchor: DeskCreatureProps['anchor']; scale: number | undefined } | null = null;
         let startedAt: number | null = null;
         let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -54,12 +54,14 @@ export function DeskCreature({ style, redEyes, mode, width = '100%', height = 12
                 if (!wasMoving) remaining = CREATURE_RUN_CAP_MS;
                 else if (value.mode === 'burst' && !hadLiveLoop) remaining = Math.max(remaining, CREATURE_BURST_MS);
             }
-            const next = { redEyes: value.redEyes, sea: value.style === 'slips', theme: value.light ? 'light' as const : 'dark' as const };
+            const next = { redEyes: value.redEyes, sea: value.style === 'slips', theme: value.light ? 'light' as const : 'dark' as const, anchor: value.anchor, scale: value.scale };
             if (creature && applied) {
                 const changes: CreatureOptions = {};
                 if (next.redEyes !== applied.redEyes) changes.redEyes = next.redEyes;
                 if (next.sea !== applied.sea) changes.sea = next.sea;
                 if (next.theme !== applied.theme) changes.theme = next.theme;
+                if (next.anchor?.x !== applied.anchor?.x || next.anchor?.y !== applied.anchor?.y) changes.anchor = next.anchor;
+                if (next.scale !== applied.scale) changes.scale = next.scale;
                 if (Object.keys(changes).length) {
                     creature.pause();
                     creature.set(changes);
@@ -67,14 +69,15 @@ export function DeskCreature({ style, redEyes, mode, width = '100%', height = 12
                 }
             }
             const canRun = onscreen && !document.hidden && !value.reducedMotion
-                && (value.mode === 'working' || value.mode === 'burst') && remaining > 0;
+                && value.playback !== 'paused' && (value.mode === 'working' || value.mode === 'burst')
+                && (value.playback === 'playing' || remaining > 0);
             if (!creature || !canRun || (liveOwner !== null && liveOwner !== owner)) { stop(); return; }
             if (startedAt !== null) { creature.resume(); return; }
             liveOwner = owner;
             startedAt = performance.now();
             creature.resume();
             setRunning(true);
-            timer = setTimeout(() => { stop(); remaining = 0; }, remaining);
+            if (value.playback !== 'playing') timer = setTimeout(() => { stop(); remaining = 0; }, remaining);
         };
         sync.current = update;
         const visibility = () => update();
@@ -88,7 +91,7 @@ export function DeskCreature({ style, redEyes, mode, width = '100%', height = 12
         void import('./creature').then(({ Creature }) => {
             if (disposed) return;
             const value = current.current;
-            applied = { redEyes: value.redEyes, sea: value.style === 'slips', theme: value.light ? 'light' : 'dark' };
+            applied = { redEyes: value.redEyes, sea: value.style === 'slips', theme: value.light ? 'light' : 'dark', anchor: value.anchor, scale: value.scale };
             creature = Creature.mount(element, { ...applied, paused: true, fps: 20, paleEyes: 4 });
             creature.advance(6);
             update();
@@ -110,7 +113,7 @@ export function DeskCreature({ style, redEyes, mode, width = '100%', height = 12
         };
     }, []);
 
-    React.useEffect(() => { sync.current?.(); }, [style, redEyes, mode, reducedMotion, theme.dark]);
+    React.useEffect(() => { sync.current?.(); }, [style, redEyes, mode, playback, reducedMotion, theme.dark, anchor?.x, anchor?.y, scale]);
     return <div ref={container} role="img" aria-label={creatureLabel(mode, running)} data-testid="ip-creature"
         style={{ position: 'relative', width, height, overflow: 'hidden', pointerEvents: 'none',
             filter: style === 'terminal' ? 'grayscale(1)' : undefined, opacity: style === 'terminal' ? 0.6 : 1 }}>

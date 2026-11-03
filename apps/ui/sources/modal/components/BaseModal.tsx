@@ -24,6 +24,7 @@ import {
     useOverlayPresence,
 } from '@/components/ui/overlays/motion/overlayMotion';
 import { motionTokens } from '@/components/ui/motion/motionTokens';
+import { DeskPagePortalScope } from '@/ignorePrevious/appearance/DeskPageScope';
 
 // On web, stop events from propagating to expo-router's modal overlay
 // which intercepts clicks when it applies pointer-events: none to body
@@ -313,6 +314,7 @@ export function BaseModal({
                 }}
               >
                   <Dialog.Portal container={(webPortalTarget ?? undefined) as any}>
+                      <DeskPagePortalScope>
                       {showBackdrop ? (
                           <Dialog.Overlay
                               style={overlayStyle}
@@ -375,6 +377,7 @@ export function BaseModal({
                             </ModalPortalTargetProvider>
                         </Dialog.Content>
                     </DismissableLayerBranch>
+                    </DeskPagePortalScope>
                 </Dialog.Portal>
             </Dialog.Root>
         );

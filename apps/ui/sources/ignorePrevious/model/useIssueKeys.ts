@@ -1,44 +1,22 @@
 import * as React from 'react';
 
-import { getSessionDisplayTitle } from '@/utils/sessions/sessionUtils';
-
 import type { DeskSessions } from '../useDeskSessions';
-import { resolveIssue } from './resolveIssue';
+import { resolveSessionIssue } from './resolveIssue';
 import { useDeskBranches } from './useDeskBranches';
-
-/** The coordinator writes the tag into the session's metadata after spawn; the schema passes it through untyped. */
-function readTag(lookup: DeskSessions['lookup'], id: string): string | null {
-    const tag = (lookup.get(id)?.metadata as { tag?: unknown } | undefined)?.tag;
-    return typeof tag === 'string' ? tag : null;
-}
 
 /**
  * The issue each listed session works on, keyed by session id. The tag lives on the full record,
  * so weaker matches wait until the full metadata has caught up with the list row.
  */
-export function useIssueKeys({ list, lookup }: DeskSessions): ReadonlyMap<string, string | null> {
+export function useIssueKeys({ list, lookup }: DeskSessions, knownProjectCodes?: ReadonlySet<string>): ReadonlyMap<string, string | null> {
     // Stable while the list is, so the branch selector isn't rebuilt every render.
     const ids = React.useMemo(() => list.map((row) => row.id), [list]);
     const branches = useDeskBranches(ids);
     return React.useMemo(
         () =>
             new Map(
-                list.map((row) => {
-                    const loaded = lookup.get(row.id);
-                    // A list-only or newer row cannot tell us whether a stronger tag exists yet.
-                    if (!loaded?.metadata || loaded.metadataVersion < row.metadataVersion) return [row.id, null];
-                    return [
-                        row.id,
-                        resolveIssue({
-                            tag: readTag(lookup, row.id),
-                            // The display title, not getSessionName: its folder-name fallback would outrank the branch.
-                            title: getSessionDisplayTitle(row),
-                            branch: branches[row.id] ?? null,
-                            path: row.metadata?.path ?? null,
-                        }),
-                    ];
-                }),
+                list.map((row) => [row.id, resolveSessionIssue(row, lookup.get(row.id), branches[row.id] ?? null, knownProjectCodes)]),
             ),
-        [list, lookup, branches],
+        [list, lookup, branches, knownProjectCodes],
     );
 }

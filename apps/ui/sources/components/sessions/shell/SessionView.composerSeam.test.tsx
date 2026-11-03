@@ -171,7 +171,7 @@ vi.mock('@/components/sessions/transcript/AgentContentView', () => ({
   AgentContentView: (props: any) => React.createElement('AgentContentView', props, props.input ?? null),
 }));
 vi.mock('@/components/sessions/transcript/ChatHeaderView', () => ({
-  ChatHeaderView: () => null,
+  ChatHeaderView: () => React.createElement('StockChatHeader'),
 }));
 vi.mock('@/components/sessions/transcript/ChatList', () => ({
   ChatList: () => null,
@@ -402,6 +402,14 @@ describe('SessionView composer seam', () => {
     resolveSessionComposerSendMock.mockImplementation(() => ({ kind: 'noop' }));
     sessionAbortMock.mockReset();
     inactiveUiState.shouldShowInput = true;
+  });
+
+  it('keeps Happier header by default and hides it when a host owns the header', async () => {
+    const plain = await renderScreen(<AppPaneProvider><SessionView id="s1" /></AppPaneProvider>);
+    expect(plain.tree.findAll(node => String(node.type) === 'StockChatHeader')).toHaveLength(1);
+    const headerOwnedProps = { id: 's1', showHeader: false };
+    const embedded = await renderScreen(<AppPaneProvider><SessionView {...headerOwnedProps} /></AppPaneProvider>);
+    expect(embedded.tree.findAll(node => String(node.type) === 'StockChatHeader')).toHaveLength(0);
   });
 
   it('applies the seam placeholder, chips, badges and trailing actions after Happier ones', async () => {

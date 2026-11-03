@@ -135,6 +135,39 @@ describe('DeskCreature browser lifecycle', () => {
         expect(frames.size).toBe(1);
     });
 
+    it('M13 controlled pause releases the loop and resumes the same canvas with its remaining header budget', async () => {
+        await render();
+        await intersect(true);
+        const canvas = container.querySelector('canvas');
+        await act(async () => vi.advanceTimersByTime(1000));
+        await render({ playback: 'paused' });
+        expect(frames.size).toBe(0);
+        await act(async () => vi.advanceTimersByTime(6000));
+        await render();
+        expect(container.querySelector('canvas')).toBe(canvas);
+        expect(frames.size).toBe(1);
+        await act(async () => vi.advanceTimersByTime(CREATURE_RUN_CAP_MS - 1000));
+        expect(frames.size).toBe(0);
+    });
+
+    it('M13 panel playback delegates duration to Pause/Replay and still stops for reduced motion and visibility', async () => {
+        await render({ playback: 'playing' });
+        await intersect(true);
+        await act(async () => vi.advanceTimersByTime(6000));
+        expect(frames.size).toBe(1);
+        await render({ playback: 'paused' });
+        expect(frames.size).toBe(0);
+        await render({ playback: 'playing' });
+        expect(frames.size).toBe(1);
+        await visibility(true);
+        expect(frames.size).toBe(0);
+        await visibility(false);
+        expect(frames.size).toBe(1);
+        preference.reduced = true;
+        await render({ playback: 'playing' });
+        expect(frames.size).toBe(0);
+    });
+
     it('M15 initially hidden never starts, including with a visible intersection', async () => {
         hidden = true;
         await render();

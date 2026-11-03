@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { Redirect, Stack } from 'expo-router';
+import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { View } from 'react-native';
 
 import { useAuth } from '@/auth/context/AuthContext';
 import { Text } from '@/components/ui/text/Text';
-import { DeskFixtureRouteContext, isDeskFixtureBuild } from '@/ignorePrevious/deskFixtureGate';
+import { DeskDemoContext, DeskFixtureRouteContext, isDeskFixtureBuild } from '@/ignorePrevious/deskFixtureGate';
 import { DeskScreen } from '@/ignorePrevious/screens/DeskScreen';
 import { storage } from '@/sync/domains/state/storage';
 import { resolveWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
@@ -35,6 +35,8 @@ function loadFixture(): Promise<typeof import('@/ignorePrevious/fixtures/applyDe
 }
 
 function FixtureDesk() {
+    const { data } = useLocalSearchParams<{ data?: string }>();
+    const dataset = data === 'demo' ? 'demo' : undefined;
     const auth = useAuth();
     const profile = useProfile();
     const signedIn = auth.isAuthenticated || auth.credentials != null || Boolean(profile.id);
@@ -48,7 +50,7 @@ function FixtureDesk() {
             .then(({ applyDeskFixture }) => {
                 // The store is filled before DeskScreen mounts, so its first render already has the desk.
                 if (!live || resolveWarmCacheAccountScope(storage.getState().profile.id)) return;
-                release = applyDeskFixture();
+                release = applyDeskFixture(Date.now(), dataset);
                 setReady(true);
             })
             .catch((error: unknown) => {
@@ -59,12 +61,14 @@ function FixtureDesk() {
             release?.();
             setReady(false);
         };
-    }, [signedIn]);
+    }, [signedIn, dataset]);
     if (failure) throw failure;
     if (signedIn) return <SignedInNotice />;
     return ready ? (
         <DeskFixtureRouteContext.Provider value={true}>
-            <DeskScreen />
+            <DeskDemoContext.Provider value={dataset === 'demo'}>
+                <DeskScreen />
+            </DeskDemoContext.Provider>
         </DeskFixtureRouteContext.Provider>
     ) : null;
 }
@@ -84,12 +88,14 @@ function SignedInNotice() {
 
 // A module constant, not an inline literal: a new object each render makes the stack re-apply the options.
 const SCREEN_OPTIONS = { title: 'Desk fixture' };
+const DEMO_SCREEN_OPTIONS = { headerShown: false };
 
 export default function DeskFixturePage() {
+    const { data } = useLocalSearchParams<{ data?: string }>();
     if (!isDeskFixtureBuild()) return <Redirect href="/" />;
     return (
         <>
-            <Stack.Screen options={SCREEN_OPTIONS} />
+            <Stack.Screen options={data === 'demo' ? DEMO_SCREEN_OPTIONS : SCREEN_OPTIONS} />
             <FixtureDesk />
         </>
     );

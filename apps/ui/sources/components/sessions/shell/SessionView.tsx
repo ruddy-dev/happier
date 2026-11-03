@@ -1564,6 +1564,8 @@ type SessionViewProps = Readonly<{
     contentOverride?: React.ReactNode;
     safeAreaTopMode?: 'internal' | 'external';
     headerSafeAreaTopMode?: 'internal' | 'external';
+    /** A host with its own session header may hide the stock header and its top spacing. */
+    showHeader?: boolean;
     surfaceFocusedOverride?: boolean | null;
     chatBottomSpacing?: 'default' | 'none';
     /** Host-screen composer customisation; memoise it, since SessionView is memoised. */
@@ -1696,7 +1698,7 @@ export const SessionView = React.memo((props: SessionViewProps) => {
     }, [machinesById, stableSessionForHeader, workspaceLabelsV1, workspacePathDisplayModeV1]);
     const sessionEncryptionMode: 'e2ee' | 'plain' = (session?.encryptionMode ?? 'e2ee');
     const isEncryptedSessionLocked = Boolean(session && sessionEncryptionMode === 'e2ee' && !hasAuthCredentials);
-    const showTopHeader = !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web');
+    const showTopHeader = props.showHeader !== false && !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web');
     const paneUrlSyncRouteActive = surfaceFocused && isOwnedSessionRootPathname(pathname, sessionId);
     const scopedSyncError = React.useMemo(() => {
         return selectSyncErrorForServer(syncError, currentSessionRouteServerId);

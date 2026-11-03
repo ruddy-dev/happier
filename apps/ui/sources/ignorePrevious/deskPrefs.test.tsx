@@ -13,6 +13,20 @@ afterEach(() => {
 });
 
 describe('device-local desk prefs', () => {
+    it('defaults hold Space on without writing and round-trips both boolean choices', async () => {
+        const hook = await renderHook(() => useDeskPref('deskHoldSpace'));
+        expect(hook.getCurrent()[0]).toBe(true);
+        expect(readReactNativeMmkvStubEntries()).toEqual([]);
+        for (const [choice, stored] of [[false, '0'], [true, '1']] as const) {
+            await act(async () => hook.getCurrent()[1](choice));
+            expect(new MMKV().getString('ignorePrevious.deskHoldSpace')).toBe(stored);
+            expect(deskPrefs.get('deskHoldSpace')).toBe(choice);
+        }
+        // Boolean prefs recognize only '1' as enabled, using the existing flag decoder.
+        new MMKV().set('ignorePrevious.deskHoldSpace', 'invalid');
+        expect(deskPrefs.get('deskHoldSpace')).toBe(false);
+    });
+
     it('reads defaults without writing, including the enabled creature', async () => {
         const hook = await renderHook(() => useDeskPref('creatureEnabled'));
         expect(hook.getCurrent()[0]).toBe(true);
@@ -23,6 +37,24 @@ describe('device-local desk prefs', () => {
         expect(deskPrefs.get('terminalPalette')).toBe('tokyo');
         expect(deskPrefs.get('thinkingAndTools')).toBe('reply-link');
         expect(readReactNativeMmkvStubEntries()).toEqual([]);
+    });
+
+    it('validates and persists every robot and face preference', () => {
+        const rows = [
+            ['robotDroid', 'purple', 'steel'], ['robotIpb', 'blue', 'magenta'],
+            ['robotPrompt', 'green', 'steel'], ['robotLoupe', 'violet', 'blue'],
+            ['robotLab', 'orange', 'green'], ['noWorkerRobot', 'droid', 'ipb'],
+            ['workerFaces', 'A', 'B'],
+        ] as const;
+        const persisted = new MMKV();
+        for (const [key, fallback, choice] of rows) {
+            expect(deskPrefs.get(key)).toBe(fallback);
+            deskPrefs.set(key, choice);
+            expect(persisted.getString(`ignorePrevious.${key}`)).toBe(choice);
+            expect(deskPrefs.get(key)).toBe(choice);
+            persisted.set(`ignorePrevious.${key}`, 'invalid');
+            expect(deskPrefs.get(key)).toBe(fallback);
+        }
     });
 
     it('persists chat choices without changing the deferred thinking/tool preference', () => {

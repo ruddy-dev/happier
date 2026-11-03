@@ -1,5 +1,8 @@
 import * as React from 'react';
 import { act } from 'react';
+import { StyleSheet } from 'react-native';
+import { DeskCreature } from '../creature/DeskCreature';
+import { DeskText } from '../typography/DeskText';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderScreen } from '@/dev/testkit';
@@ -71,6 +74,82 @@ describe('CoordinatorPane body', () => {
         viewport.width = 1200;
         vi.unstubAllEnvs();
         storage.setState(before, true);
+    });
+
+    it.each([['mask', 128], ['terminal', 116]] as const)('renders one desk header at the %s height', async (style, height) => {
+        deskPrefs.set('chatStyle', style);
+        storage.getState().applySessions([createSessionFixture({ id: 'c1', active: true })]);
+        storage.getState().applyMessagesLoaded('c1');
+        storage.getState().applyReady();
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        const header = screen.findByTestId('ip-coord-header');
+        expect(header).not.toBeNull();
+        expect(StyleSheet.flatten(header!.props.style).height).toBe(height);
+        expect(screen.findByTestId('ip-coord-state')).not.toBeNull();
+        expect(header!.findAllByType(DeskText).some(node => node.props.children === 'Shog')).toBe(true);
+        expect(header!.findAllByType(DeskText).some(node => node.props.children === 'coordinator')).toBe(true);
+        expect(header!.findAllByType(DeskCreature)).toHaveLength(1);
+        expect(screen.tree.findByType(SessionView).props.showHeader).toBe(false);
+    });
+
+    it('M13 keeps the header creature mounted and pauses it until the Shog panel closes', async () => {
+        deskPrefs.set('creatureEnabled', true);
+        storage.getState().applySessions([createSessionFixture({ id: 'coord', active: true, activeAt: Date.now(), thinking: true, thinkingAt: Date.now() })]);
+        storage.getState().applyReady();
+        const screen = await renderScreen(<CoordinatorPane sessionId="coord" />);
+        const headerCreature = () => screen.findByTestId('ip-coord-header')!.findByType(DeskCreature);
+        const mounted = headerCreature();
+        expect(mounted.props.mode).toBe('working');
+        expect(mounted.props.playback).not.toBe('paused');
+        await screen.pressByTestIdAsync('ip-shog-open');
+        expect(screen.findByTestId('ip-shog')).not.toBeNull();
+        expect(headerCreature()).toBe(mounted);
+        expect(headerCreature().props.playback).toBe('paused');
+        expect(screen.tree.root.findAllByType(DeskCreature)).toHaveLength(2);
+        expect(screen.findByTestId('ip-shog-open')!.props.accessibilityState).toEqual({ expanded: true });
+        await screen.pressByTestIdAsync('ip-shog-done');
+        expect(screen.findByTestId('ip-shog')).toBeNull();
+        expect(headerCreature()).toBe(mounted);
+        expect(headerCreature().props.playback).not.toBe('paused');
+        expect(headerCreature().props.mode).toBe('working');
+    });
+
+    it('F4: hides count-dependent state until waits load while preserving session status', async () => {
+        const now = Date.now();
+        const session = createSessionFixture({ id: 'c1', active: true, activeAt: now });
+        storage.getState().applySessions([session]);
+        storage.setState({ isDataReady: false });
+        const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
+        const stateText = () => screen.findByTestId('ip-coord-state')?.props.children;
+        const maskBulb = () => screen.findByTestId('ip-coord-header')!.findByProps({ testID: 'ip-coord-mask' }).props.bulb;
+        expect(screen.findByTestId('ip-coord-state')).toBeNull();
+        expect(maskBulb()).toBe('idle');
+        await act(async () => storage.getState().applySessions([{ ...session, thinking: true, thinkingAt: now }]));
+        expect(stateText()).toBe('Thinking');
+        await act(async () => storage.getState().applySessions([{ ...session, active: false, activeAt: now + 1 }]));
+        expect(stateText()).toBe('offline');
+        await act(async () => storage.getState().applySessions([{ ...session, activeAt: now + 2, thinkingAt: now + 2 }]));
+        expect(screen.findByTestId('ip-coord-state')).toBeNull();
+        expect(maskBulb()).toBe('idle');
+        await act(async () => storage.getState().applyReady());
+        expect(screen.findByTestId('ip-coord-state')).toBeNull();
+        expect(maskBulb()).toBe('idle');
+        await act(async () => storage.getState().applyMessagesLoaded('c1'));
+        expect(stateText()).toBe('Idle');
+        expect(maskBulb()).toBe('rest');
+        const worker = createSessionFixture({ id: 'waiting-worker', active: true, activeAt: now, agentState: { requests: {
+            a: { tool: 'Bash', arguments: { command: 'echo ready' }, createdAt: now },
+        } } });
+        await act(async () => storage.getState().applySessions([worker]));
+        expect(stateText()).toBe('Idle');
+        expect(maskBulb()).toBe('rest');
+        await act(async () => storage.getState().applySessions([{ ...session, activeAt: now + 3, thinking: true, thinkingAt: now + 3 }]));
+        expect(stateText()).toBe('Thinking');
+        await act(async () => storage.getState().applySessions([{ ...session, active: false, activeAt: now + 4, thinking: true, thinkingAt: now + 3 }]));
+        expect(stateText()).toBe('offline');
+        await act(async () => storage.getState().applySessions([{ ...session, activeAt: now + 5, thinkingAt: now + 5 }, { ...worker, agentState: null }]));
+        expect(stateText()).toBe('Idle');
+        expect(maskBulb()).toBe('rest');
     });
 
     it('C15/C16: settings update the coordinator appearance while a plain SessionView stays null', async () => {
