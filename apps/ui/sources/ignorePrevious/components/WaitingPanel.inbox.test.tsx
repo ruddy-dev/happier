@@ -304,6 +304,27 @@ it.each([
     expect(boundary.allow).toHaveBeenCalledExactlyOnceWith('worker', 'shared');
 });
 
+it('equivalent reordered raw desk content requires reinspection before Allow', async () => {
+    const session = worker('worker', 'echo same');
+    const input = { command: 'echo same', options: { cwd: '/work', env: { FIRST: '1', SECOND: '2' } } };
+    session.agentState!.requests!.shared.arguments = input;
+    seed([session]);
+    const screen = await renderScreen(<WaitingPanel />);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    const retained = screen.findByTestId('ip-waiting-allow-shared')!.props.onPress;
+    await act(async () => {
+        storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+            agentState: { requests: { shared: { ...session.agentState!.requests!.shared,
+                arguments: { options: { env: { SECOND: '2', FIRST: '1' }, cwd: '/work' }, command: 'echo same' } } } } }]);
+        await retained();
+    });
+    expect(boundary.allow).not.toHaveBeenCalled();
+    expect(screen.findByTestId('ip-waiting-toggle-shared')?.props.accessibilityState.expanded).toBe(false);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    expect(boundary.allow).toHaveBeenCalledExactlyOnceWith('worker', 'shared');
+});
+
 it('escapes the Allow label but requires a fresh review when raw and escaped tool names collide', async () => {
     const original = worker('worker', 'echo ready', 'Read\u202E');
     seed([original]);

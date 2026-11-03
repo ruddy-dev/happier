@@ -16,6 +16,17 @@ import {
 } from './listPendingSessionRequests';
 
 describe('buildPendingSessionRequestsSourceSignature', () => {
+    it('preserves literal JSON keys and array order while ignoring object field order', () => {
+        const signatureFor = (json: string) => buildPendingSessionRequestsSourceSignature(createSessionFixture({
+            active: true,
+            agentState: { requests: { r: { tool: 'CustomJSONTool', createdAt: 100, arguments: JSON.parse(json) } } },
+        }));
+        const signature = signatureFor('{"payload":{"label":"same","__proto__":{"destination":"old","steps":["first","second"]}}}');
+        expect(signatureFor('{"payload":{"__proto__":{"steps":["first","second"],"destination":"old"},"label":"same"}}')).toBe(signature);
+        expect(signatureFor('{"payload":{"label":"same","__proto__":{"destination":"new","steps":["first","second"]}}}')).not.toBe(signature);
+        expect(signatureFor('{"payload":{"label":"same","__proto__":{"destination":"old","steps":["second","first"]}}}')).not.toBe(signature);
+    });
+
     it('ignores session seq and timestamp churn that cannot change pending request derivation', () => {
         const session = createSessionFixture({
             active: true,

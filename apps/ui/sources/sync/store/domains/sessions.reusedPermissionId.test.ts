@@ -6,7 +6,8 @@ import type { NormalizedMessage } from '@/sync/typesRaw';
 import { listPendingPermissionRequests } from '@/utils/sessions/sessionUtils';
 import { listPendingSessionRequests, observePendingSessionRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { readDeskWaits } from '@/ignorePrevious/model/useDeskWaits';
-import { buildTranscriptRenderableAggregate } from '@/sync/domains/messages/transcriptRenderableAggregate';
+import { applyMessageChangeToTranscriptRenderableAggregate, buildTranscriptRenderableAggregate } from '@/sync/domains/messages/transcriptRenderableAggregate';
+import { createPendingRequestActionabilitySelector } from '@/sync/store/pendingRequestActionability';
 
 let previous: ReturnType<typeof storage.getState>;
 beforeEach(() => { previous = storage.getState(); storage.setState({ sessions: {}, sessionMessages: {}, sessionListRenderables: {} }); });
@@ -45,6 +46,111 @@ function assertReaders(id: string, commands: string[]) {
     expect(readDeskWaits().items.filter(item => item.sessionId === id).map(item => item.detail)).toEqual(commands);
     expect(storage.getState().sessionListRenderables[id].hasPendingPermissionRequests).toBe(commands.length > 0);
 }
+
+it.each([['task-a', 'task-b'], ['task-b', 'task-a']])(
+    'equal-time hard completions guard old A through real store, roots %s then %s', (first, second) => {
+        const id = 'tied-completions';
+        storage.getState().applySessions([createSessionFixture({ id, active: true, agentState: { requests: { r: request('echo A', 200) } } })]);
+        storage.getState().applyMessages(id, [call(first, 'Task', {}, 250), call(second, 'Task', {}, 250),
+            call('r', 'Bash', { command: 'echo A' }, 300, 'task-a')]);
+        snapshot(id, { requests: {}, completedRequests: { r: { ...request('echo A', 200), completedAt: 400, status: 'approved' } } });
+        snapshot(id, { requests: { r: request('echo B', 200) } });
+        storage.getState().applyMessages(id, [call('r', 'Bash', { command: 'echo B' }, 300, 'task-b')]);
+        snapshot(id, { requests: {}, completedRequests: { r: { ...request('echo B', 200), completedAt: 400, status: 'approved' } } });
+        expect(children(id).filter(child => child.kind === 'tool-call').map(child => ({ at: child.createdAt, tool: child.tool })))
+            .toEqual(expect.arrayContaining(['echo A', 'echo B'].map(command => expect.objectContaining({ at: 300,
+                tool: expect.objectContaining({ input: { command }, permission: expect.objectContaining({ status: 'approved' }) }) }))));
+        storage.getState().applyMessagesLoaded(id);
+        snapshot(id, { requests: { r: request('echo A', 100), q: request('echo independent', 700) } });
+        const session = storage.getState().sessions[id];
+        const entry = storage.getState().sessionMessages[id];
+        const observations = [roots(id), roots(id).reverse()].map(messages => {
+            const full = buildTranscriptRenderableAggregate({ messages, completedRequests: null });
+            const streamed = buildTranscriptRenderableAggregate({ messages: [], completedRequests: null });
+            for (const message of messages) expect(applyMessageChangeToTranscriptRenderableAggregate({ aggregate: streamed, previous: null, next: message })).toBe(true);
+            return { rootIds: messages.map(message => message.id), direct: listPendingSessionRequests(session, messages),
+                full: listPendingSessionRequests(session, [], { states: full.requestStates }),
+                streamed: listPendingSessionRequests(session, [], { states: streamed.requestStates }),
+                targeted: observePendingSessionRequest(session, 'r', full.requestStates.get('r')) };
+        });
+        const incremental = listPendingSessionRequests(session, [], { states: entry.renderableAggregate!.requestStates });
+        for (const pending of [...observations.flatMap(value => [value.direct, value.full, value.streamed]), incremental]) {
+            const stale = pending.find(value => value.id === 'r');
+            expect.soft(!stale || stale.requiresInspection === true).toBe(true);
+            expect(pending.find(value => value.id === 'q')).toMatchObject({ arguments: { command: 'echo independent' } });
+            expect(pending.find(value => value.id === 'q')).not.toHaveProperty('requiresInspection');
+        }
+        for (const { targeted } of observations) {
+            expect.soft(targeted.status !== 'pending' || targeted.request.requiresInspection === true).toBe(true);
+        }
+        const displayed = { id: 'r', kind: 'permission' as const, ...request('echo A', 100) };
+        expect.soft(createPendingRequestActionabilitySelector(id, displayed)(storage.getState())).toBe(false);
+
+        // A different current payload must not inherit A or B's outcome. With no
+        // later clock, the collision allows inspection only, not an arbitrary answer.
+        snapshot(id, { requests: { r: request('echo C', 300), q: request('echo independent', 700) } });
+        const changedSession = storage.getState().sessions[id];
+        for (const states of [storage.getState().sessionMessages[id].renderableAggregate!.requestStates,
+            buildTranscriptRenderableAggregate({ messages: roots(id), completedRequests: null }).requestStates]) {
+            expect(listPendingSessionRequests(changedSession, [], { states }).find(value => value.id === 'r'))
+                .toMatchObject({ arguments: { command: 'echo C' }, requiresInspection: true });
+            expect(observePendingSessionRequest(changedSession, 'r', states.get('r')))
+                .toMatchObject({ status: 'pending', request: { arguments: { command: 'echo C' }, requiresInspection: true } });
+        }
+        // A real later reopen disambiguates the current publication. Retraction of
+        // its soft interruption must retain the older hard collision in both readers.
+        snapshot(id, { requests: { r: request('echo A', 500), q: request('echo independent', 700) } });
+        for (const phase of ['reopen', 'resume']) {
+            if (phase === 'resume') {
+                snapshot(id, { requests: { q: request('echo independent', 700) }, completedRequests: {
+                    r: { ...request('echo A', 500), completedAt: 600, status: 'canceled', reason: 'Request interrupted' },
+                } });
+                snapshot(id, { requests: { r: request('echo A', 500), q: request('echo independent', 700) } });
+            }
+            const current = storage.getState().sessions[id];
+            const currentEntry = storage.getState().sessionMessages[id];
+            const full = buildTranscriptRenderableAggregate({ messages: roots(id), completedRequests: null });
+            expect(currentEntry.renderableAggregate!.requestStates.get('r')).toEqual(full.requestStates.get('r'));
+            for (const states of [full.requestStates, currentEntry.renderableAggregate!.requestStates]) {
+                const pending = listPendingSessionRequests(current, [], { states });
+                expect(pending.find(value => value.id === 'r')).toMatchObject({ createdAt: 500, arguments: { command: 'echo A' } });
+                expect(pending.find(value => value.id === 'r')).not.toHaveProperty('requiresInspection');
+                expect(observePendingSessionRequest(current, 'r', states.get('r'))).toMatchObject({ status: 'pending', request: { createdAt: 500 } });
+            }
+            expect(createPendingRequestActionabilitySelector(id, { ...displayed, createdAt: 500 })(storage.getState())).toBe(true);
+        }
+        snapshot(id, { requests: { q: request('echo independent', 700) }, completedRequests: {
+            r: { ...request('echo A', 500), completedAt: 800, status: 'approved' },
+        } });
+        // A reused mirror keeps its enclosing transcript clock. Supply a genuine
+        // later transcript occurrence before expecting the hard watermark to advance.
+        storage.getState().applyMessages(id, [call('later-task', 'Task', {}, 650),
+            call('r', 'Bash', { command: 'echo A' }, 700, 'later-task')]);
+        const completedSession = storage.getState().sessions[id];
+        for (const states of [storage.getState().sessionMessages[id].renderableAggregate!.requestStates,
+            buildTranscriptRenderableAggregate({ messages: roots(id), completedRequests: null }).requestStates]) {
+            expect(states.get('r')).not.toHaveProperty('hardTerminalAmbiguous');
+            expect(listPendingSessionRequests(completedSession, [], { states }).map(value => value.id)).toEqual(['q']);
+            expect(observePendingSessionRequest(completedSession, 'r', states.get('r')).status).toBe('terminal');
+        }
+    });
+
+it('retracts changed equal-time hard payload evidence instead of declaring it interchangeable', () => {
+    const id = 'hard-retraction';
+    storage.getState().applySessions([createSessionFixture({ id, active: true, agentState: { requests: { r: request('echo A', 200) } } })]);
+    storage.getState().applyMessages(id, [call('task', 'Task', {}, 250), call('r', 'Bash', { command: 'echo A' }, 300, 'task')]);
+    snapshot(id, { requests: {}, completedRequests: { r: { ...request('echo A', 200), completedAt: 400, status: 'approved' } } });
+    const original = roots(id).find(root => root.kind === 'tool-call' && root.tool.name === 'Task');
+    if (original?.kind !== 'tool-call' || original.children[0]?.kind !== 'tool-call') throw new Error('missing completed child');
+    const child = original.children[0];
+    const changed = { ...original, children: [{ ...child, tool: { ...child.tool, input: { command: 'echo B' } } }] };
+    const aggregate = buildTranscriptRenderableAggregate({ messages: [original], completedRequests: null });
+    expect.soft(applyMessageChangeToTranscriptRenderableAggregate({ aggregate, previous: original, next: changed })).toBe(false);
+    const sole = buildTranscriptRenderableAggregate({ messages: [original], completedRequests: null });
+    expect(applyMessageChangeToTranscriptRenderableAggregate({ aggregate: sole, previous: original, next: changed,
+        isSoleRequestStateContributor: () => true })).toBe(true);
+    expect(sole.requestStates).toEqual(buildTranscriptRenderableAggregate({ messages: [changed], completedRequests: null }).requestStates);
+});
 
 it.each(['existing child', 'completion before child', 'batched parent and child', 'reversed batch'])(
     'materializes live matching completion on nested B: %s', order => {

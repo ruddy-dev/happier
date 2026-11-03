@@ -80,6 +80,41 @@ function footer(tool: ToolCall) {
     return <PermissionFooter permission={tool.permission!} sessionId="inspection" toolName={tool.name} toolInput={tool.input} requestCreatedAt={tool.createdAt} />;
 }
 
+it.each(['equivalent', 'changed value', 'array order', 'array shape', 'later occurrence'])(
+    'retained ordinary callback compares nested JSON values: %s', async change => {
+        const input = { command: 'echo same', options: { cwd: '/work', env: { FIRST: '1', SECOND: '2' } }, steps: ['first', 'second'] };
+        const reordered = { steps: ['first', 'second'], options: { env: { SECOND: '2', FIRST: '1' }, cwd: '/work' }, command: 'echo same' };
+        storage.getState().applySessions([createSessionFixture({ id: 'inspection', active: true,
+            agentState: { requests: { r: request('Bash', input) } } })]);
+        storage.getState().applyMessages('inspection', []);
+        const displayed = listPendingSessionRequests(storage.getState().sessions.inspection)[0]!;
+        const screen = await renderScreen(<PermissionPromptCard request={displayed} location={null} sessionId="inspection" metadata={null} canApprovePermissions />);
+        const retained = screen.findByTestId('permission-footer.allow')!.props.onPress;
+        const current = change === 'changed value' ? { ...reordered, options: { ...reordered.options, cwd: '/elsewhere' } }
+            : change === 'array order' ? { ...reordered, steps: ['second', 'first'] }
+                : change === 'array shape' ? { ...reordered, steps: { 0: 'first', 1: 'second' } } : reordered;
+        act(() => snapshot({ requests: { r: request('Bash', current, change === 'later occurrence' ? 500 : 200) } }));
+        await act(async () => { await retained(); });
+        expect(decisions().map(call => call.payload.id)).toEqual(change === 'equivalent' ? ['r'] : []);
+    });
+
+it.each([
+    ['equivalent reordered fields', '{"payload":{"__proto__":{"steps":["first","second"],"destination":"old"},"label":"same"}}', true],
+    ['changed own key value', '{"payload":{"label":"same","__proto__":{"destination":"new","steps":["first","second"]}}}', false],
+    ['changed array order', '{"payload":{"label":"same","__proto__":{"destination":"old","steps":["second","first"]}}}', false],
+] as const)('retained ordinary callback preserves literal JSON keys: %s', async (_case, currentJson, allowed) => {
+    const input: unknown = JSON.parse('{"payload":{"label":"same","__proto__":{"destination":"old","steps":["first","second"]}}}');
+    storage.getState().applySessions([createSessionFixture({ id: 'inspection', active: true,
+        agentState: { requests: { r: request('CustomJSONTool', input) } } })]);
+    storage.getState().applyMessages('inspection', []);
+    const displayed = listPendingSessionRequests(storage.getState().sessions.inspection)[0]!;
+    const screen = await renderScreen(<PermissionPromptCard request={displayed} location={null} sessionId="inspection" metadata={null} canApprovePermissions />);
+    const retained = screen.findByTestId('permission-footer.allow')!.props.onPress;
+    act(() => snapshot({ requests: { r: request('CustomJSONTool', JSON.parse(currentJson)) } }));
+    await act(async () => { await retained(); });
+    expect(decisions().map(call => call.payload.id)).toEqual(allowed ? ['r'] : []);
+});
+
 it.each(['allow', 'deny'])('main-only B stays inspectable through ordinary composer and transcript: %s', async action => {
     const { pending, tool } = seed();
     const composer = await renderScreen(<PermissionPromptCard request={pending} location={null} sessionId="inspection" metadata={null} canApprovePermissions />);
