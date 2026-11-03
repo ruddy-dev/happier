@@ -1,4 +1,4 @@
-export type HoldSpaceState = { phase: 'idle' | 'holding' };
+export type HoldSpaceState = { phase: 'idle' | 'holding' | 'suppressing' };
 export type HoldSpaceEvent =
     | { type: 'blur' }
     | { type: 'hidden' }
@@ -13,6 +13,12 @@ export type HoldSpaceResult = {
 };
 
 export function reduceHoldSpace(state: HoldSpaceState, event: HoldSpaceEvent): HoldSpaceResult {
+    if (state.phase === 'suppressing') {
+        if (event.type === 'blur' || event.type === 'hidden' || (event.type === 'keyup' && event.key === ' ')) {
+            return { next: { phase: 'idle' }, action: null, preventDefault: false };
+        }
+        return { next: state, action: null, preventDefault: event.type === 'keydown' && event.key === ' ' };
+    }
     if (state.phase === 'holding') {
         if (event.type === 'blur' || event.type === 'hidden') {
             return { next: { phase: 'idle' }, action: 'release', preventDefault: false };
@@ -23,16 +29,14 @@ export function reduceHoldSpace(state: HoldSpaceState, event: HoldSpaceEvent): H
                 : { next: state, action: null, preventDefault: true };
         }
         if (event.type === 'keydown' && event.key === 'Escape') {
-            return { next: { phase: 'idle' }, action: 'cancel', preventDefault: true };
+            return { next: { phase: 'suppressing' }, action: 'cancel', preventDefault: true };
         }
     } else if (event.type === 'keydown' && event.key === ' '
+        && !event.repeat && !event.dictationActive
         && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
         && !event.isComposing && event.keyCode !== 229
         && event.isSessionInput && event.isInputEmpty && event.enabled) {
-        // Escape or a session change can reset the gesture while Space is still down.
-        // Swallow its remaining repeats without starting another operation.
-        if (event.repeat) return { next: state, action: null, preventDefault: true };
-        if (!event.dictationActive) return { next: { phase: 'holding' }, action: 'start', preventDefault: true };
+        return { next: { phase: 'holding' }, action: 'start', preventDefault: true };
     }
     return { next: state, action: null, preventDefault: false };
 }

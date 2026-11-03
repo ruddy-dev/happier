@@ -27,10 +27,12 @@ export function useDeskDictation(sessionId: string, options?: DictationOptions) 
     const holdSpaceEnabled = React.useRef(true);
     holdSpaceEnabled.current = options?.holdSpace ?? true;
     const actions = React.useRef<DictationActions | null>(null);
+    const interruptedHold = React.useRef(false);
 
     React.useEffect(() => {
         let disposed = false;
-        let hold: HoldSpaceState = { phase: 'idle' };
+        let hold: HoldSpaceState = { phase: interruptedHold.current ? 'suppressing' : 'idle' };
+        interruptedHold.current = false;
         let operation: { stopping: boolean; recording: boolean } | null = null;
         const update = (next: DictationState) => { if (!disposed) setState(next); };
         const cancel = () => {
@@ -141,6 +143,8 @@ export function useDeskDictation(sessionId: string, options?: DictationOptions) 
             document.addEventListener('visibilitychange', onVisibility);
         }
         return () => {
+            // A session/scope change cancels recognition while the physical key may still be down.
+            interruptedHold.current = hold.phase === 'holding' || hold.phase === 'suppressing';
             disposed = true;
             actions.current = null;
             operation = null;
@@ -153,6 +157,11 @@ export function useDeskDictation(sessionId: string, options?: DictationOptions) 
             }
         };
     }, [sessionId, scope?.serverId, scope?.accountId]);
+
+    React.useEffect(() => () => {
+        // Runs after the session effect cleanup; carry holds only across restarts, not unmounts.
+        interruptedHold.current = false;
+    }, []);
 
     const onPress = React.useCallback(() => actions.current?.press(), []);
     const cancel = React.useCallback(() => actions.current?.cancel(), []);
