@@ -838,6 +838,9 @@ export type SpriteKind = keyof typeof spriteGrids;
 export const modelSprites = { opus: 'ragdoll', sonnet: 'ginger', haiku: 'tuxedo', codex: 'cxprompt', fable: 'fox', sol: 'cxloupe', terra: 'cxprompt', astra: 'cxlab' } as const satisfies Readonly<Record<string, SpriteKind>>;
 export const noWorkerSprite: SpriteKind = 'ipdroid';
 
+/** Explicit Codex choices; `model` keeps spriteForModel's tier mapping. */
+export const codexRobotSprites = { prompt: 'cxprompt', loupe: 'cxloupe', lab: 'cxlab' } as const;
+
 /** Match model identifiers, never the session's agent flavour. Unknown/unloaded models use the selected no-worker face. */
 export function spriteForModel(model: string | null | undefined): SpriteKind | 'no-worker' {
     const id = model?.trim().toLowerCase().replace(/_/g, '-') ?? '';

@@ -7,7 +7,7 @@ import { useDeskPref } from '../deskPrefs';
 import type { Bulb } from '../model/bulb';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { spriteAsciiColour, spritePixelColour, spriteSignalColour, spriteStateTokens, useDeskPaint } from '../palette';
-import { noWorkerSprite, spriteAscii, spriteGrids, type SpriteKind } from '../sprites';
+import { codexRobotSprites, noWorkerSprite, spriteAscii, spriteGrids, type SpriteKind } from '../sprites';
 
 export type WorkerSpriteProps = Readonly<{
     kind: SpriteKind | 'no-worker';
@@ -16,6 +16,8 @@ export type WorkerSpriteProps = Readonly<{
     size: 24 | 28 | 40;
     faceStyle?: 'A' | 'B';
     calm?: boolean;
+    /** Show the literal cast member in appearance controls, ignoring role overrides. */
+    preview?: boolean;
     testID?: string;
 }>;
 
@@ -24,10 +26,12 @@ const robotPreference: Partial<Record<SpriteKind, 'robotDroid' | 'robotIpb' | 'r
 };
 
 /** Approved grids and ASCII, a shared steady state cue, and just one finite IPB entrance. */
-export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKind, bulb, size, faceStyle: overrideFaceStyle, calm = false, testID }: WorkerSpriteProps) {
+export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKind, bulb, size, faceStyle: overrideFaceStyle, calm = false, preview = false, testID }: WorkerSpriteProps) {
     const [noWorker] = useDeskPref('noWorkerRobot');
     const [savedFaceStyle] = useDeskPref('workerFaces');
-    const kind = requestedKind === 'no-worker' ? (noWorker === 'ipb' ? 'ipb' : noWorkerSprite) : requestedKind;
+    const [codexRobot] = useDeskPref('codexRobot');
+    const isCodex = requestedKind === 'cxprompt' || requestedKind === 'cxloupe' || requestedKind === 'cxlab';
+    const kind = !preview && isCodex && codexRobot !== 'model' ? codexRobotSprites[codexRobot] : requestedKind === 'no-worker' ? (noWorker === 'ipb' ? 'ipb' : noWorkerSprite) : requestedKind;
     const robotKey = robotPreference[kind] ?? 'robotDroid';
     const [preset] = useDeskPref(robotKey);
     const faceStyle = overrideFaceStyle ?? savedFaceStyle;
