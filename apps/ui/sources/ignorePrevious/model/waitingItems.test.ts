@@ -107,8 +107,11 @@ describe('describeRequest', () => {
         expect(describeRequest('Bash', { command: 'ls', description: 'List files' })).toBe('ls');
     });
 
-    it('shows the file for edits', () => {
-        expect(describeRequest('Edit', { file_path: 'src/a.ts', old_string: 'x' })).toBe('src/a.ts');
+    it('shows the file and the full changes for edits', () => {
+        const detail = describeRequest('Edit', { file_path: 'src/a.ts', old_string: 'x', new_string: 'changed text' });
+        expect(detail).toContain('src/a.ts');
+        expect(detail).toContain('changed text');
+        expect(detail).toContain('"old_string": "x"');
     });
 
     it('shows the arguments of any other tool, to the last character', () => {

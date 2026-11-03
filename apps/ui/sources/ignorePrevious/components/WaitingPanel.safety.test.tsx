@@ -1,3 +1,4 @@
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import type { ReactTestInstance } from 'react-test-renderer';
@@ -143,7 +144,9 @@ const UNREADABLE = "The desk can't read this session's request. Open the session
 
 async function renderPanel() {
     const { WaitingPanel } = await import('./WaitingPanel');
-    return renderScreen(<WaitingPanel />);
+    const screen = await renderScreen(<WaitingPanel />);
+    await revealWaitingDetails(screen);
+    return screen;
 }
 
 describe('WaitingPanel safety', () => {
@@ -269,6 +272,7 @@ describe('WaitingPanel safety', () => {
         act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} } }]));
         expect(screen.findByTestId('ip-answered-returning-request')).not.toBeNull();
         act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 2 }]));
+        await revealWaitingDetails(screen);
         expect(screen.findByTestId('ip-waiting-allow-returning-request')).not.toBeNull();
         expect(screen.findByTestId('ip-answered-returning-request')).toBeNull();
     });
@@ -465,7 +469,8 @@ describe('WaitingPanel safety', () => {
                 'This request was already answered or has expired. Open the session to check.',
             );
             expect(state.alert).toHaveBeenCalledWith(t('ignorePrevious.waiting.alreadyAnsweredTitle'), t('ignorePrevious.waiting.alreadyAnswered'));
-            expect(screen.findByTestId('ip-waiting-allow-r9')?.props.accessibilityState).toMatchObject({ disabled: false });
+            // This card stays unavailable, while the independent session footer remains usable.
+            expect(screen.findByTestId('ip-waiting-allow-r9')?.props.accessibilityState).toMatchObject({ disabled: true });
             const action = vi.fn(async () => {});
             await expect(footer.dispatch(key, action)).resolves.toBe(true);
             expect(action).toHaveBeenCalledTimes(1);
@@ -490,7 +495,7 @@ describe('WaitingPanel safety', () => {
         const command = 'cd build && ' + 'echo a '.repeat(40) + '&& rm -rf /tmp/x';
         seed([sessionWithRequest('s1', 'r10', { tool: 'Bash', arguments: { command } })]);
         const screen = await renderPanel();
-        const waiting = textUnder(screen.findByTestId('ip-waiting'));
+        const waiting = textUnder(screen.findByTestId('ip-waiting-detail-r10'));
         expect(command.length).toBeGreaterThan(290);
         expect(waiting).toContain(command);
         expect(waiting).not.toContain('…');
