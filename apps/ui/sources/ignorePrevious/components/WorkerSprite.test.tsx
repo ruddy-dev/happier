@@ -1,8 +1,9 @@
 import { act } from 'react-test-renderer';
+import { MMKV } from 'react-native-mmkv';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderScreen } from '@/dev/testkit';
 import { deskThemes, robotColourDefaults, robotPresets, spriteAsciiColour, spriteSignalColour, spriteStateTokens } from '../palette';
-import { asciiSprites, spriteGrids, type SpriteKind } from '../sprites';
+import { asciiSprites, spriteForModel, spriteGrids, type SpriteKind } from '../sprites';
 import type { Bulb } from '../model/bulb';
 
 const motion = vi.hoisted(() => ({ reduced: false, active: new Set<object>(), durations: [] as number[] }));
@@ -37,7 +38,67 @@ describe('WorkerSprite', () => {
     beforeEach(() => { vi.useFakeTimers(); motion.reduced = false; motion.active.clear(); motion.durations.length = 0; });
     afterEach(() => { vi.useRealTimers(); });
 
-    it.each([24, 28, 40] as const)('uses whole pixel cells in the %s px slot', async (size) => {
+    it('hydrates an explicit Codex choice for every tier while preserving other providers and literal previews', async () => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const pixels = (screen: Awaited<ReturnType<typeof renderScreen>>) => screen.findByTestId('ip-sprite-pixels')!.findAllByType('Rect').map(({ props }) => ({ x: props.x, y: props.y, width: props.width, height: props.height, fill: props.fill }));
+        const lab = await renderScreen(<WorkerSprite kind="cxlab" bulb="idle" size={28} calm />);
+        const expectedLab = pixels(lab);
+        const cat = await renderScreen(<WorkerSprite kind="ragdoll" bulb="idle" size={28} calm />);
+        const expectedCat = pixels(cat);
+        const loupe = await renderScreen(<WorkerSprite kind="cxloupe" bulb="idle" size={28} calm />);
+        const expectedLoupe = pixels(loupe);
+        const prompt = await renderScreen(<WorkerSprite kind="cxprompt" bulb="idle" size={28} calm />);
+        const expectedPrompt = pixels(prompt);
+        new MMKV().set('ignorePrevious.codexRobot', 'lab');
+        for (const model of ['gpt-6-sol', 'gpt-6-terra', 'gpt-6-astra', 'codex']) {
+            const screen = await renderScreen(<WorkerSprite kind={spriteForModel(model)} bulb="idle" size={28} calm />);
+            expect(pixels(screen)).toEqual(expectedLab);
+        }
+        const unchanged = await renderScreen(<WorkerSprite kind={spriteForModel('claude-sonnet-5-5')} bulb="idle" size={28} calm />);
+        const ginger = await renderScreen(<WorkerSprite kind="ginger" bulb="idle" size={28} calm />);
+        expect(pixels(unchanged)).toEqual(pixels(ginger));
+        const opus = await renderScreen(<WorkerSprite kind="ragdoll" bulb="idle" size={28} calm />);
+        expect(pixels(opus)).toEqual(expectedCat);
+        const preview = await renderScreen(<WorkerSprite kind="cxprompt" bulb="idle" size={28} calm preview />);
+        expect(pixels(preview)).toEqual(expectedPrompt);
+        const live = await renderScreen(<WorkerSprite kind="cxloupe" bulb="idle" size={28} calm />);
+        const { deskPrefs } = await import('../deskPrefs');
+        await act(async () => deskPrefs.set('noWorkerRobot', 'ipb'));
+        expect(pixels(live)).toEqual(expectedLab);
+        await act(async () => deskPrefs.set('codexRobot', 'model'));
+        expect(pixels(live)).toEqual(expectedLoupe);
+    });
+
+    it.each(['codex', 'claude', 'gemini', null] as const)('keeps signed Droid art for unresolved %s workers independent of role preferences', async workerAgentId => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const { deskPrefs } = await import('../deskPrefs');
+        const droid = await renderScreen(<WorkerSprite kind="ipdroid" bulb="waiting" size={28} preview calm />);
+        const art = (screen: Awaited<ReturnType<typeof renderScreen>>) => screen.tree.toJSON();
+        const screen = await renderScreen(<WorkerSprite kind="no-worker" workerAgentId={workerAgentId} bulb="waiting" size={28} calm />);
+        expect(art(screen)).toEqual(art(droid));
+        const signal = screen.findByTestId('ip-sprite-signal')!.props.fill;
+        await act(async () => deskPrefs.set('noWorkerRobot', 'ipb'));
+        expect(art(screen)).toEqual(art(droid));
+        expect(screen.findByTestId('ip-sprite-signal')!.props.fill).toBe(signal);
+        await act(async () => deskPrefs.set('workerFaces', 'B'));
+        expect(screen.findByTestId('ip-sprite-ascii')).not.toBeNull();
+        expect(art(screen)).toEqual(art(droid));
+        await act(async () => deskPrefs.set('noWorkerRobot', 'droid'));
+        expect(art(screen)).toEqual(art(droid));
+    });
+
+    it.each(['model', 'unknown-future-robot'])('hydrates %s as model-tier defaults without rewriting storage', async stored => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const persisted = new MMKV();
+        persisted.set('ignorePrevious.codexRobot', stored);
+        for (const [model, colour] of [['gpt-6-sol', 'violet'], ['gpt-6-terra', 'green'], ['gpt-6-astra', 'orange']] as const) {
+            const screen = await renderScreen(<WorkerSprite kind={spriteForModel(model)} bulb="idle" size={28} calm />);
+            expect(screen.findByTestId('ip-sprite-pixels')!.findAllByType('Rect').map(node => node.props.fill)).toContain(robotPresets[colour].body);
+        }
+        expect(persisted.getString('ignorePrevious.codexRobot')).toBe(stored);
+    });
+
+    it.each([24, 28, 32, 40, 48] as const)('uses whole pixel cells in the %s px slot', async (size) => {
         const { WorkerSprite } = await import('./WorkerSprite');
         const screen = await renderScreen(<WorkerSprite kind="ragdoll" bulb="turn" size={size} testID="face" />);
         expect(screen.findByTestId('face')!.props.style).toMatchObject({ width: size, height: size });

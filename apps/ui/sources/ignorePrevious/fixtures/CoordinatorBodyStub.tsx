@@ -19,6 +19,7 @@ import scenario from './desk-fixture.json';
 import demo from './demo/desk-demo.json';
 import { storage } from '@/sync/domains/state/storage';
 import { CreatureFixture } from './CreatureFixture';
+import { RobotPickerFixture } from './RobotPickerFixture';
 import { FreshStartFixture } from './FreshStartFixture';
 import { QuestionTranscriptFixture } from './QuestionTranscriptFixture';
 
@@ -66,7 +67,7 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
                         scroll.current?.scrollToEnd({ animated: !reducedMotion });
                     }
                 }}>
-                {!hasDemo ? <><CreatureFixture /><FreshStartFixture /></> : null}
+                {!hasDemo ? <><RobotPickerFixture /><CreatureFixture /><FreshStartFixture /></> : null}
                 <View style={{ gap: 10, padding: 16 }}>
                     {!hasDemo ? <QuestionTranscriptFixture /> : null}
                     {transcript.map((line, index) => {

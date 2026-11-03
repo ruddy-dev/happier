@@ -87,7 +87,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: terminal ? 6 : 8, paddingLeft: terminal ? 8 : 12, paddingRight: 8, minWidth: 0, borderRadius: terminal ? 0 : 8 }}
             >
                 <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }}>
-                    <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
+                    <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} workerAgentId={group.stateWorker ? group.stateWorker.agentId ?? null : undefined} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text numberOfLines={2} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: terminal ? 13.5 : 14, fontWeight: terminal ? '700' : '600', ...(terminal ? { lineHeight: 18 } : {}) }}>
@@ -126,7 +126,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                       <View key={worker.sessionId} style={{ minWidth: 0, gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: paint.rule }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                               <View testID={`ip-worker-face-${worker.sessionId}`}>
-                                  <WorkerSprite kind={spriteForModel(worker.model)} bulb={worker.bulb} size={24} faceStyle={faceStyle} calm={calm} />
+                                  <WorkerSprite kind={spriteForModel(worker.model)} workerAgentId={worker.agentId ?? null} bulb={worker.bulb} size={24} faceStyle={faceStyle} calm={calm} />
                               </View>
                               <Text style={{ color: paint.ink, fontSize: 14, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">
                                   {worker.title}

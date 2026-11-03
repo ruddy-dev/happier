@@ -19,6 +19,7 @@ const keys = {
     robotLoupe: { storageKey: 'ignorePrevious.robotLoupe', defaultValue: robotColourDefaults.loupe as RobotPreset, allowedValues: Object.keys(robotPresets) },
     robotLab: { storageKey: 'ignorePrevious.robotLab', defaultValue: robotColourDefaults.lab as RobotPreset, allowedValues: Object.keys(robotPresets) },
     noWorkerRobot: { storageKey: 'ignorePrevious.noWorkerRobot', defaultValue: 'droid' as 'droid' | 'ipb', allowedValues: ['droid', 'ipb'] as readonly string[] },
+    codexRobot: { storageKey: 'ignorePrevious.codexRobot', defaultValue: 'model' as 'model' | 'prompt' | 'loupe' | 'lab', allowedValues: ['model', 'prompt', 'loupe', 'lab'] as readonly string[] },
     workerFaces: { storageKey: 'ignorePrevious.workerFaces', defaultValue: 'A' as 'A' | 'B', allowedValues: ['A', 'B'] as readonly string[] },
     coordinatorSessionId: { storageKey: 'ignorePrevious.coordinatorSessionId', defaultValue: null as string | null },
     workCollapsed: { storageKey: 'ignorePrevious.deskMinimised', defaultValue: false as boolean },

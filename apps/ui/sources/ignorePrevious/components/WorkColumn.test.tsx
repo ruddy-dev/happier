@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { act } from 'react-test-renderer';
+import { act, type ReactTestInstance } from 'react-test-renderer';
 import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred, findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
@@ -150,6 +150,157 @@ describe('WorkColumn', () => {
         vi.unstubAllGlobals();
         vi.unstubAllEnvs();
         resetServerFeaturesClientForTests();
+    });
+
+    it.each([undefined, 'column', 'row'] as const)('keeps the explicit Codex face on the %s Work view before and after model hydration', async compact => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const pixels = (node: ReactTestInstance) =>
+            node.findAllByType('Rect').map(({ props }) => ({ x: props.x, y: props.y, width: props.width, height: props.height, fill: props.fill }));
+        const size = compact ? 28 : 40;
+        const lab = await renderScreen(<WorkerSprite kind="cxlab" bulb="idle" size={size} calm preview />);
+        const expectedLab = pixels(lab.tree.root);
+        const loupe = await renderScreen(<WorkerSprite kind="cxloupe" bulb="idle" size={size} calm preview />);
+        const expectedLoupe = pixels(loupe.tree.root);
+        const droid = await renderScreen(<WorkerSprite kind="ipdroid" bulb="idle" size={size} calm preview />);
+        const expectedDroid = pixels(droid.tree.root);
+        await act(async () => {
+            deskPrefs.set('codexRobot', 'lab');
+            deskPrefs.set('noWorkerRobot', 'ipb');
+        });
+        const worker = session('codex-face', '/work/atr-9-sprites', {
+            metadata: { ...createSessionFixture().metadata!, path: '/work/atr-9-sprites', flavor: 'codex' },
+            modelMode: null,
+        });
+        seedListOnly([worker]);
+        const screen = await renderScreen(<WorkColumn compact={compact} calm />);
+        const face = (issue: string) => screen.findByTestId(`${compact ? 'ip-rail-face' : 'ip-work-card-face'}-${issue}`)!;
+        const hydrateModel = (modelId: string, version: number) => seed([{
+            ...worker, seq: worker.seq + version,
+            metadata: { ...worker.metadata!, sessionAppliedModelV1: { v: 1, provider: 'codex', modelId, updatedAt: version } },
+        }]);
+        expect(pixels(face('none'))).toEqual(expectedLab);
+        hydrateModel('future-model', 1);
+        expect(pixels(face('ATR-9'))).toEqual(expectedLab);
+        hydrateModel('gpt-6-sol', 2);
+        expect(pixels(face('ATR-9'))).toEqual(expectedLab);
+        if (!compact) {
+            await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+            const rowPreview = await renderScreen(<WorkerSprite kind="cxlab" bulb="idle" size={24} calm preview />);
+            expect(pixels(screen.findByTestId('ip-worker-face-codex-face')!)).toEqual(pixels(rowPreview.tree.root));
+        }
+        await act(async () => deskPrefs.set('codexRobot', 'model'));
+        expect(pixels(face('ATR-9'))).toEqual(expectedLoupe);
+        hydrateModel('future-model', 3);
+        expect(pixels(face('ATR-9'))).toEqual(expectedDroid);
+    });
+
+    it.each([undefined, 'column', 'row'] as const)('does not apply unassigned or Codex choices to an unresolved non-Codex worker in %s Work', async compact => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const worker = session('unresolved-face', '/work/atr-9-sprites');
+        seedListOnly([worker]);
+        const screen = await renderScreen(<WorkColumn compact={compact} calm />);
+        const face = (issue: string) => screen.findByTestId(`${compact ? 'ip-rail-face' : 'ip-work-card-face'}-${issue}`)!;
+        const fills = (issue: string) => face(issue).findAllByType('Rect').map(node => node.props.fill);
+        const before = fills('none');
+        await act(async () => {
+            deskPrefs.set('noWorkerRobot', 'ipb');
+            deskPrefs.set('codexRobot', 'lab');
+        });
+        expect(fills('none')).toEqual(before);
+        seed([worker]);
+        expect(fills('ATR-9')).toEqual(before);
+    });
+
+    it.each([undefined, 'column', 'row'] as const)('integrates real picker choices with live grant ownership in %s Work', async compact => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const { RobotPicker } = await import('./RobotPicker');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const now = Date.now();
+        const codex = session('codex-choice', '/fixture/atr-9', {
+            metadata: { ...createSessionFixture().metadata!, path: '/fixture/atr-9', flavor: 'codex' },
+            modelMode: 'gpt-6-sol', updatedAt: now, meaningfulActivityAt: now,
+            active: true, activeAt: now, accessLevel: 'view', canApprovePermissions: false,
+            agentState: { requests: { watched: { tool: 'Bash', arguments: { command: 'echo watched' }, createdAt: now } } },
+        });
+        const claude = session('claude-choice', '/fixture/atr-9', {
+            modelMode: 'claude-sonnet-5.5', updatedAt: now - 1000, meaningfulActivityAt: now - 1000,
+            active: true, activeAt: now,
+            agentState: { requests: { answer: { tool: 'Bash', arguments: { command: 'echo actionable' }, createdAt: now } } },
+        });
+        seed([codex, claude]);
+        const screen = await renderScreen(<><RobotPicker /><WorkColumn compact={compact} calm /></>);
+        const art = (node: ReactTestInstance) => ({
+            pixels: node.findAllByType('Rect')
+                .map(({ props }) => ({ x: props.x, y: props.y, width: props.width, height: props.height, fill: props.fill })),
+            ascii: node.findAllByType('SvgText').map(line => ({
+                x: line.props.x, y: line.props.y, fill: line.props.fill,
+                text: line.children.map(child => typeof child === 'string' ? child : child.props.children).join(''),
+            })),
+        });
+        const expected = async (kind: 'ginger' | 'cxloupe' | 'cxlab' | 'ipdroid', bulb: 'turn' | 'waiting', size: 24 | 28 | 40) => {
+            const preview = await renderScreen(<WorkerSprite kind={kind} bulb={bulb} size={size} preview calm />);
+            return art(preview.tree.root);
+        };
+        const face = () => screen.findByTestId(`${compact ? 'ip-rail-face' : 'ip-work-card-face'}-ATR-9`)!;
+        const size = compact ? 28 : 40;
+        const cat = await expected('ginger', 'turn', size);
+        const lab = await expected('cxlab', 'turn', size);
+        const loupe = await expected('cxloupe', 'turn', size);
+        const assertCounts = (turn: number, waiting: number) => {
+            if (compact) return;
+            expect(screen.findByTestId('ip-count-all')?.props.children).toBe(2);
+            expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(turn);
+            expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(waiting);
+        };
+        expect(art(face())).toEqual(cat);
+        assertCounts(1, 1);
+        await screen.pressByTestIdAsync('ip-codex-robot-lab');
+        expect(art(face())).toEqual(cat);
+        await screen.pressByTestIdAsync('ip-no-worker-ipb');
+        expect(art(face())).toEqual(cat);
+        if (!compact) {
+            await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+            expect(art(screen.findByTestId('ip-worker-face-codex-choice')!)).toEqual(await expected('cxlab', 'waiting', 24));
+            expect(art(screen.findByTestId('ip-worker-face-claude-choice')!)).toEqual(await expected('ginger', 'turn', 24));
+            expect(screen.getTextContent()).toContain('View only · outside request count');
+        }
+        // A list-only grant must replace the state owner, despite the older restricted full record.
+        seedListOnly([{ ...codex, accessLevel: 'edit', canApprovePermissions: true }]);
+        expect(art(face())).toEqual(lab);
+        assertCounts(2, 0);
+        await screen.pressByTestIdAsync('ip-codex-robot-model');
+        expect(art(face())).toEqual(loupe);
+        seed([{ ...codex, seq: codex.seq + 1, accessLevel: 'edit', canApprovePermissions: true,
+            metadata: { ...codex.metadata!, sessionAppliedModelV1: { v: 1, provider: 'codex', modelId: 'gpt-6-astra', updatedAt: now } } }]);
+        expect(art(face())).toEqual(lab);
+        await screen.pressByTestIdAsync('ip-codex-robot-loupe');
+        expect(art(face())).toEqual(loupe);
+        seedListOnly([codex]);
+        expect(art(face())).toEqual(cat);
+        assertCounts(1, 1);
+        if (!compact) expect(screen.findByTestId('ip-open-worker-codex-choice')).not.toBeNull();
+        await screen.pressByTestIdAsync('ip-codex-robot-model');
+        const unknown = { ...codex, seq: codex.seq + 2,
+            metadata: { ...codex.metadata!, sessionAppliedModelV1: { v: 1, provider: 'codex', modelId: 'future-model', updatedAt: now + 1 } },
+            accessLevel: 'edit', canApprovePermissions: true } satisfies Session;
+        seed([unknown]);
+        for (const style of ['A', 'B'] as const) {
+            await act(async () => deskPrefs.set('workerFaces', style));
+            const droid = await expected('ipdroid', 'turn', size);
+            expect(art(face())).toEqual(droid);
+            await screen.pressByTestIdAsync('ip-no-worker-droid');
+            expect(art(face())).toEqual(droid);
+            await screen.pressByTestIdAsync('ip-no-worker-ipb');
+            expect(art(face())).toEqual(droid);
+            seedListOnly([codex]);
+            expect(art(face())).toEqual(await expected('ginger', 'turn', size));
+            assertCounts(1, 1);
+            if (!compact) expect(art(screen.findByTestId('ip-worker-face-codex-choice')!)).toEqual(await expected('ipdroid', 'waiting', 24));
+            seedListOnly([unknown]);
+            expect(art(face())).toEqual(droid);
+            assertCounts(2, 0);
+        }
     });
 
     it.each(['column', 'row'] as const)('releases Waiting detail work while the %s rail is collapsed through resize', async compact => {
