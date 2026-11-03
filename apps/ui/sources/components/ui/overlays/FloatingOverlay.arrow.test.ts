@@ -165,6 +165,14 @@ afterEach(() => {
 });
 
 describe('FloatingOverlay', () => {
+    it.each(['modal', 'theme'] as const)('applies a requested square radius to both %s paint surfaces', async (surfaceChrome) => {
+        const screen = await renderOverlay({ surfaceChrome, borderRadius: 0 });
+        const surfaces = findAnimatedViewStyles(screen).filter(({ style }) => style.maxHeight !== undefined);
+        expect(surfaces[0].style.borderRadius).toBe(0);
+        expect(surfaces[1].style.borderRadius).toBe(0);
+        expect(surfaces[1].style.overflow).toBe('hidden');
+    });
+
     it('renders an arrow when configured', async () => {
         const screen = await renderOverlay({
             maxHeight: 200,

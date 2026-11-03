@@ -93,15 +93,17 @@ test('one theme map uses mockup 12 THEMES/hashOf names, including both kinds of 
 
 test('the sheet matrix covers every theme and size, and extra pages in dark and light at 1440 and 390', () => {
     const shots = buildShotMatrix('sheet');
-    assert.equal(shots.length, 37);
+    assert.equal(shots.length, 41);
     assert.equal(new Set(shots.map(shot => shot.name)).size, shots.length);
     const themes = ['night', 'paper', 'tokyo', 'kanagawa', 'gruvbox', 'dracula', 'terminalPaper'];
     assert.deepEqual(shots.filter(shot => shot.page === 'desk').map(shot => [shot.theme, shot.width, shot.height]),
         themes.flatMap(theme => [[theme, 1440, 900], [theme, 1100, 800], [theme, 390, 844]]));
     for (const theme of ['night', 'paper']) for (const width of [1440, 390]) {
         assert.deepEqual(shots.filter(shot => shot.theme === theme && shot.width === width).map(shot => shot.page),
-            ['desk', 'sign-in', 'restore', 'voice', 'robots']);
+            theme === 'night' ? ['desk', 'shog', 'sign-in', 'restore', 'voice', 'robots'] : ['desk', 'sign-in', 'restore', 'voice', 'robots']);
     }
+    assert.deepEqual(shots.filter(shot => shot.page === 'shog').map(shot => [shot.theme, shot.width, shot.openShog]),
+        [['night', 1440, true], ['night', 390, true], ['tokyo', 1440, true], ['tokyo', 390, true]]);
     for (const shot of shots) {
         assert.equal(shot.mockupHash, THEME_MAP[shot.theme].hash);
         assert.match(shot.appImage, /^app\/[\w-]+\.png$/);
@@ -123,8 +125,8 @@ test('the sheet matrix covers every theme and size, and extra pages in dark and 
         }
     }
     // Theme, then viewport, even for the supplementary pages.
-    assert.deepEqual(shots.slice(0, 6).map(shot => [shot.theme, shot.width]),
-        Array(5).fill(['night', 1440]).concat([['night', 1100]]));
+    assert.deepEqual(shots.slice(0, 7).map(shot => [shot.theme, shot.width]),
+        Array(6).fill(['night', 1440]).concat([['night', 1100]]));
 });
 
 test('storage seeds use MMKV web keys, the real profile shape and desk preferences without credentials', () => {
@@ -365,7 +367,7 @@ test('a relay error appearing after readiness fails capture with the relay messa
 
 test('capture rechecks every ready element after fonts, retaining the phone attached rule', async () => {
     for (const row of capturedRows()) {
-        const ids = row.page === 'desk' ? ['ip-work', 'ABC-12', 'ip-fixture-coordinator-body'] : [row.readyTestId];
+        const ids = row.page === 'desk' || row.page === 'shog' ? ['ip-work', 'ABC-12', 'ip-fixture-coordinator-body', ...(row.openShog ? ['ip-shog'] : [])] : [row.readyTestId];
         for (const id of ids) for (const change of ['absent', 'hidden']) {
             const shot = { ...row };
             const page = capturePage(shot, { onFonts: state => { state[change].add(id); } });
