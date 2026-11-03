@@ -18,7 +18,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SidebarNavigator } from '@/components/navigation/shell/SidebarNavigator';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform } from 'react-native';
-import { AppPaneModalProvider } from '@/components/appShell/providers/AppPaneModalProvider';
+import { DeskAppPaneModalProvider } from '@/ignorePrevious/appearance/DeskPageModalAppearance';
 import { PostHogProvider } from 'posthog-react-native';
 import * as Sentry from '@sentry/react-native';
 import { tracking } from '@/track/tracking';
@@ -756,7 +756,7 @@ function AppBoot(props: {
                     <AuthProvider key={initState.authGeneration} initialCredentials={initState.credentials}>
                         <ThemeProvider value={props.navigationTheme}>
                             <StatusBarProvider />
-                            <AppPaneModalProvider>
+                            <DeskAppPaneModalProvider>
                                 <CommandPaletteProvider>
                                     <RealtimeProvider>
                                         <ThemePreferenceTransitionHost>
@@ -771,7 +771,7 @@ function AppBoot(props: {
                                         </ThemePreferenceTransitionHost>
                                     </RealtimeProvider>
                                 </CommandPaletteProvider>
-                            </AppPaneModalProvider>
+                            </DeskAppPaneModalProvider>
                         </ThemeProvider>
                     </AuthProvider>
                 </GestureHandlerRootView>

@@ -143,8 +143,8 @@ const ItemGroupSharedCardBody = React.memo(function ItemGroupSharedCardBody(prop
 }>) {
     const styles = stylesheet;
     return (
-        <View style={[styles.contentContainerOuter, props.containerStyle]}>
-            <View style={[styles.contentContainerInner, props.clipContent ? styles.contentContainerInnerClipped : undefined]}>
+        <View testID="item-group-card" style={[styles.contentContainerOuter, props.containerStyle]}>
+            <View testID="item-group-card-inner" style={[styles.contentContainerInner, props.clipContent ? styles.contentContainerInnerClipped : undefined]}>
                 {withItemGroupDividers(props.children)}
             </View>
         </View>
@@ -213,9 +213,10 @@ const ItemGroupColumnedBody = React.memo(function ItemGroupColumnedBody(props: R
                         {rows.map((row, rowIndex) => (
                             <View
                                 key={row.key ?? `item-group-card-${columnIndex}-${rowIndex}`}
+                                testID="item-group-card"
                                 style={styles.columnCardOuter}
                             >
-                                <View style={[styles.contentContainerInner, props.clipContent ? styles.contentContainerInnerClipped : undefined]}>
+                                <View testID="item-group-card-inner" style={[styles.contentContainerInner, props.clipContent ? styles.contentContainerInnerClipped : undefined]}>
                                     {row}
                                 </View>
                             </View>

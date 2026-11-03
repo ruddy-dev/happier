@@ -20,6 +20,40 @@ export function mountDeskFont(doc: Document): () => void {
     font-display: swap;
 }
 [data-ip-font="desk"] { font-family: ${DESK_FONT_STACK}; }
+[data-ip-page-scope] :focus-visible { outline: 3px solid var(--ip-page-focus) !important; outline-offset: 2px; }
+/* Item owns an inside ring; grouped rows clip an outside outline. */
+[data-ip-page-scope][data-ip-voice] [data-ip-item-focus]:focus-visible { outline-style: none !important; }
+[data-ip-terminal][data-ip-voice] :is(button, input, select, textarea, [role="button"]) { border-radius: 2px !important; }
+/* The mobile welcome copy crosses the inherited planet; opaque theme canvas keeps it readable. */
+@media (max-width: 720px) {
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-heading-group"],
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-signup-disabled"],
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-server-loading-block"] {
+        background-color: var(--ip-page-surface); padding: 16px; border-radius: 12px;
+    }
+    [data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-heading-group"],
+    [data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-signup-disabled"],
+    [data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-server-loading-block"] {
+        border-radius: 2px;
+    }
+}
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-primary-start"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-secondary-login"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-create-account"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-signup-provider"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-login-provider"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-mtls-login"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-change-relay"],
+[data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-retry-server"],
+[data-ip-terminal] [data-testid="restore-manual-secret-input"],
+[data-ip-terminal] [data-testid="restore-manual-submit"],
+[data-ip-terminal] [data-testid="ip-voice-page"] :is(button, input, select, textarea, [role="button"]) {
+    border-radius: 2px !important;
+}
+[data-ip-terminal] [data-testid="ip-voice-page"] [data-testid="item-group-card"],
+[data-ip-terminal] [data-testid="ip-voice-page"] [data-testid="item-group-card-inner"] {
+    border-radius: 2px !important;
+}
 `;
         installation = { style, mounts: 0 };
         installations.set(doc, installation);

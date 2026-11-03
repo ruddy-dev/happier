@@ -1,3 +1,4 @@
+import { useTerminalVoicePage } from '@/ignorePrevious/appearance/DeskPageScope';
 import * as React from 'react';
 import {
     Platform,
@@ -231,17 +232,19 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
         </Animated.View>
     );
 
+    const terminalVoice = useTerminalVoicePage();
     const overlay = (
         <Animated.View style={[
             surfaceChrome === 'theme' ? styles.themedSurfaceShadowFrame : styles.modalShadowFrame,
             { maxHeight },
             containerStyle,
             borderRadius === undefined ? null : { borderRadius },
+            terminalVoice ? { borderRadius: 2 } : null,
         ]}>
             <Animated.View style={[
                 surfaceChrome === 'theme' ? styles.themedSurfaceClip : styles.modalClipSurface,
                 { maxHeight },
-                borderRadius === undefined ? null : { borderRadius },
+                terminalVoice ? { borderRadius: 2 } : borderRadius === undefined ? null : { borderRadius },
             ]}>
                 {content}
                 {scrollEnabled && fadeCfg ? (

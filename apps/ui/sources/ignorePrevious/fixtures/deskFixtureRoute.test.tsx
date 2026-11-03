@@ -15,6 +15,10 @@ import { loadSessionListWarmCacheEntries, readPersistedSessionListWarmCacheEntri
 import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
 
 import DeskFixturePage from '@/app/(app)/dev/desk-fixture';
+import { VoiceProviderSection } from '@/voice/settings/panels/VoiceProviderSection';
+import { voiceSettingsDefaults } from '@/sync/domains/settings/voiceSettings';
+import { DeskVoicePageContext } from '@/ignorePrevious/appearance/deskPageThemeContext';
+import { Item } from '@/components/ui/lists/Item';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -33,9 +37,10 @@ vi.mock('@react-navigation/native', async () => {
     return createReactNavigationNativeMock();
 });
 
+const fixtureParams = vi.hoisted(() => ({ surface: '' }));
 vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
-    return createExpoRouterMock().module;
+    return createExpoRouterMock({ params: () => fixtureParams }).module;
 });
 
 vi.mock('@/modal', async () => {
@@ -103,6 +108,7 @@ describe('dev/desk-fixture route', () => {
         vi.unstubAllGlobals();
     });
     beforeEach(() => {
+        fixtureParams.surface = '';
         storage.setState(before, true);
         setStoredCoordinatorId(null);
         setCoordinatorOverride(null);
@@ -138,6 +144,35 @@ describe('dev/desk-fixture route', () => {
         expect(Object.keys(storage.getState().sessions)).toHaveLength(0);
         expect(getStoredCoordinatorId()).toBeNull();
         await screen.unmount();
+    });
+
+    it('ignores a Voice surface request and leaves Voice settings unchanged', async () => {
+        fixtureParams.surface = 'voice';
+        const voiceBefore = structuredClone(storage.getState().settings.voice);
+        const screen = await showFixtureDesk();
+        expect(screen.findByTestId('ip-fixture-voice')).toBeNull();
+        expect(screen.findByTestId('ip-voice-mode-off')).toBeNull();
+        expect(storage.getState().settings.voice).toEqual(voiceBefore);
+        await act(async () => auth.set({ isAuthenticated: true }));
+        expect(screen.findByTestId('ip-fixture-signed-in')).not.toBeNull();
+        expect(storage.getState().settings.voice).toEqual(voiceBefore);
+        await screen.unmount();
+    });
+
+    it('allows all Voice provider explanations to wrap only in the desk Voice scope', async () => {
+        for (const deskVoice of [true, false]) {
+            const screen = await renderScreen(
+                <DeskVoicePageContext.Provider value={deskVoice}>
+                    <VoiceProviderSection voice={voiceSettingsDefaults} setVoice={() => {}} happierVoiceSupported />
+                </DeskVoicePageContext.Provider>,
+            );
+            // React's test renderer exposes the inner component of memoized Items.
+            const itemType = (Item as unknown as { type: React.ComponentType<React.ComponentProps<typeof Item>> }).type;
+            const rows = screen.root.findAllByType(itemType);
+            expect(rows).toHaveLength(4);
+            expect(rows.map((row) => row.props.subtitleLines)).toEqual(Array(4).fill(deskVoice ? 0 : undefined));
+            await screen.unmount();
+        }
     });
 
     it('treats any value but 1 as off', async () => {

@@ -67,6 +67,14 @@ afterEach(() => {
 });
 
 describe('ItemGroup surface chrome', () => {
+    it('exposes the painted card and its inner boundary for scoped web styling', async () => {
+        const screen = await renderItemGroup({ clipContent: true });
+        const outer = screen.findByTestId('item-group-card');
+        const inner = screen.findByTestId('item-group-card-inner');
+        expect(flattenStyle(outer!.props.style)).toEqual(expect.objectContaining({ backgroundColor: '#ffffff', overflow: 'visible' }));
+        expect(flattenStyle(inner!.props.style)).toEqual(expect.objectContaining({ borderRadius: 16, overflow: 'hidden' }));
+    });
+
     it('does not add curated surface shadow when surface chrome tokens are transparent', async () => {
         const screen = await renderItemGroup();
         const style = findGroupSurfaceStyle(screen);

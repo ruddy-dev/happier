@@ -21,7 +21,7 @@ import { LocalConversationSection } from '@/voice/settings/panels/LocalConversat
 import { Icon } from '@/components/ui/icons/Icon';
 
 export default function VoiceSettingsScreen() {
-    return <DeskPageAppearance><VoiceSettingsContent /></DeskPageAppearance>;
+    return <DeskPageAppearance page="voice"><VoiceSettingsContent /></DeskPageAppearance>;
 }
 
 function VoiceSettingsContent() {
@@ -37,7 +37,7 @@ function VoiceSettingsContent() {
     ?? null;
 
   return (
-    <View style={{ flex: 1 }} ref={popoverBoundaryRef}>
+    <View testID="ip-voice-page" style={{ flex: 1 }} ref={popoverBoundaryRef}>
       <ItemList>
         <VoiceProviderSection voice={voice} setVoice={setVoice} happierVoiceSupported={happierVoiceSupported} />
 

@@ -1,3 +1,4 @@
+import { useTerminalVoicePage } from '@/ignorePrevious/appearance/DeskPageScope';
 import * as React from 'react';
 import { View, Pressable, StyleProp, ViewStyle, TextStyle, Platform, type AccessibilityRole, type AccessibilityState, type PressableProps, type TextProps } from 'react-native';
 import { Typography } from '@/constants/Typography';
@@ -606,11 +607,12 @@ export const Item = React.memo<ItemProps>((props) => {
     const isKeyboardModality = useIsKeyboardModality();
     const handleFocus = React.useCallback(() => { setIsFocused(true); onFocus?.(); }, [onFocus]);
     const handleBlur = React.useCallback(() => setIsFocused(false), []);
+    const terminalVoice = useTerminalVoicePage();
     const focusRingCornerRadii = React.useMemo(() => getItemGroupRowCornerRadii({
         hasBackground: true,
         position: rowPosition,
-        radius: groupCornerRadius,
-    }), [groupCornerRadius, rowPosition]);
+        radius: terminalVoice ? 2 : groupCornerRadius,
+    }), [groupCornerRadius, rowPosition, terminalVoice]);
     // `Item` is imported by 165 modules, and `FocusRing` runs a Reanimated animated style — an
     // always-mounted one would cost a shared value per row app-wide for a ring native can never
     // show (RN surfaces no keypress, so the modality never leaves `pointer` there). `isFocused`
@@ -862,6 +864,7 @@ export const Item = React.memo<ItemProps>((props) => {
                         ref={focusRef}
                         testID={testID}
                         {...webTestIdProps}
+                        {...(isWeb ? { dataSet: { ipItemFocus: '' } } : {})}
                         onPress={handlePress}
                         onLongPress={handleLongPress}
                         // @ts-expect-error - react-native types do not model web-only double click props; RN Web supports onDoubleClick.
@@ -932,6 +935,7 @@ export const Item = React.memo<ItemProps>((props) => {
                 ref={focusRef}
                 testID={testID}
                 {...webTestIdProps}
+                {...(isWeb ? { dataSet: { ipItemFocus: '' } } : {})}
                 onPress={handlePress}
                 onLongPress={handleLongPress}
                 // @ts-expect-error - react-native types do not model web-only double click props; RN Web supports onDoubleClick.

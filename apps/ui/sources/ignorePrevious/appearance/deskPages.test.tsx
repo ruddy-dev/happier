@@ -6,6 +6,7 @@ import { Platform, StyleSheet, type PressableProps } from 'react-native';
 import { renderScreen } from '@/dev/testkit/render/renderScreen';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { DeskPageScope } from './DeskPageScope';
+import { deskPrefs } from '../deskPrefs';
 
 const route = vi.hoisted(() => ({ pathname: '/', dark: false, capture: null as import('@/dev/testkit/mocks/router').StackOptionsCapture | null }));
 vi.mock('expo-router', async () => {
@@ -49,6 +50,8 @@ vi.mock('react-native-unistyles', async () => {
     const themes = {
         deskPageLight: resolveThemeProfile({ mode: 'light', profile: ignorePreviousLightProfile }),
         deskPageDark: resolveThemeProfile({ mode: 'dark', profile: ignorePreviousProfile }),
+        deskPageTokyo: darkTheme, deskPageKanagawa: darkTheme, deskPageGruvbox: darkTheme,
+        deskPageDracula: darkTheme, deskPageTerminalPaper: lightTheme,
     };
     const Scope = React.createContext<keyof typeof themes | null>(null);
     const base = await createUnistylesMock();
@@ -84,6 +87,8 @@ beforeEach(async () => {
         args[0] === '@/agents/registry/registryUi' ? registry : originalLoad(...args)
     ));
     Platform.OS = 'web';
+    deskPrefs.set('chatStyle', 'mask');
+    deskPrefs.set('terminalPalette', 'tokyo');
     route.capture?.reset();
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(createWelcomeFeaturesResponse()), {
         status: 200, headers: { 'content-type': 'application/json' },
@@ -176,11 +181,11 @@ it.each([
 it('styles a real restore validation dialog rendered by the app modal host', async () => {
     route.pathname = '/restore/manual';
     route.dark = true;
-    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    const { DeskAppPaneModalProvider } = await import('./DeskPageModalAppearance');
     const { Modal } = await import('@/modal');
     const Restore = (await import('@/app/(app)/restore/manual')).default;
     const screen = await renderScreen(<AuthProvider initialCredentials={null}>
-        <AppPaneModalProvider><Restore /></AppPaneModalProvider>
+        <DeskAppPaneModalProvider><Restore /></DeskAppPaneModalProvider>
     </AuthProvider>);
     try {
         await screen.pressByTestIdAsync('restore-manual-submit');
@@ -200,10 +205,10 @@ it.each([
     { path: '/', credentials: { token: 'fixture-token', secret: 'fixture-secret' } },
 ])('keeps Happier typography in excluded modal hosts: $path', async ({ path, credentials }) => {
     route.pathname = path;
-    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    const { DeskAppPaneModalProvider } = await import('./DeskPageModalAppearance');
     const { Modal } = await import('@/modal');
     const screen = await renderScreen(<AuthProvider initialCredentials={credentials}>
-        <AppPaneModalProvider><></></AppPaneModalProvider>
+        <DeskAppPaneModalProvider><></></DeskAppPaneModalProvider>
     </AuthProvider>);
     try {
         await React.act(async () => { Modal.alert('Fixture', 'Message'); });
@@ -232,28 +237,37 @@ it('preserves a retained restore form and its scope when the current path leaves
     }
 });
 
-it('preserves an open Voice prompt across navigation away and back', async () => {
+it.each([
+    { style: 'terminal' as const, name: 'deskPageTokyo' },
+    { style: 'mask' as const, name: 'deskPageLight' },
+])('preserves an open Voice prompt across navigation away and back in $style', async ({ style, name }) => {
     route.pathname = '/settings/voice';
     route.dark = false;
-    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    deskPrefs.set('chatStyle', style);
+    const { DeskAppPaneModalProvider } = await import('./DeskPageModalAppearance');
     const { Modal } = await import('@/modal');
     const Voice = (await import('@/app/(app)/settings/voice')).default;
     const { t } = await import('@/text');
+    const { WebPromptModal } = await import('@/modal/components/WebPromptModal');
     const screen = await renderScreen(<AuthProvider initialCredentials={null}>
-        <AppPaneModalProvider><Voice /></AppPaneModalProvider>
+        <DeskAppPaneModalProvider><Voice /></DeskAppPaneModalProvider>
     </AuthProvider>);
     try {
         const countItem = screen.findAll((node) => node.props.title === t('settingsVoice.privacy.recentMessagesCount') && typeof node.props.onPress === 'function')[0];
         await React.act(async () => { countItem.props.onPress(); });
         await React.act(async () => { screen.findHostByTestId('web-prompt-input')!.props.onChangeText('23'); });
-        for (const path of ['/settings', '/settings/voice']) {
+        for (const path of ['/settings/voice', '/settings', '/settings/voice']) {
             route.pathname = path;
             await screen.update(<AuthProvider initialCredentials={null}>
-                <AppPaneModalProvider><Voice /></AppPaneModalProvider>
+                <DeskAppPaneModalProvider><Voice /></DeskAppPaneModalProvider>
             </AuthProvider>);
             const input = screen.findHostByTestId('web-prompt-input')!;
             expect.soft(input.props.value).toBe('23');
             expect.soft(StyleSheet.flatten(input.props.style)?.fontFamily).toBe(DESK_FONT_STACK);
+            const dialog = screen.findByType(WebPromptModal);
+            let parent = dialog.parent;
+            while (parent && parent.type !== DeskPageScope) parent = parent.parent;
+            expect.soft(parent?.props).toMatchObject({ name, page: 'voice' });
         }
     } finally {
         await React.act(async () => Modal.hideAll());
@@ -263,22 +277,25 @@ it('preserves an open Voice prompt across navigation away and back', async () =>
 it('keeps each overlapping dialog in the appearance where it opened', async () => {
     route.pathname = '/settings';
     route.dark = false;
-    const { AppPaneModalProvider } = await import('@/components/appShell/providers/AppPaneModalProvider');
+    const { DeskAppPaneModalProvider } = await import('./DeskPageModalAppearance');
     const { Modal } = await import('@/modal');
     const { WebPromptModal } = await import('@/modal/components/WebPromptModal');
     const screen = await renderScreen(<AuthProvider initialCredentials={null}>
-        <AppPaneModalProvider><></></AppPaneModalProvider>
+        <DeskAppPaneModalProvider><></></DeskAppPaneModalProvider>
     </AuthProvider>);
     try {
         await React.act(async () => { void Modal.prompt('Ordinary', 'Message'); });
         await React.act(async () => { screen.findHostByTestId('web-prompt-input')!.props.onChangeText('ordinary draft'); });
         route.pathname = '/settings/voice';
         await screen.update(<AuthProvider initialCredentials={null}>
-            <AppPaneModalProvider><></></AppPaneModalProvider>
+            <DeskAppPaneModalProvider><></></DeskAppPaneModalProvider>
         </AuthProvider>);
         const ordinary = screen.findHostByTestId('web-prompt-input')!;
         expect.soft(ordinary.props.value).toBe('ordinary draft');
         expect.soft(StyleSheet.flatten(ordinary.props.style)?.fontFamily).not.toBe(DESK_FONT_STACK);
+        let ordinaryParent = screen.findByType(WebPromptModal).parent;
+        while (ordinaryParent && ordinaryParent.type !== DeskPageScope) ordinaryParent = ordinaryParent.parent;
+        expect.soft(ordinaryParent).toBeNull();
         await React.act(async () => { void Modal.prompt('Desk', 'Message'); });
         const dialogs = screen.findAllByType(WebPromptModal);
         expect(dialogs).toHaveLength(2);
@@ -286,14 +303,63 @@ it('keeps each overlapping dialog in the appearance where it opened', async () =
         expect.soft(inputs[0].props.value).toBe('ordinary draft');
         expect.soft(StyleSheet.flatten(inputs[0].props.style)?.fontFamily).not.toBe(DESK_FONT_STACK);
         expect.soft(StyleSheet.flatten(inputs[1].props.style)?.fontFamily).toBe(DESK_FONT_STACK);
+        let voiceParent = dialogs[1].parent;
+        while (voiceParent && voiceParent.type !== DeskPageScope) voiceParent = voiceParent.parent;
+        expect.soft(voiceParent?.props.page).toBe('voice');
         await React.act(async () => Modal.hideAll());
         route.pathname = '/settings';
         await screen.update(<AuthProvider initialCredentials={null}>
-            <AppPaneModalProvider><></></AppPaneModalProvider>
+            <DeskAppPaneModalProvider><></></DeskAppPaneModalProvider>
         </AuthProvider>);
         await React.act(async () => { void Modal.prompt('New ordinary', 'Message'); });
         expect(StyleSheet.flatten(screen.findHostByTestId('web-prompt-input')!.props.style)?.fontFamily).not.toBe(DESK_FONT_STACK);
     } finally {
         await React.act(async () => Modal.hideAll());
     }
+});
+
+it.each([
+    { start: '/settings/voice', end: '/settings', expected: 'voice' },
+    { start: '/settings', end: '/settings/voice', expected: undefined },
+])('captures the dialog scope at opening before navigation from $start', async ({ start, end, expected }) => {
+    route.pathname = start;
+    deskPrefs.set('chatStyle', 'terminal');
+    const { DeskAppPaneModalProvider } = await import('./DeskPageModalAppearance');
+    const { Modal } = await import('@/modal');
+    const { WebPromptModal } = await import('@/modal/components/WebPromptModal');
+    const tree = () => <AuthProvider initialCredentials={null}><DeskAppPaneModalProvider><></></DeskAppPaneModalProvider></AuthProvider>;
+    const screen = await renderScreen(tree());
+    try {
+        await React.act(async () => {
+            void Modal.prompt('Prompt', 'Message');
+            route.pathname = end;
+            await screen.update(tree());
+        });
+        let parent = screen.findByType(WebPromptModal).parent;
+        while (parent && parent.type !== DeskPageScope) parent = parent.parent;
+        expect(parent?.props.page).toBe(expected);
+        expect(parent?.props.name).toBe(expected ? 'deskPageTokyo' : undefined);
+    } finally {
+        await React.act(async () => Modal.hideAll());
+    }
+});
+
+// Exercise the real entry screens and then a real unrelated page, with preferences held constant.
+it.each(pages)('$path applies the selected terminal palette and releases it on navigation', async ({ path, load }) => {
+    route.pathname = path;
+    route.dark = false;
+    deskPrefs.set('chatStyle', 'terminal');
+    deskPrefs.set('terminalPalette', 'dracula');
+    const Page = (await load()).default;
+    const screen = await renderScreen(<AuthProvider initialCredentials={null}><Page /></AuthProvider>);
+    expect(screen.findByType(DeskPageScope).props.name).toBe('deskPageDracula');
+    route.pathname = '/settings';
+    const Ordinary = (await import('@/app/(app)/settings/index')).default;
+    await screen.update(<AuthProvider initialCredentials={null}><Ordinary /></AuthProvider>);
+    expect(screen.findAllByType(DeskPageScope)).toHaveLength(0);
+    const families = screen.findAll((node) => String(node.type) === 'Text')
+        .map((node) => StyleSheet.flatten(node.props.style)?.fontFamily);
+    expect(families).toContain('Inter-Regular');
+    expect(families).not.toContain(DESK_FONT_STACK);
+    expect(screen.findAll((node) => node.props['data-ip-page-scope'] !== undefined)).toHaveLength(0);
 });
