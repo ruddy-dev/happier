@@ -5,7 +5,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { View } from 'react-native';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
+import { t } from '@/text';
 import { ApprovalsButton, ApprovalsDrawer } from './Approvals';
 
 vi.mock('react-native', async () => {
@@ -82,6 +84,31 @@ async function typeAnswer(value: string) {
         input.dispatchEvent(new Event('input', { bubbles: true }));
     });
 }
+
+it('R10/R24: mixed desktop and phone badges count editable waits without granting approval or hiding view-only rows', async () => {
+    const loaded = (id: string, accessLevel?: 'edit' | 'view') => createSessionFixture({
+        id, active: true, accessLevel, canApprovePermissions: false,
+        agentState: { requests: { [id]: { tool: 'Bash', arguments: { command: `${id}-command` }, createdAt: 1 } } },
+    });
+    await act(async () => {
+        storage.getState().applySessions([loaded('owner'), loaded('editor', 'edit'), loaded('viewer', 'view')]);
+        storage.getState().mergeSessionListRenderables((['edit', 'view'] as const).map(accessLevel => buildSessionListRenderableFromSession(createSessionFixture({
+            id: `${accessLevel}-unloaded`, active: true, accessLevel,
+            canApprovePermissions: false, pendingPermissionRequestCount: 1,
+        }))));
+    });
+    await act(async () => root.render(<><ApprovalsButton open={false} onPress={() => {}} /><ApprovalsButton phone open={false} onPress={() => {}} /></>));
+    expect([...container.querySelectorAll('[data-testid="ip-approvals-count"]')].map(node => node.textContent)).toEqual(['3', '3']);
+    await render(1440);
+    await click('ip-approvals-open');
+    expect(element('ip-approvals-count').textContent).toBe('3');
+    const listing = element('ip-waiting');
+    expect(listing.textContent).toContain('editor-command');
+    expect(listing.textContent).toContain('viewer-command');
+    expect([...listing.querySelectorAll('[role="button"]')].filter(button => button.textContent === t('ignorePrevious.openSession'))).toHaveLength(5);
+    expect([...listing.querySelectorAll('[data-testid^="ip-waiting-allow-"]')].map(node => node.getAttribute('data-testid'))).toEqual(['ip-waiting-allow-owner']);
+    expect([...listing.querySelectorAll('[data-testid^="ip-waiting-deny-"]')].map(node => node.getAttribute('data-testid'))).toEqual(['ip-waiting-deny-owner']);
+});
 
 it('Q13: docked stays open while the chat receives outside clicks and focus', async () => {
     await render(1440); await click('ip-approvals-open'); await click('chat');
