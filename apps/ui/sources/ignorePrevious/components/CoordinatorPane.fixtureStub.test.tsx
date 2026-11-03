@@ -79,6 +79,7 @@ describe('CoordinatorPane body', () => {
     it.each([['mask', 128], ['terminal', 116]] as const)('renders one desk header at the %s height', async (style, height) => {
         deskPrefs.set('chatStyle', style);
         storage.getState().applySessions([createSessionFixture({ id: 'c1', active: true })]);
+        storage.getState().applyMessagesLoaded('c1');
         storage.getState().applyReady();
         const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
         const header = screen.findByTestId('ip-coord-header');
@@ -131,14 +132,17 @@ describe('CoordinatorPane body', () => {
         expect(screen.findByTestId('ip-coord-state')).toBeNull();
         expect(maskBulb()).toBe('idle');
         await act(async () => storage.getState().applyReady());
+        expect(screen.findByTestId('ip-coord-state')).toBeNull();
+        expect(maskBulb()).toBe('idle');
+        await act(async () => storage.getState().applyMessagesLoaded('c1'));
         expect(stateText()).toBe('Idle');
         expect(maskBulb()).toBe('rest');
         const worker = createSessionFixture({ id: 'waiting-worker', active: true, activeAt: now, agentState: { requests: {
             a: { tool: 'Bash', arguments: { command: 'echo ready' }, createdAt: now },
         } } });
         await act(async () => storage.getState().applySessions([worker]));
-        expect(stateText()).toBe('Waiting on you: 1');
-        expect(maskBulb()).toBe('turn');
+        expect(stateText()).toBe('Idle');
+        expect(maskBulb()).toBe('rest');
         await act(async () => storage.getState().applySessions([{ ...session, activeAt: now + 3, thinking: true, thinkingAt: now + 3 }]));
         expect(stateText()).toBe('Thinking');
         await act(async () => storage.getState().applySessions([{ ...session, active: false, activeAt: now + 4, thinking: true, thinkingAt: now + 3 }]));
