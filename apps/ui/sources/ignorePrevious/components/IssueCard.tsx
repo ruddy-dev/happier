@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 
-import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
+import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
 import { t } from '@/text';
 
 import { DeskText as Text } from '../typography/DeskText';
@@ -32,7 +32,7 @@ export type IssueCardProps = Readonly<{
  */
 export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, faceStyle, calm, item, projectName }: IssueCardProps) {
     const { paint, borderWidth, colours } = useDeskPaint();
-    const navigateToSession = useNavigateToSession();
+    const navigateToSession = useDeskSessionNavigation();
     const label = group.issueKey ?? t('ignorePrevious.noIssue');
     const newest = group.workers[0];
     const count = t('ignorePrevious.workList.workerCount', { count: group.workers.length });

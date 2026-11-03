@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
-import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
+import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
 import { useSocketStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 
@@ -84,7 +84,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
         currentHistory.previous = items;
     }, [items, unloaded, ready, status, desk.list, desk.lookup, currentHistory]);
     const { theme } = useUnistyles();
-    const navigateToSession = useNavigateToSession();
+    const navigateToSession = useDeskSessionNavigation();
     const styles = cardStyles(theme);
 
     const open = React.useCallback((sessionId: string) => {

@@ -5,7 +5,7 @@ import { View } from 'react-native';
 
 import { useAuth } from '@/auth/context/AuthContext';
 import { Text } from '@/components/ui/text/Text';
-import { DeskFixtureRouteContext, isDeskFixtureBuild } from '@/ignorePrevious/deskFixtureGate';
+import { DeskDemoContext, DeskFixtureRouteContext, isDeskFixtureBuild } from '@/ignorePrevious/deskFixtureGate';
 import { DeskScreen } from '@/ignorePrevious/screens/DeskScreen';
 import { storage } from '@/sync/domains/state/storage';
 import { resolveWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
@@ -66,7 +66,9 @@ function FixtureDesk() {
     if (signedIn) return <SignedInNotice />;
     return ready ? (
         <DeskFixtureRouteContext.Provider value={true}>
-            <DeskScreen />
+            <DeskDemoContext.Provider value={dataset === 'demo'}>
+                <DeskScreen />
+            </DeskDemoContext.Provider>
         </DeskFixtureRouteContext.Provider>
     ) : null;
 }
@@ -86,12 +88,14 @@ function SignedInNotice() {
 
 // A module constant, not an inline literal: a new object each render makes the stack re-apply the options.
 const SCREEN_OPTIONS = { title: 'Desk fixture' };
+const DEMO_SCREEN_OPTIONS = { headerShown: false };
 
 export default function DeskFixturePage() {
+    const { data } = useLocalSearchParams<{ data?: string }>();
     if (!isDeskFixtureBuild()) return <Redirect href="/" />;
     return (
         <>
-            <Stack.Screen options={SCREEN_OPTIONS} />
+            <Stack.Screen options={data === 'demo' ? DEMO_SCREEN_OPTIONS : SCREEN_OPTIONS} />
             <FixtureDesk />
         </>
     );
