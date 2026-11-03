@@ -5,6 +5,8 @@ import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { createWaitingHistory, WaitingPanel } from './WaitingPanel';
 import { t } from '@/text';
+import { createDeferred } from '@/dev/testkit/hooks/createDeferred';
+import type { SessionPermissionResult } from '@/sync/ops/sessions';
 
 const boundary = vi.hoisted(() => ({ allow: vi.fn(), deny: vi.fn(), answer: vi.fn() }));
 // Operations are the outgoing boundary; request projection, store and dispatch guard stay real.
@@ -183,6 +185,75 @@ it.each(['permission_request_not_found', 'permission_request_expired'])('never r
     await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-allow-shared'));
     expect(boundary.allow).toHaveBeenCalledTimes(1);
 });
+
+it('requires a fresh review and permits exactly one answer to a cwd-only replacement after success, including drawer reopen', async () => {
+    const version = (cwd: string, agentStateVersion: number) => createSessionFixture({
+        ...worker('worker', 'echo check'), agentStateVersion,
+        agentState: { requests: { shared: { tool: 'Bash', arguments: { command: 'echo check', cwd }, createdAt: 1 } } },
+    });
+    seed([version('/work/first', 1)]);
+    const history = createWaitingHistory();
+    const screen = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    act(() => storage.getState().applySessions([version('/work/second', 2)]));
+    expect(screen.findByTestId('ip-waiting-changed-shared')).not.toBeNull();
+    expect(screen.findByTestId('ip-waiting-toggle-shared')?.props.accessibilityState.expanded).toBe(false);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    expect(screen.getTextContent()).toContain('/work/second');
+    expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+    act(() => screen.tree.unmount());
+    const reopened = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-toggle-shared'));
+    expect(reopened.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+    const allow = reopened.findByTestId('ip-waiting-allow-shared')!.props.onPress;
+    await act(async () => { allow(); allow(); });
+    expect(boundary.allow).toHaveBeenCalledTimes(2);
+    act(() => reopened.tree.unmount());
+    const settled = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(settled.findByTestId('ip-waiting-toggle-shared'));
+    expect(settled.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(true);
+});
+
+it.each(['success', 'permission_request_expired', 'permission_request_not_found', 'failure'] as const)(
+    'isolates a pending version from its replacement when the old completion is %s', async completion => {
+        const pending = createDeferred<SessionPermissionResult>();
+        boundary.allow.mockReturnValueOnce(pending.promise);
+        const sessionId = `worker-${completion}`;
+        const original = worker(sessionId, 'echo \u202E'); seed([original]);
+        const history = createWaitingHistory();
+        const screen = await renderScreen(<WaitingPanel history={history} />);
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+        const staleAllow = screen.findByTestId('ip-waiting-allow-shared')!.props.onPress;
+        act(() => { staleAllow(); staleAllow(); });
+        expect(boundary.allow).toHaveBeenCalledTimes(1);
+        // Commit and explicitly review B before completing A. The display text collides,
+        // but the raw request differs. A's transport lock remains until A actually completes.
+        act(() => storage.getState().applySessions([{ ...worker(sessionId, 'echo ⟨U+202E⟩'), agentStateVersion: original.agentStateVersion + 1 }]));
+        expect(screen.findByTestId('ip-waiting-changed-shared')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+        expect(boundary.allow).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            if (completion === 'failure') pending.reject(new Error('offline'));
+            else pending.resolve(completion === 'success' ? { ok: true } : {
+                ok: false, errorCode: completion, errorMessage: completion, requestId: 'shared',
+            });
+        });
+        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+        // A callback captured from A cannot dispatch an answer for B after A releases its lock.
+        await act(async () => { staleAllow(); });
+        expect(boundary.allow).toHaveBeenCalledTimes(1);
+        act(() => screen.tree.unmount());
+        const reopened = await renderScreen(<WaitingPanel history={history} />);
+        await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-toggle-shared'));
+        expect(reopened.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+        const allow = reopened.findByTestId('ip-waiting-allow-shared')!.props.onPress;
+        await act(async () => { allow(); allow(); });
+        expect(boundary.allow).toHaveBeenCalledTimes(2);
+    },
+);
 
 it.each(['unknown', 'stale', 'fresh'] as const)('keeps %s worker status honest inside disclosure and leaves compact rows quiet', async status => {
     seed([createSessionFixture({ ...worker('worker', 'echo check'), activeAt: status === 'unknown' ? 0 : Date.now() - (status === 'stale' ? 180_000 : 0), thinkingAt: 0,
