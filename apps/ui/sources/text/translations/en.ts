@@ -11048,6 +11048,16 @@ settingsSession: {
             stage: ({ stage }: { stage: string }) => `Stage: ${stage}`,
         },
         workList: {
+            counts: {
+                all: 'All',
+                turn: 'You',
+                stuck: 'Stuck',
+                working: 'Busy',
+                waiting: 'Wait',
+                idle: 'Idle',
+                previous: 'Previous worker counts',
+                next: 'More worker counts',
+            },
             sampleInventory: 'Sample session inventory',
             failed: 'Last turn failed',
             approvalNeeded: ({ summary }: { summary: string }) => `Approval needed: ${summary}`,

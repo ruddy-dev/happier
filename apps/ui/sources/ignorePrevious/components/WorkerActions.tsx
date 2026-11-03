@@ -234,7 +234,7 @@ function StopControl({ sessionId }: { sessionId: string }) {
  * is offline it says so instead. Whether it can be resumed at all is the session actions' rule
  * (`canResume`), the one the session header menu uses; otherwise it is a plain open.
  */
-function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume: boolean }) {
+function ResumeControl({ sessionId, title, canResume }: { sessionId: string; title: string; canResume: boolean }) {
     const { text } = useDeskPaint();
     const target = useSessionMachineTarget(sessionId);
     const originId = storage((state) => resolveSessionMachineId(state.sessions[sessionId]?.metadata));
@@ -243,6 +243,7 @@ function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume:
     const nowMs = useDeskNow();
     const machineReachable = resolveSessionMachineReachability({ machineIsKnown: Boolean(machine), machineIsOnline: machine ? isMachineOnline(machine, nowMs) : false });
     const navigateToSession = useDeskSessionNavigation();
+    const identity = `${title}. ${t('ignorePrevious.usageLimit.workerSession', { id: sessionId })}`;
 
     return (
         <View style={{ gap: 6 }}>
@@ -255,7 +256,7 @@ function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume:
                 <RowButton
                     testID={`${canResume ? 'ip-resume' : 'ip-open'}-${sessionId}`}
                     label={canResume ? t('ignorePrevious.openToResume') : t('ignorePrevious.openSession')}
-                    accessibilityLabel={canResume ? t('ignorePrevious.openToResumeLabel') : t('ignorePrevious.openWorker')}
+                    accessibilityLabel={canResume ? `${t('ignorePrevious.openToResumeLabel')}. ${identity}` : t('message.sessionReferenceOpen', { name: identity })}
                     onPress={() => void navigateToSession(sessionId)}
                 />
             ) : null}
@@ -283,7 +284,7 @@ export function WorkerActions({ worker }: { worker: WorkerRow }) {
                 <PermissionModeControl session={session} canChange={canWrite} />
             ) : null}
             {canStop ? <StopControl sessionId={worker.sessionId} /> : null}
-            {worker.inactive ? <ResumeControl sessionId={worker.sessionId} canResume={canResume} /> : null}
+            {worker.inactive ? <ResumeControl sessionId={worker.sessionId} title={worker.title} canResume={canResume} /> : null}
         </View>
     );
 }

@@ -12,6 +12,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
+import { useScrollEdgeFades } from '@/components/ui/scroll/useScrollEdgeFades';
 import { getSessionName, getSessionStatus } from '@/utils/sessions/sessionUtils';
 
 import { DeskText as Text } from '../typography/DeskText';
@@ -84,27 +85,77 @@ const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'waiting', 'idle']
 /** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
 function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolean }) {
     const { text } = useDeskPaint();
+    const scrollRef = React.useRef<ScrollView>(null);
+    const viewport = React.useRef({ width: 0, x: 0 });
+    const [availableWidth, setAvailableWidth] = React.useState(0);
+    const [contentWidth, setContentWidth] = React.useState(0);
+    const edges = useScrollEdgeFades({ enabledEdges: { left: true, right: true } });
+    // Measure against the whole line, so removing the controls on resize cannot trap them onscreen.
+    const overflow = availableWidth > 0 && contentWidth > availableWidth + 1;
     const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, waiting: 0, idle: 0 };
     for (const row of rows) counts[row.bulb] += 1;
 
-    const entries = [{ id: 'all', value: rows.length, label: t('ignorePrevious.countAll') },
-        ...COUNTED.map(bulb => ({ id: bulb, value: counts[bulb], label: bulbWord(bulb) }))];
+    const entries = [{ id: 'all', value: rows.length, label: t('ignorePrevious.countAll'), short: t('ignorePrevious.workList.counts.all') },
+        ...COUNTED.map(bulb => ({ id: bulb, value: counts[bulb], label: bulbWord(bulb), short: t(`ignorePrevious.workList.counts.${bulb}`) }))];
+
+    const page = (direction: -1 | 1) => scrollRef.current?.scrollTo({
+        x: Math.max(0, viewport.current.x + direction * viewport.current.width), animated: false,
+    });
+    const control = (direction: 'previous' | 'next', disabled: boolean) => (
+        <Pressable
+            testID={`ip-work-counts-${direction}`}
+            accessibilityRole="button"
+            accessibilityLabel={t(`ignorePrevious.workList.counts.${direction}`)}
+            accessibilityState={{ disabled }}
+            disabled={disabled}
+            onPress={() => page(direction === 'previous' ? -1 : 1)}
+            style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}
+        >
+            <Text accessible={false} style={{ color: text.secondary, fontSize: 16 }}>{direction === 'previous' ? '‹' : '›'}</Text>
+        </Pressable>
+    );
 
     return (
-        <ScrollView
-            testID="ip-work-counts"
-            horizontal
-            focusable
-            accessibilityLabel={entries.map(({ value, label }) => `${label}: ${ready ? value : '–'}`).join('. ')}
-            style={{ minWidth: 0, maxWidth: '100%', flexGrow: 0 }}
-            contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 4 }}
+        <View
+            testID="ip-work-counts-frame"
+            onLayout={event => setAvailableWidth(event.nativeEvent.layout.width)}
+            style={{ flexDirection: 'row', alignItems: 'center', minWidth: 0, maxWidth: '100%' }}
         >
-            {entries.map(({ id, value, label }) => (
-                <Text key={id} style={{ color: text.secondary, fontSize: 12, flexShrink: 0 }}>
-                    {label}{' '}<Text testID={`ip-count-${id}`} style={{ fontWeight: '600' }}>{ready ? value : '–'}</Text>
-                </Text>
-            ))}
-        </ScrollView>
+            {overflow ? control('previous', !edges.visibility.left) : null}
+            <ScrollView
+                ref={scrollRef}
+                testID="ip-work-counts"
+                horizontal
+                focusable
+                accessibilityLabel={entries.map(({ value, label }) => `${label}: ${ready ? value : '–'}`).join('. ')}
+                onLayout={event => {
+                    viewport.current.width = event.nativeEvent.layout.width;
+                    edges.onViewportLayout(event);
+                }}
+                onContentSizeChange={(width, height) => {
+                    setContentWidth(width);
+                    edges.onContentSizeChange(width, height);
+                }}
+                onScroll={event => {
+                    viewport.current.x = event.nativeEvent.contentOffset.x;
+                    edges.onScroll(event);
+                }}
+                onMomentumScrollEnd={event => {
+                    viewport.current.x = event.nativeEvent.contentOffset.x;
+                    edges.onMomentumScrollEnd(event);
+                }}
+                scrollEventThrottle={16}
+                style={{ minWidth: 0, flex: 1 }}
+                contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingBottom: 4 }}
+            >
+                {entries.map(({ id, value, label, short }) => (
+                    <Text key={id} accessibilityLabel={`${label}: ${ready ? value : '–'}`} numberOfLines={1} style={{ color: text.secondary, fontSize: 12, flexShrink: 0 }}>
+                        {short}{' '}<Text testID={`ip-count-${id}`} style={{ fontWeight: '600' }}>{ready ? value : '–'}</Text>
+                    </Text>
+                ))}
+            </ScrollView>
+            {overflow ? control('next', !edges.visibility.right) : null}
+        </View>
     );
 }
 

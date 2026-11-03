@@ -137,7 +137,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                               <Pressable
                                   testID={`ip-open-worker-${worker.sessionId}`}
                                   accessibilityRole="button"
-                                  accessibilityLabel={t('ignorePrevious.openWorker')}
+                                  accessibilityLabel={t('message.sessionReferenceOpen', { name: `${worker.title}. ${t('ignorePrevious.usageLimit.workerSession', { id: worker.sessionId })}` })}
                                   onPress={() => void navigateToSession(worker.sessionId)}
                                   style={{
                                       marginLeft: 'auto',
