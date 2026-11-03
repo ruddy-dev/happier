@@ -25,11 +25,14 @@ export function reduceHoldSpace(state: HoldSpaceState, event: HoldSpaceEvent): H
         if (event.type === 'keydown' && event.key === 'Escape') {
             return { next: { phase: 'idle' }, action: 'cancel', preventDefault: true };
         }
-    } else if (event.type === 'keydown' && event.key === ' ' && !event.repeat
+    } else if (event.type === 'keydown' && event.key === ' '
         && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
         && !event.isComposing && event.keyCode !== 229
-        && event.isSessionInput && event.isInputEmpty && !event.dictationActive && event.enabled) {
-        return { next: { phase: 'holding' }, action: 'start', preventDefault: true };
+        && event.isSessionInput && event.isInputEmpty && event.enabled) {
+        // Escape or a session change can reset the gesture while Space is still down.
+        // Swallow its remaining repeats without starting another operation.
+        if (event.repeat) return { next: state, action: null, preventDefault: true };
+        if (!event.dictationActive) return { next: { phase: 'holding' }, action: 'start', preventDefault: true };
     }
     return { next: state, action: null, preventDefault: false };
 }
