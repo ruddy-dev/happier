@@ -134,7 +134,18 @@ export function runAgentStatePermissionsPhase(params: Readonly<{
                 }
 
                 // Check if we already have a message for this permission ID
-                const existingMessageId = state.toolIdToMessageId.get(permId);
+                let existingMessageId = state.toolIdToMessageId.get(permId);
+                const existing = existingMessageId != null ? state.messages.get(existingMessageId) : undefined;
+                const differentPayload = existing?.tool ? !permissionPayloadMatches(existing.tool, request) : false;
+                const reopened = existing?.tool && existing.tool.permission?.status !== 'pending'
+                    && typeof request.createdAt === 'number'
+                    && request.createdAt > (existing.tool.completedAt ?? existing.tool.permission?.date
+                        ?? state.permissions.get(permId)?.completedAt ?? Infinity);
+                if (existing?.realID != null && (differentPayload || reopened)) {
+                    // A transcript execution owns its history and result. Reuse the ID lookup
+                    // for the new permission mirror, leaving the original row and raw-ID mapping intact.
+                    existingMessageId = undefined;
+                }
                 if (existingMessageId != null) {
                     // Update existing tool message with permission info and latest arguments
                     const message = state.messages.get(existingMessageId);
@@ -143,11 +154,6 @@ export function runAgentStatePermissionsPhase(params: Readonly<{
                             console.log(`[REDUCER] Updating existing tool ${permId} with permission`);
                         }
                         let hasChanged = false;
-                        const differentPayload = !permissionPayloadMatches(message.tool, request);
-                        const reopened = message.tool.permission?.status !== 'pending'
-                            && typeof request.createdAt === 'number'
-                            && request.createdAt > (message.tool.completedAt ?? message.tool.permission?.date
-                                ?? state.permissions.get(permId)?.completedAt ?? Infinity);
                         if (differentPayload || reopened) {
                             message.tool.name = request.tool;
                             message.tool.createdAt = request.createdAt ?? message.tool.createdAt;

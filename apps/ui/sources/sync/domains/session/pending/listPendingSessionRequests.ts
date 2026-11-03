@@ -103,9 +103,17 @@ function arePendingRequestsEquivalent(left: SessionPendingRequest, right: Sessio
 }
 
 /** Compare the occurrence shown by a control before reducing its answer to an ID. */
-export function isPendingSessionRequestActionable(displayed: SessionPendingRequest, current: SessionPendingRequest): boolean {
+export function isPendingSessionRequestActionable(
+    displayed: SessionPendingRequest,
+    current: SessionPendingRequest,
+    options?: Readonly<{ publicationTimesComparable: boolean }>,
+): boolean {
     return !displayed.requiresInspection && !current.requiresInspection
         && displayed.id === current.id
+        // Compare publication times within one source. Cross-source content checks
+        // and transcript completion matching cannot require producer clocks to agree.
+        && (options?.publicationTimesComparable === false
+            || displayed.createdAt === null || current.createdAt === null || displayed.createdAt === current.createdAt)
         && (arePendingRequestsEquivalent(displayed, current)
             // Older producers supplied neither arguments nor an occurrence timestamp.
             // Preserve those answers while rejecting any newly observable difference.
@@ -224,7 +232,9 @@ export function collectTranscriptRequestStates(
                         tool: toolName,
                         kind: resolveAgentRequestKind({ toolName, requestKind: permission.kind }),
                         arguments: message.tool?.input,
-                        createdAt,
+                        // Controls receive the tool's publication time. The enclosing state's
+                        // createdAt above remains the transcript ordering/completion clock.
+                        createdAt: typeof message.tool.createdAt === 'number' ? message.tool.createdAt : null,
                         ...(permission.requiresInspection ? { requiresInspection: true as const } : {}),
                         ...(Array.isArray(permission.suggestions) && permission.suggestions.length > 0
                             ? { permissionSuggestions: permission.suggestions }

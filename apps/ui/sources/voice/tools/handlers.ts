@@ -287,8 +287,7 @@ export function createVoiceToolHandlers(
       }
     }
 
-    const inspectionOnlyFallback = selected.errorCode === 'permission_request_requires_inspection' && !normalizeId(explicitRequestId);
-    if (opts?.explicitSessionIdProvided === true || (selected.errorCode !== 'no_permission_request' && !inspectionOnlyFallback)) {
+    if (opts?.explicitSessionIdProvided === true || selected.errorCode !== 'no_permission_request') {
       return selected;
     }
 

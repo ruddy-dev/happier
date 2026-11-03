@@ -1,4 +1,5 @@
 import { displayText } from './displayText';
+import { resolveWaitingQuestions } from './waitingQuestions';
 import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 
 /** Why you can't answer a request from here, as the session's own footer would say; null when you can. */
@@ -13,7 +14,7 @@ export type WaitingItem = {
     tool: string;
     /** Questions (`user_action`) get no Allow/Deny; supported question cards offer explicit Send. */
     kind: SessionPendingRequest['kind'];
-    /** One line for lists and the coordinator's prompt; cut at 140 characters. */
+    /** One line for the inbox; only permission summaries enter coordinator prompts. Cut at 140 characters. */
     summary: string;
     /** What the request will do, in full, for the card someone approves from. */
     detail: string;
@@ -127,8 +128,22 @@ function readShellRequest(value: unknown, topLevel = true): { command: string; r
 export function summariseRequest(tool: string, args: unknown): string {
     const parsed = parseArguments(args);
     const raw = readShellRequest(parsed)?.command ?? (FILE_TOOLS.has(tool) ? stringField(parsed, 'file_path') : null) ?? tool;
+    return summaryLine(raw);
+}
+
+function summaryLine(raw: string): string {
     const line = displayText(raw).replace(/\n/g, ' \u21B5 ');
     return line.length > MAX_SUMMARY ? `${line.slice(0, MAX_SUMMARY - 1)}\u2026` : line;
+}
+
+function summariseWaitingRequest(request: SessionPendingRequest): string {
+    const first = request.kind === 'user_action' ? resolveWaitingQuestions({
+        tool: request.tool, kind: request.kind, arguments: request.arguments,
+    })?.[0] : undefined;
+    const wording = typeof first?.question === 'string' && first.question.trim() ? first.question : first?.header;
+    return typeof wording === 'string' && wording.trim()
+        ? summaryLine(wording)
+        : summariseRequest(request.tool, request.arguments);
 }
 
 function describeArguments(tool: string, args: unknown): string {
@@ -185,7 +200,7 @@ export function toWaitingItems(
             sessionTitle,
             tool: displayText(request.tool),
             kind: request.kind,
-            summary: summariseRequest(request.tool, request.arguments),
+            summary: summariseWaitingRequest(request),
             detail: describeRequest(request.tool, request.arguments),
             requestContent: waitingRequestContent(request),
             agentNote: optionalDisplayText(stringField(parseArguments(request.arguments), 'description')),

@@ -373,13 +373,18 @@ function readOwnerProcessGoneSinceMs(session: Session | undefined): number | nul
 }
 
 function isSoleMainRequestContributor(state: ReducerState, previous: Message | undefined, next: Message, requestId: string): boolean {
-    // Main-timeline calls coalesce through toolIdToMessageId. Sidechains can retain a
-    // second contribution under the same id, which this single-slot index cannot prove away.
-    return state.sidechains.size === 0
+    // The latest-call index does not rule out a retained executed occurrence.
+    // Retractions may discard the old outcome only when this row really is sole.
+    const soleCandidate = state.sidechains.size === 0
         && previous?.kind === 'tool-call' && next.kind === 'tool-call'
         && previous.children.length === 0 && next.children.length === 0
         && previous.tool.id === requestId && next.tool.id === requestId
         && state.toolIdToMessageId.get(requestId) === next.id;
+    if (!soleCandidate) return false;
+    for (const message of state.messages.values()) {
+        if (message.id !== next.id && (message.tool?.permission?.id ?? message.tool?.id) === requestId) return false;
+    }
+    return true;
 }
 
 export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
