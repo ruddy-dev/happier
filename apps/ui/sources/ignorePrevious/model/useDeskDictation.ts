@@ -7,6 +7,7 @@ import { useActiveServerAccountScope } from '@/sync/store/hooks';
 import { getSessionDraftSnapshot, writeExistingSessionDraft } from '@/sync/ops/sessionDrafts/sessionDraftRepository';
 import { t } from '@/text';
 import { createDeviceSttController } from '@/voice/input/DeviceSttController';
+import { useDeskPref } from '../deskPrefs';
 import { reduceHoldSpace, type HoldSpaceEvent, type HoldSpaceState } from './holdSpace';
 
 export function mergeDictationTranscript(draft: string, transcript: string): string {
@@ -16,7 +17,7 @@ export function mergeDictationTranscript(draft: string, transcript: string): str
 }
 
 type DictationState = 'idle' | 'listening' | 'error';
-type DictationActions = { press(): void; release(): void; cancel(): void };
+type DictationActions = { press(): void; release(): void; cancel(): void; releaseHold(): void };
 type DictationOptions = { holdSpace?: boolean };
 
 /** Device recognition only. The draft repository owns text; there is no send dependency. */
@@ -96,7 +97,6 @@ export function useDeskDictation(sessionId: string, options?: DictationOptions) 
                 if (!disposed && operation === current) fail();
             });
         };
-        actions.current = { press, release, cancel };
         update('idle');
         setStartedByHold(false);
         const gesture = (event: HoldSpaceEvent) => {
@@ -106,6 +106,10 @@ export function useDeskDictation(sessionId: string, options?: DictationOptions) 
             else if (result.action === 'release') release();
             else if (result.action === 'cancel') cancel();
             return result;
+        };
+        actions.current = {
+            press, release, cancel,
+            releaseHold: () => { if (hold.phase === 'holding') gesture({ type: 'blur' }); },
         };
         const onKey = (event: KeyboardEvent) => {
             // AgentInput owns this test id. Require the actual input AND the desk pane,
@@ -158,6 +162,10 @@ export function useDeskDictation(sessionId: string, options?: DictationOptions) 
         };
     }, [sessionId, scope?.serverId, scope?.accountId]);
 
+    React.useEffect(() => {
+        if (options?.holdSpace === false) actions.current?.releaseHold();
+    }, [options?.holdSpace]);
+
     React.useEffect(() => () => {
         // Runs after the session effect cleanup; carry holds only across restarts, not unmounts.
         interruptedHold.current = false;
@@ -172,12 +180,14 @@ export function useDeskDictation(sessionId: string, options?: DictationOptions) 
 
 /** AgentInput's submit mic is voice-gated and disappears with a draft. Use its existing badge slot. */
 export function useDeskDictationControls(sessionId: string, controls: SessionViewComposerOverrides, options?: DictationOptions): SessionViewComposerOverrides {
-    const { mic, state, startedByHold } = useDeskDictation(sessionId, options);
+    const [holdSpacePreference] = useDeskPref('deskHoldSpace');
+    const holdSpace = options?.holdSpace ?? holdSpacePreference;
+    const { mic, state, startedByHold } = useDeskDictation(sessionId, { holdSpace });
     return React.useMemo(() => {
         const listening = t(startedByHold ? 'ignorePrevious.dictation.listeningHoldSpace' : 'ignorePrevious.dictation.listening');
         const status = state === 'listening' ? listening : t('ignorePrevious.dictation.failed');
         const hint = t(state === 'error' ? 'ignorePrevious.dictation.error' : 'ignorePrevious.dictation.instructions');
-        const holdHint = Platform.OS === 'web' && options?.holdSpace !== false ? ` ${t('ignorePrevious.dictation.holdSpaceHint')}` : '';
+        const holdHint = Platform.OS === 'web' && holdSpace ? ` ${t('ignorePrevious.dictation.holdSpaceHint')}` : '';
         return {
             ...controls,
             mic: null,
@@ -192,5 +202,5 @@ export function useDeskDictationControls(sessionId: string, controls: SessionVie
                 icon: (tint: string) => React.createElement(Ionicons, { name: mic.isActive ? 'mic' : 'mic-outline', size: 16, color: tint }),
             }],
         };
-    }, [controls, mic, state, startedByHold, options?.holdSpace]);
+    }, [controls, mic, state, startedByHold, holdSpace]);
 }
