@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 
 import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
+import { waitingRestrictionLabel } from './waitingRestrictionLabel';
 import { t } from '@/text';
 
 import { DeskText as Text } from '../typography/DeskText';
@@ -9,7 +10,7 @@ import type { IssueGroup } from '../model/groupWorkers';
 import { bulbColour, useDeskPaint } from '../palette';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { WorkerActions } from './WorkerActions';
-import { WorkerUsageLimitLine } from './WorkerUsageLimitLine';
+import { WorkerUsageLimitLine, WorkerUsageLimitSummary } from './WorkerUsageLimitLine';
 import { WorkerPrBadge } from './WorkerPrBadge';
 import { WorkerSprite, type WorkerSpriteProps } from './WorkerSprite';
 import { spriteForModel } from '../sprites';
@@ -17,6 +18,7 @@ import { wqStage, type WqItem } from '../model/wqCardData';
 import { WorkCardStage } from './WorkCardStage';
 import { IssueArchiveAction } from './IssueArchiveAction';
 import type { IssueArchiveState } from '../model/issueArchive';
+import { useDeskPref } from '../deskPrefs';
 
 export type IssueCardProps = Readonly<{
     group: IssueGroup;
@@ -26,75 +28,99 @@ export type IssueCardProps = Readonly<{
     calm?: boolean;
     item?: WqItem | null;
     projectName?: string;
+    attention?: string;
     archive?: IssueArchiveState;
     knownProjectCodes?: ReadonlySet<string>;
 }>;
 
 /**
- * One issue in the Work column. Folded, it shows the issue key, the most urgent worker's state as a
- * bulb dot and word, and the newest worker's title. Open, it lists every worker on that issue.
+ * The issue title and the state-owning worker's attention reason lead; project and key are context.
+ * Open, it lists every worker on that issue.
  */
-export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, faceStyle, calm, item, projectName, archive, knownProjectCodes }: IssueCardProps) {
+export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, faceStyle, calm, item, projectName, attention, archive, knownProjectCodes }: IssueCardProps) {
     const { paint, borderWidth, colours } = useDeskPaint();
+    const [chatStyle] = useDeskPref('chatStyle');
+    const terminal = chatStyle === 'terminal';
     const navigateToSession = useDeskSessionNavigation();
     const label = group.issueKey ?? t('ignorePrevious.noIssue');
     const newest = group.workers[0];
+    const stateWorker = group.stateWorker;
+    const freshnessWorker = stateWorker ?? newest;
+    const unheardMinutes = freshnessWorker?.unheardMinutes;
+    const limitedWorkers = group.workers.filter(worker => worker.usageLimit);
+    const titleCounts = new Map<string, number>();
+    if (open) for (const worker of group.workers) titleCounts.set(worker.title, (titleCounts.get(worker.title) ?? 0) + 1);
     const count = t('ignorePrevious.workList.workerCount', { count: group.workers.length });
     const secondary = { color: paint.mute, fontSize: 13 };
     const stage = item ? wqStage(item.status) : null;
-    const summary = item ? [projectName, item.title, stage ? t('ignorePrevious.workCard.stage', { stage: t(`ignorePrevious.workCard.${stage}`) }) : null].filter(Boolean).join('. ') : newest?.title ?? '';
+    const contextProject = group.issueKey ? projectName : undefined;
+    const title = item?.title ?? newest?.title ?? label;
+    const summary = [contextProject, title !== label ? label : null, stage ? t('ignorePrevious.workCard.stage', { stage: t(`ignorePrevious.workCard.${stage}`) }) : null].filter(Boolean).join('. ');
+    const limitReason = limitedWorkers.length > 1
+        ? t('ignorePrevious.usageLimit.limitedCount', { count: limitedWorkers.length })
+        : limitedWorkers.length === 1 ? t('connectedServices.pools.behavior.switchOn.usageLimit') : null;
+    const state = [bulbWord(group.bulb), attention, limitReason].filter(Boolean).join('. ');
 
     return (
         <View
             testID={`ip-issue-${group.issueKey ?? 'none'}`}
             style={{
-                borderRadius: 13,
-                borderWidth,
-                borderColor: group.bulb === 'stuck' ? bulbColour(colours, group.bulb) : paint.rule,
-                backgroundColor: paint.panel2,
+                borderRadius: terminal ? 0 : 10,
+                borderWidth: terminal ? 0 : borderWidth,
+                borderLeftWidth: terminal ? 2 : borderWidth,
+                borderColor: group.bulb === 'stuck' || (terminal && group.bulb === 'turn') ? bulbColour(colours, group.bulb) : paint.rule,
+                backgroundColor: terminal ? 'transparent' : paint.panel2,
                 minWidth: 0,
                 maxWidth: '100%',
                 width: '100%',
             }}
         >
-            {group.bulb === 'turn' ? (
+            {!terminal && group.bulb === 'turn' ? (
                 <View pointerEvents="none" accessible={false} style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 5, borderRadius: 3, backgroundColor: bulbColour(colours, group.bulb) }} />
             ) : null}
             <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded: open }}
-                accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: label, state: bulbWord(group.bulb), count, summary, unheard: newest?.unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: newest.unheardMinutes }) : '' })}
+                aria-expanded={open}
+                accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: title, state, count, summary, unheard: unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: unheardMinutes }) : '' })}
                 onPress={onToggle}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8, paddingLeft: 12, paddingRight: 6, minWidth: 0, borderRadius: 11 }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: terminal ? 6 : 8, paddingLeft: terminal ? 8 : 12, paddingRight: 8, minWidth: 0, borderRadius: terminal ? 0 : 8 }}
             >
                 <View testID={`ip-work-card-face-${group.issueKey ?? 'none'}`} accessible={false} style={{ width: 40, height: 40, flexShrink: 0 }}>
                     <WorkerSprite kind={spriteForModel(group.stateWorker?.model)} workerAgentId={group.stateWorker ? group.stateWorker.agentId ?? null : undefined} bulb={group.bulb} size={40} faceStyle={faceStyle} calm={calm} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                    <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 15, fontWeight: '600' }}>
-                        {label}
+                    <Text numberOfLines={2} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: terminal ? 13.5 : 14, fontWeight: terminal ? '700' : '600', ...(terminal ? { lineHeight: 18 } : {}) }}>
+                        {title}
                     </Text>
-                    {item ? <>
-                        <Text numberOfLines={1} ellipsizeMode="tail" style={secondary}>{projectName}</Text>
-                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: paint.ink, fontSize: 14 }}>{item.title}</Text>
-                        <WorkCardStage issueKey={item.id} status={item.status} />
-                    </> : null}
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 }}>
                         <BulbLabel bulb={group.bulb} />
-                        <Text testID={`ip-work-worker-count-${group.issueKey ?? 'none'}`} style={secondary}>{count}</Text>
+                        {attention ? <Text style={{ color: paint.ink, fontSize: terminal ? 12 : 13, flexShrink: 1 }} numberOfLines={2} ellipsizeMode="tail">{attention}</Text> : null}
+                        {open ? <Text testID={`ip-work-worker-count-${group.issueKey ?? 'none'}`} style={secondary}>{count}</Text> : null}
                     </View>
-                    {open || !newest ? null : (
-                        <Text style={secondary} numberOfLines={1} ellipsizeMode="tail">
-                            {newest.title}
-                        </Text>
-                    )}
-                    {!open && newest?.unheardMinutes != null ? (
-                        <Text testID={`ip-worker-stale-${newest.sessionId}`} style={secondary}>
-                            {t('ignorePrevious.connection.unheard', { minutes: newest.unheardMinutes })}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 }}>
+                        {terminal ? <>
+                            {contextProject ? <Text testID={`ip-work-project-${group.issueKey}`} numberOfLines={1} style={{ maxWidth: '100%', color: group.bulb === 'turn' ? paint.yelink : paint.mute, backgroundColor: group.bulb === 'turn' ? paint.yel : 'transparent', borderWidth: 1, borderColor: group.bulb === 'turn' ? paint.yel : paint.mute, borderRadius: 2, paddingHorizontal: 5, fontSize: 12 }}>{contextProject}</Text> : null}
+                            <Text testID={`ip-work-context-${group.issueKey ?? 'none'}`} style={{ color: paint.mute, fontSize: 11 }}>{label}</Text>
+                        </> : <Text testID={`ip-work-context-${group.issueKey ?? 'none'}`} style={{ color: paint.mute, fontSize: 11 }}>{[contextProject, label].filter(Boolean).join(' · ')}</Text>}
+                        {item ? <WorkCardStage issueKey={item.id} status={item.status} /> : null}
+                    </View>
+                    {!open && unheardMinutes != null ? (
+                        <Text testID={`ip-worker-stale-${freshnessWorker?.sessionId}`} style={secondary}>
+                            {t('ignorePrevious.connection.unheard', { minutes: unheardMinutes })}
                         </Text>
                     ) : null}
                 </View>
             </Pressable>
+            {!open && limitedWorkers.length > 0 ? (
+                <View style={{ paddingHorizontal: 12, paddingBottom: 8, minWidth: 0, maxWidth: '100%' }}>
+                    {limitedWorkers.length === 1 && limitedWorkers[0].usageLimit ? (
+                        <WorkerUsageLimitLine status={limitedWorkers[0].usageLimit} sessionId={limitedWorkers[0].sessionId} compact />
+                    ) : (
+                        <WorkerUsageLimitSummary statuses={limitedWorkers.flatMap(worker => worker.usageLimit ? [worker.usageLimit] : [])} issueKey={group.issueKey ?? 'none'} />
+                    )}
+                </View>
+            ) : null}
             {open
                 ? group.workers.map((worker) => (
                       <View key={worker.sessionId} style={{ minWidth: 0, gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: paint.rule }}>
@@ -113,7 +139,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                               <Pressable
                                   testID={`ip-open-worker-${worker.sessionId}`}
                                   accessibilityRole="button"
-                                  accessibilityLabel={t('ignorePrevious.openWorker')}
+                                  accessibilityLabel={t('message.sessionReferenceOpen', { name: `${worker.title}. ${t('ignorePrevious.usageLimit.workerSession', { id: worker.sessionId })}` })}
                                   onPress={() => void navigateToSession(worker.sessionId)}
                                   style={{
                                       marginLeft: 'auto',
@@ -127,10 +153,20 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                                   <Text style={{ color: paint.ink, fontSize: 13 }}>{'>_'}</Text>
                               </Pressable>
                           </View>
+                          {(titleCounts.get(worker.title) ?? 0) > 1 ? (
+                              <Text testID={`ip-worker-session-${worker.sessionId}`} style={secondary}>
+                                  {t('ignorePrevious.usageLimit.workerSession', { id: worker.sessionId })}
+                              </Text>
+                          ) : null}
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                               <BulbLabel bulb={worker.bulb} />
                               <View style={{ marginLeft: 'auto' }}><WorkerPrBadge sessionId={worker.sessionId} /></View>
                           </View>
+                          {worker.approvalDisabledReason ? (
+                              <Text style={secondary}>
+                                  {waitingRestrictionLabel(worker.approvalDisabledReason)}
+                              </Text>
+                          ) : null}
                           {worker.usageLimit ? <WorkerUsageLimitLine status={worker.usageLimit} sessionId={worker.sessionId} /> : null}
                           {worker.unheardMinutes != null ? (
                               <Text testID={`ip-worker-stale-${worker.sessionId}`} style={secondary}>

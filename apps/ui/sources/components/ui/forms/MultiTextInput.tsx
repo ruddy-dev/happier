@@ -20,6 +20,7 @@ import {
     normalizeNativeMultiTextInputMaxHeight,
     resolveNativeMultiTextInputMinHeight,
 } from './nativeMultiTextInputHeight';
+import { useCoordinatorComposerInput } from '@/ignorePrevious/model/coordinatorComposerInput';
 import { TEXT_INPUT_LARGE_TEXT_VALUE_LENGTH_LIMIT } from './largeTextInputPolicy';
 import { MULTI_TEXT_INPUT_BASE_FONT_SIZE, MULTI_TEXT_INPUT_BASE_LINE_HEIGHT } from './multiTextInputTypography';
 
@@ -250,6 +251,7 @@ interface MultiTextInputProps {
 }
 
 export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextInputProps>((props, ref) => {
+    const coordinatorInput = useCoordinatorComposerInput(props.testID);
     const {
         value,
         onChangeText,
@@ -294,6 +296,9 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
         controlledValueRef.current = value;
     }
     latestNativeTextRef.current = value;
+    React.useLayoutEffect(() => {
+        coordinatorInput?.observer.observeText(value, selectionRef.current.end);
+    }, [coordinatorInput, value]);
     const lastReportedContentHeightRef = React.useRef<number | null>(null);
 
     const handleKeyPress = React.useCallback((e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
@@ -325,6 +330,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
         });
         latestNativeTextRef.current = text;
         selectionRef.current = selection;
+        coordinatorInput?.observer.observeText(text, selection.end);
 
         recordLargeTextInputDiagnostic({
             phase: 'native-change',
@@ -343,7 +349,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
         if (onSelectionChange) {
             onSelectionChange(selection);
         }
-    }, [onChangeText, onStateChange, onSelectionChange]);
+    }, [onChangeText, onStateChange, onSelectionChange, coordinatorInput]);
 
     const handleContentSizeChange = React.useCallback((e: NativeTextInputContentSizeChangeEvent) => {
         const measuredHeight = e.nativeEvent.contentSize?.height;
@@ -442,6 +448,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
 
             // Update our ref
             selectionRef.current = nextSelection;
+            coordinatorInput?.observer.observeText(text, nextSelection.end);
 
             // Notify through callbacks
             onChangeText(text);
@@ -493,7 +500,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
         // The native caret payload is content-relative, so consumers need the
         // input's own scroll offset to place anything against the visible caret.
         getScrollOffset: () => contentScrollOffsetRef.current,
-    }), [onChangeText, onStateChange, onSelectionChange, value]);
+    }), [onChangeText, onStateChange, onSelectionChange, value, coordinatorInput]);
 
     return (
         <View style={{ width: '100%' }} onLayout={props.onLayout}>

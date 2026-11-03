@@ -69,6 +69,24 @@ describe('WorkerSprite', () => {
         expect(pixels(live)).toEqual(expectedLoupe);
     });
 
+    it.each(['codex', 'claude', 'gemini', null] as const)('keeps signed Droid art for unresolved %s workers independent of role preferences', async workerAgentId => {
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const { deskPrefs } = await import('../deskPrefs');
+        const droid = await renderScreen(<WorkerSprite kind="ipdroid" bulb="waiting" size={28} preview calm />);
+        const art = (screen: Awaited<ReturnType<typeof renderScreen>>) => screen.tree.toJSON();
+        const screen = await renderScreen(<WorkerSprite kind="no-worker" workerAgentId={workerAgentId} bulb="waiting" size={28} calm />);
+        expect(art(screen)).toEqual(art(droid));
+        const signal = screen.findByTestId('ip-sprite-signal')!.props.fill;
+        await act(async () => deskPrefs.set('noWorkerRobot', 'ipb'));
+        expect(art(screen)).toEqual(art(droid));
+        expect(screen.findByTestId('ip-sprite-signal')!.props.fill).toBe(signal);
+        await act(async () => deskPrefs.set('workerFaces', 'B'));
+        expect(screen.findByTestId('ip-sprite-ascii')).not.toBeNull();
+        expect(art(screen)).toEqual(art(droid));
+        await act(async () => deskPrefs.set('noWorkerRobot', 'droid'));
+        expect(art(screen)).toEqual(art(droid));
+    });
+
     it.each(['model', 'unknown-future-robot'])('hydrates %s as model-tier defaults without rewriting storage', async stored => {
         const { WorkerSprite } = await import('./WorkerSprite');
         const persisted = new MMKV();

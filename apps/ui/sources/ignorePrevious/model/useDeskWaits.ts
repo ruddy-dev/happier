@@ -24,7 +24,12 @@ import { toWaitingItems, unloadedWaitKey, waitingItemKey, type WaitingDisabledRe
  * has everything the app could read of it and found no request there (metadata it can't read, or a
  * pending count with no parsable request).
  */
-export type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string; reason: 'notLoaded' | 'unreadable' }>;
+export type UnloadedWait = Readonly<{
+    sessionId: string;
+    sessionTitle: string;
+    reason: 'notLoaded' | 'unreadable';
+    disabledReason: WaitingDisabledReason;
+}>;
 
 /** What the desk has of a session's transcript: its messages so far, and whether the full load finished. */
 export type DeskTranscript = Readonly<{ messages: readonly Message[]; isLoaded: boolean }>;
@@ -36,7 +41,7 @@ export type DeskWaits = Readonly<{ items: WaitingItem[]; unloaded: UnloadedWait[
  * Only live sessions' requests reach the desk, so activity is not the question here. Fails closed:
  * a refusal with no reason the desk can name reads as "not granted".
  */
-function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisabledReason {
+export function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisabledReason {
     const interaction = deriveTranscriptInteraction({
         kind: 'session',
         accessLevel: row.accessLevel,
@@ -50,6 +55,12 @@ function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisab
 type State = ReturnType<typeof storage.getState>;
 type WaitInput = Readonly<{ row: SessionListRenderableSession; requests: readonly SessionPendingRequest[] }>;
 type UnloadedInput = Readonly<{ row: SessionListRenderableSession; reason: UnloadedWait['reason'] }>;
+
+/** R10 excludes view-only waits from counts, activity and alerts, while details stay readable. */
+function isAggregateWait({ row }: WaitInput | UnloadedInput): boolean {
+    return approvalDisabledReason(row) !== 'readOnly';
+}
+
 type SessionWait = { input: WaitInput; unloaded: UnloadedInput | null; stillLoading: boolean };
 type CachedSessionWait = {
     row: SessionListRenderableSession;
@@ -144,11 +155,15 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
         if (cached.value.unloaded) unloaded.push(cached.value.unloaded);
         if (cached.value.unloaded || (cached.value.input.requests.length > 0 && cached.value.stillLoading)) loadingSessionIds.push(row.id);
     }
-    for (const row of desk.unreadable) {
-        const value: UnloadedInput = { row, reason: 'unreadable' };
-        const previous = snapshot?.unloaded.find((item) => item.row.id === row.id);
-        unloaded.push(previous && shallow(previous, value) ? previous : value);
-        loadingSessionIds.push(row.id);
+    if (desk.unreadable.length > 0) {
+        // Index once, including readable placeholders that have just become unreadable.
+        const previousUnloaded = new Map(snapshot?.unloaded.map(item => [item.row.id, item]));
+        for (const row of desk.unreadable) {
+            const value: UnloadedInput = { row, reason: 'unreadable' };
+            const previous = previousUnloaded.get(row.id);
+            unloaded.push(previous && shallow(previous, value) ? previous : value);
+            loadingSessionIds.push(row.id);
+        }
     }
     sessionCache = nextCache;
     lastState = state;
@@ -185,7 +200,9 @@ function selectProjection(state: State, scope?: DeskWaitsSummaryScope): { snapsh
     if (!projection || projection.summary.ready !== ready
         || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)
         || !shallow(projection.loadingSessionIds, loadingSessionIds)) {
-        const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
+        // R10 keeps view-only requests readable without asking the viewer to answer them.
+        const count = inputs.reduce((sum, input) => sum + (isAggregateWait(input) ? input.requests.length : 0), 0)
+            + unloaded.filter(isAggregateWait).length;
         const summary = projection?.summary.count === count && projection.summary.ready === ready
             ? projection.summary : { count, ready };
         projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
@@ -204,6 +221,7 @@ function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
     if (!projection.details) {
         const previous = projection.previousDetails;
         const oldItems = new Map(previous?.items.map((item) => [item.key, item]));
+        const oldUnloaded = new Map(previous?.unloaded.map((item) => [item.sessionId, item]));
         const items = toWaitingItems(projection.inputs.map(({ row, requests }) => ({
             sessionId: row.id,
             sessionTitle: getSessionName(row),
@@ -214,8 +232,8 @@ function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
             return old && shallow(old, item) ? old : item;
         });
         const unloaded = projection.unloaded.map(({ row, reason }) => {
-            const item: UnloadedWait = { sessionId: row.id, sessionTitle: getSessionName(row), reason };
-            const old = previous?.unloaded.find((value) => value.sessionId === row.id);
+            const item: UnloadedWait = { sessionId: row.id, sessionTitle: getSessionName(row), reason, disabledReason: approvalDisabledReason(row) };
+            const old = oldUnloaded.get(row.id);
             return old && shallow(old, item) ? old : item;
         });
         const next = {
@@ -250,14 +268,16 @@ export function selectDeskNotificationWaits(state: State): NotificationWaits {
     const { projection } = selectProjection(state);
     if (!projection.notificationWaits) {
         const waitSessionIds = Object.fromEntries([
-            ...projection.inputs.flatMap(({ row, requests }) => requests.map(request => [waitingItemKey(row.id, request.id), row.id] as const)),
-            ...projection.unloaded.map(({ row }) => [unloadedWaitKey(row.id), row.id] as const),
+            ...projection.inputs.filter(isAggregateWait).flatMap(({ row, requests }) => requests.map(request => [waitingItemKey(row.id, request.id), row.id] as const)),
+            ...projection.unloaded.filter(isAggregateWait).map(({ row }) => [unloadedWaitKey(row.id), row.id] as const),
         ]);
+        const waitSessions = new Set(Object.values(waitSessionIds));
         projection.notificationWaits = {
             ready: projection.summary.ready,
             waitIds: Object.keys(waitSessionIds).sort(),
             waitSessionIds,
-            loadingSessionIds: projection.loadingSessionIds,
+            // A view-only placeholder must not absorb the first alert after access changes.
+            loadingSessionIds: projection.loadingSessionIds.filter(id => waitSessions.has(id)),
         };
     }
     return projection.notificationWaits;
@@ -271,6 +291,19 @@ export function useDeskWaits(excludeSessionId?: string): DeskWaits {
 /** Read current details on a real user action, without a mounted detail subscription. */
 export function readDeskWaits(excludeSessionId?: string): DeskWaits {
     return selectDetails(storage.getState(), excludeSessionId);
+}
+
+/** A user-requested walk-through lists exactly the waits counted by its attention summary. */
+export function readDeskAttentionWaits(excludeSessionId?: string): DeskWaits {
+    const state = storage.getState();
+    const { projection } = selectProjection(state, excludeSessionId);
+    const attentionSessionIds = new Set([...projection.inputs, ...projection.unloaded].filter(isAggregateWait).map(({ row }) => row.id));
+    const details = selectDetails(state, excludeSessionId);
+    return {
+        ...details,
+        items: details.items.filter(item => attentionSessionIds.has(item.sessionId)),
+        unloaded: details.unloaded.filter(item => attentionSessionIds.has(item.sessionId)),
+    };
 }
 
 export function useWaitingCount(): number {
@@ -288,10 +321,10 @@ function selectActivity(state: State, scope?: DeskWaitsSummaryScope): DeskWaitsA
     const { projection } = selectProjection(state, scope);
     if (!projection.activity) {
         const count = projection.summary.ready ? projection.summary.count : null;
-        const requests = projection.inputs.flatMap(({ row, requests }) => requests.map(request => ({
+        const requests = projection.inputs.filter(isAggregateWait).flatMap(({ row, requests }) => requests.map(request => ({
             sessionId: row.id, requestId: request.id,
         })));
-        const unloadedSessionIds = projection.unloaded.map(({ row }) => row.id);
+        const unloadedSessionIds = projection.unloaded.filter(isAggregateWait).map(({ row }) => row.id);
         const previous = projection.previousActivity;
         projection.activity = previous && previous.count === count
             && shallow(previous.unloadedSessionIds, unloadedSessionIds)

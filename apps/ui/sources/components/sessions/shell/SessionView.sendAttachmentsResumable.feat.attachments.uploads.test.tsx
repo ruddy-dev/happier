@@ -395,8 +395,11 @@ vi.mock('@/sync/ops/sessionAgentTransition', () => ({
     runSessionAgentTransitionOnMachine: (...args: any[]) => runSessionAgentTransitionSpy(...args),
 }));
 
+let realAgentInput: React.ComponentType<any> | null = null;
 vi.mock('@/components/sessions/agentInput', () => ({
-    AgentInput: (props: any) => React.createElement('AgentInput', props),
+    AgentInput: (props: any) => realAgentInput
+        ? React.createElement(realAgentInput, props)
+        : React.createElement('AgentInput', props),
 }));
 
 const modalAlertSpy = vi.fn();
@@ -556,6 +559,7 @@ installSessionShellCommonModuleMocks({
             useSessionReviewCommentsDrafts: () => [],
             useWorkspaceReviewCommentsDrafts: () => reviewCommentDraftsState.current,
             useSessionUsage: () => null,
+            useSessionProjectScmSnapshot: () => null,
             useProfile: () => null,
             useActiveServerAccountScope: () => ({ serverId: 'server-1', accountId: 'account-1' }),
             useSetting: () => null,
@@ -694,6 +698,7 @@ const { buildStructuredInputMetaOverrides } = await import('../agentInput/struct
 
 describe('SessionView (attachments.uploads resumable send)', () => {
     beforeEach(async () => {
+        realAgentInput = null;
         sessionState.session.active = true;
         sessionState.session.presence = 'online';
         sessionMachineTargetState.available = false;
@@ -727,6 +732,60 @@ describe('SessionView (attachments.uploads resumable send)', () => {
         const { registerStorageStateReader } = await import('@/sync/domains/state/storageStateReaderBridge');
         registerStorageStateReader(() => storage.getState());
         await deleteSessionDraft({ scope: TEST_SERVER_ACCOUNT_SCOPE, address: TEST_SESSION_DRAFT_ADDRESS });
+    });
+
+    it.each(['success', 'failure'] as const)('phone shortcuts follow the real composer during a delayed %s send', async (outcome) => {
+        const { installAgentAssetLoader } = await import('@/dev/testkit/mocks/agentAssets');
+        await installAgentAssetLoader();
+        realAgentInput = (await import('../agentInput/AgentInput')).AgentInput;
+        const { CoordinatorComposer } = await import('@/ignorePrevious/components/CoordinatorComposer');
+        const { resolveSessionComposerSend } = await vi.importActual<typeof import('@/sync/domains/input/slashCommands/resolveSessionComposerSend')>('@/sync/domains/input/slashCommands/resolveSessionComposerSend');
+        resolveSessionComposerSendMock.mockImplementationOnce((args) => {
+            const result = resolveSessionComposerSend(args);
+            if (result.kind !== 'send') throw new Error('Expected ordinary text to resolve as a send');
+            return result;
+        });
+        pendingFireAndForget.length = 0;
+        let finish!: () => void;
+        let started!: () => void;
+        let handoff!: () => void;
+        const sendStarted = new Promise<void>((resolve) => { started = resolve; });
+        const allowHandoff = new Promise<void>((resolve) => { handoff = resolve; });
+        sendMessageSpy.mockImplementationOnce(async (...args: any[]) => {
+            expect(args[1]).toBe('phone draft');
+            const options = args[4] as { onLocalPendingProjectionCreated?: (event: { localId: string }) => void } | undefined;
+            started();
+            await allowHandoff;
+            options?.onLocalPendingProjectionCreated?.({ localId: 'phone-send' });
+            await new Promise<void>((resolve, reject) => {
+                finish = outcome === 'success' ? resolve : () => reject(new Error('send failed'));
+            });
+        });
+        const screen = await renderScreen(<AppPaneProvider><CoordinatorComposer coordinatorId="s1" phone>
+            <SessionView id="s1" />
+        </CoordinatorComposer></AppPaneProvider>);
+        try {
+            expect(screen.findByTestId('ip-phone-shortcuts')).toBeTruthy();
+            const input = screen.findByTestId('session-composer-input');
+            expect(input).toBeTruthy();
+            expect(typeof input!.type).toBe('string');
+            await act(async () => input!.props.onChangeText('phone draft'));
+            expect(screen.findByTestId('ip-phone-shortcuts')).toBeNull();
+            await screen.pressByTestIdAsync('session-composer-send');
+            await act(async () => { await sendStarted; });
+            expect(screen.findByTestId('session-composer-input')?.props.value).toBe('phone draft');
+            expect(screen.findByTestId('ip-phone-shortcuts')).toBeNull();
+            await act(async () => { handoff(); await Promise.resolve(); });
+            expect(screen.findByTestId('session-composer-input')?.props.value).toBe('');
+            expect(screen.findByTestId('ip-phone-shortcuts')).toBeTruthy();
+            await act(async () => { finish(); await pendingFireAndForget[0]; });
+            expect(screen.findByTestId('session-composer-input')?.props.value).toBe(outcome === 'success' ? '' : 'phone draft');
+            expect(Boolean(screen.findByTestId('ip-phone-shortcuts'))).toBe(outcome === 'success');
+        } finally {
+            await act(async () => screen.tree?.unmount());
+            realAgentInput = null;
+            pendingFireAndForget.length = 0;
+        }
     });
 
     it('restores unsent attachment drafts when the session input remounts', async () => {
@@ -928,6 +987,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
     });
 
     it('loads pending edits into the composer and saves them without sending a new message', async () => {
+        const { CoordinatorComposer } = await import('@/ignorePrevious/components/CoordinatorComposer');
         sessionPendingMessagesState.current = [{
             id: 'p1',
             text: 'queued\nmessage',
@@ -945,9 +1005,11 @@ describe('SessionView (attachments.uploads resumable send)', () => {
 
         let tree: renderer.ReactTestRenderer | undefined;
         try {
-            tree = (await renderScreen(<AppPaneProvider>
-                        <SessionView id="s1" />
-                    </AppPaneProvider>)).tree;
+            const renderAtWidth = (phone: boolean) => <AppPaneProvider><CoordinatorComposer coordinatorId="s1" phone={phone}>
+                <SessionView id="s1" />
+            </CoordinatorComposer></AppPaneProvider>;
+            const screen = await renderScreen(renderAtWidth(true));
+            tree = screen.tree;
 
             pendingFireAndForget.length = 0;
 
@@ -972,6 +1034,13 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             });
 
             agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput.props.value).toBe('queued\nmessage');
+
+            const originalInput = agentInput;
+            await screen.update(renderAtWidth(false));
+            await screen.update(renderAtWidth(true));
+            agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput === originalInput).toBe(true);
             expect(agentInput.props.value).toBe('queued\nmessage');
 
             await act(async () => {
@@ -1061,6 +1130,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
     });
 
     it('clears current attachment drafts during pending edit and restores them on cancel', async () => {
+        const { CoordinatorComposer } = await import('@/ignorePrevious/components/CoordinatorComposer');
         sessionPendingMessagesState.current = [{
             id: 'p1',
             text: 'queued message',
@@ -1075,7 +1145,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
 
         let tree: renderer.ReactTestRenderer | undefined;
         try {
-            tree = (await renderScreen(<AppPaneProvider>
+            const renderAtWidth = (phone: boolean) => <AppPaneProvider><CoordinatorComposer coordinatorId="s1" phone={phone}>
                         <SessionView
                             id="s1"
                             initialAttachmentDrafts={[{
@@ -1090,7 +1160,9 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                                 status: 'pending',
                             }]}
                         />
-                    </AppPaneProvider>)).tree;
+                    </CoordinatorComposer></AppPaneProvider>;
+            const screen = await renderScreen(renderAtWidth(true));
+            tree = screen.tree;
 
             const renderedTree = tree;
             expect(renderedTree).toBeDefined();
@@ -1113,6 +1185,14 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             });
 
             agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput.props.value).toBe('queued message');
+            expect(agentInput.props.attachments).toEqual([]);
+
+            const originalInput = agentInput;
+            await screen.update(renderAtWidth(false));
+            await screen.update(renderAtWidth(true));
+            agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput === originalInput).toBe(true);
             expect(agentInput.props.value).toBe('queued message');
             expect(agentInput.props.attachments).toEqual([]);
 

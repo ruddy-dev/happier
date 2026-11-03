@@ -1,3 +1,4 @@
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import type { ReactTestInstance } from 'react-test-renderer';
@@ -107,9 +108,9 @@ function seed(sessions: Session[]) {
  * A sidebar row whose metadata the app could not decrypt or parse (`metadataUnavailable`), as the
  * list sync leaves it. The full record never loads, so the row is all the desk has.
  */
-function seedUnreadableRow(id: string, pendingPermissionRequestCount: number, metadata: Record<string, unknown> | null = null) {
+function seedUnreadableRow(id: string, pendingPermissionRequestCount: number, metadata: Record<string, unknown> | null = null, extra: Partial<Session> = {}) {
     const row = buildSessionListRenderableFromSession(
-        createSessionFixture({ id, active: true, pendingPermissionRequestCount, pendingRequestObservedAt: Date.now() }),
+        createSessionFixture({ id, active: true, pendingPermissionRequestCount, pendingRequestObservedAt: Date.now(), ...extra }),
     );
     act(() => {
         storage.setState(previous, true);
@@ -143,7 +144,9 @@ const UNREADABLE = "The desk can't read this session's request. Open the session
 
 async function renderPanel() {
     const { WaitingPanel } = await import('./WaitingPanel');
-    return renderScreen(<WaitingPanel />);
+    const screen = await renderScreen(<WaitingPanel />);
+    await revealWaitingDetails(screen);
+    return screen;
 }
 
 describe('WaitingPanel safety', () => {
@@ -269,6 +272,7 @@ describe('WaitingPanel safety', () => {
         act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1, agentState: { requests: {} } }]));
         expect(screen.findByTestId('ip-answered-returning-request')).not.toBeNull();
         act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 2 }]));
+        await revealWaitingDetails(screen);
         expect(screen.findByTestId('ip-waiting-allow-returning-request')).not.toBeNull();
         expect(screen.findByTestId('ip-answered-returning-request')).toBeNull();
     });
@@ -311,6 +315,93 @@ describe('WaitingPanel safety', () => {
 
     // Each W2 test uses its own request id: the dispatch guard's registry is module-wide, and every
     // deferred is resolved before the test ends so no entry outlives its card.
+    it.each(['allow', 'deny'] as const)('keeps an earlier %s visible through same-ID content replacement without a second dispatch', async kind => {
+        const gate = createDeferred<{ ok: true }>();
+        state.rpc.mockImplementation(async (call: RpcCall) => call.method === 'permission' ? gate.promise : { ok: true });
+        const session = sessionWithRequest('replacement', 'changed-id', { tool: 'Bash', arguments: { command: 'echo earlier' } });
+        seed([session]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId(`ip-waiting-${kind}-changed-id`), kind);
+        try {
+            act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+                agentState: { requests: { 'changed-id': { tool: 'Bash', arguments: { command: 'echo replacement' }, createdAt: 10 },
+                    independent: { tool: 'Bash', arguments: { command: 'echo independent' }, createdAt: 20 } } } }]));
+            await revealWaitingDetails(screen);
+            expect(screen.findByTestId('ip-waiting-allow-changed-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+            expect(screen.findByTestId('ip-waiting-deny-changed-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+            expect(screen.findByTestId('ip-waiting-earlier-changed-id')).not.toBeNull();
+            expect(screen.findByTestId('ip-waiting-allow-independent')?.props.accessibilityState).toMatchObject({ disabled: false });
+        } finally {
+            await act(async () => gate.resolve({ ok: true }));
+        }
+        expect(permissionCalls()).toHaveLength(1);
+        expect(textUnder(screen.findByTestId('ip-waiting-earlier-changed-id'))).toContain('Open the session');
+        expect(screen.findByTestId('ip-waiting-allow-changed-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+        expect(screen.findByTestId('ip-answered-changed-id')).toBeNull();
+    });
+
+    it.each(['allow', 'deny'] as const)('rechecks stale %s before React updates, including equal timestamps', async kind => {
+        const session = sessionWithRequest('stale', 'press-id', { tool: 'Bash', arguments: { command: 'echo reviewed' } });
+        seed([session]);
+        const screen = await renderPanel();
+        const press = screen.findByTestId(`ip-waiting-${kind}-press-id`)!;
+        act(() => {
+            storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+                agentState: { requests: { 'press-id': { tool: 'Bash', arguments: { command: 'echo changed' }, createdAt: 10 } } } }]);
+            press.props.onPress();
+        });
+        expect(permissionCalls()).toHaveLength(0);
+        expect(screen.findByTestId('ip-waiting-changed-press-id')).not.toBeNull();
+    });
+
+    it.each([['allow', false], ['deny', false], ['allow', true], ['deny', true]] as const)('remembers an in-flight %s content change even if the old payload returns, partial=%s', async (kind, partial) => {
+        const gate = createDeferred<{ ok: true }>();
+        state.rpc.mockImplementation(async (call: RpcCall) => call.method === 'permission' ? gate.promise : { ok: true });
+        const original = sessionWithRequest('roundtrip', 'roundtrip-id', { tool: 'Bash', arguments: { command: 'echo first' } });
+        seed([original]);
+        if (partial) act(() => storage.getState().applyMessages(original.id, [{ id: 'partial-text', localId: null, createdAt: 15,
+            role: 'user', isSidechain: false, content: { type: 'text', text: 'Context' } }]));
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId(`ip-waiting-${kind}-roundtrip-id`));
+        act(() => storage.getState().applySessions([{ ...original, agentStateVersion: original.agentStateVersion + 1,
+            agentState: { requests: { 'roundtrip-id': { tool: 'Bash', arguments: { command: 'echo second' }, createdAt: 10 } } } }]));
+        act(() => storage.getState().applySessions([{ ...original, agentStateVersion: original.agentStateVersion + 2 }]));
+        await revealWaitingDetails(screen);
+        expect(screen.findByTestId('ip-waiting-earlier-roundtrip-id')).not.toBeNull();
+        await act(async () => gate.resolve({ ok: true }));
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-roundtrip-id'));
+        expect(permissionCalls()).toHaveLength(1);
+        expect(screen.findByTestId('ip-waiting-allow-roundtrip-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+        expect(screen.findByTestId('ip-answered-roundtrip-id')).toBeNull();
+    });
+
+    it('keeps a cold ambiguous request visible for inspection while an independent request remains answerable', async () => {
+        const original = sessionWithRequest('inspection', 'ambiguous-id', { tool: 'Bash', arguments: { command: 'echo B' }, createdAt: 200 });
+        seed([original]);
+        act(() => storage.getState().applyMessages(original.id, [
+            { id: 'parent', localId: null, createdAt: 250, role: 'agent', isSidechain: false,
+                content: [{ type: 'tool-call', id: 'task', name: 'Task', input: {}, description: null, uuid: 'parent', parentUUID: null }] },
+            { id: 'child', localId: null, createdAt: 300, role: 'agent', isSidechain: true, sidechainId: 'task',
+                content: [{ type: 'tool-call', id: 'ambiguous-id', name: 'Bash', input: { command: 'echo B' }, description: null, uuid: 'child', parentUUID: null }] },
+        ]));
+        act(() => storage.getState().applySessions([{ ...original, agentStateVersion: original.agentStateVersion + 1,
+            agentState: { requests: { independent: { tool: 'Bash', arguments: { command: 'echo independent' }, createdAt: 700 } },
+                completedRequests: { 'ambiguous-id': { tool: 'Bash', arguments: { command: 'echo A' }, createdAt: 500, completedAt: 600, status: 'approved' } } } }]));
+        act(() => storage.getState().applyMessages(original.id, []));
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-inspect-ambiguous-id')).not.toBeNull();
+        expect(screen.findByTestId('ip-waiting-allow-ambiguous-id')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-ambiguous-id')).toBeNull();
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-ambiguous-id'))).toMatch(/Not heard from in/);
+        expect(textUnder(screen.findByTestId('ip-waiting-detail-ambiguous-id'))).not.toContain(t('ignorePrevious.connection.staleRequest'));
+        expect(screen.findByTestId('ip-waiting-allow-independent')?.props.disabled).toBe(false);
+        const open = screen.tree.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === t('ignorePrevious.openSession'));
+        await pressTestInstanceAsync(open);
+        expect(state.navigate).toHaveBeenCalled();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-deny-independent'));
+        expect(permissionCalls()).toMatchObject([{ payload: { id: 'independent', approved: false, decision: 'denied' } }]);
+    });
+
     it('W2: pressing Allow twice sends one permission answer', async () => {
         const gate = createDeferred<{ ok: true }>();
         state.rpc.mockImplementation(async (call: RpcCall) => (call.method === 'permission' ? gate.promise : { ok: true }));
@@ -465,7 +556,8 @@ describe('WaitingPanel safety', () => {
                 'This request was already answered or has expired. Open the session to check.',
             );
             expect(state.alert).toHaveBeenCalledWith(t('ignorePrevious.waiting.alreadyAnsweredTitle'), t('ignorePrevious.waiting.alreadyAnswered'));
-            expect(screen.findByTestId('ip-waiting-allow-r9')?.props.accessibilityState).toMatchObject({ disabled: false });
+            // This card stays unavailable, while the independent session footer remains usable.
+            expect(screen.findByTestId('ip-waiting-allow-r9')?.props.accessibilityState).toMatchObject({ disabled: true });
             const action = vi.fn(async () => {});
             await expect(footer.dispatch(key, action)).resolves.toBe(true);
             expect(action).toHaveBeenCalledTimes(1);
@@ -490,7 +582,7 @@ describe('WaitingPanel safety', () => {
         const command = 'cd build && ' + 'echo a '.repeat(40) + '&& rm -rf /tmp/x';
         seed([sessionWithRequest('s1', 'r10', { tool: 'Bash', arguments: { command } })]);
         const screen = await renderPanel();
-        const waiting = textUnder(screen.findByTestId('ip-waiting'));
+        const waiting = textUnder(screen.findByTestId('ip-waiting-detail-r10'));
         expect(command.length).toBeGreaterThan(290);
         expect(waiting).toContain(command);
         expect(waiting).not.toContain('…');
@@ -515,14 +607,16 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-allow-r13')).toBeNull();
         expect(screen.findByTestId('ip-waiting-deny-r13')).toBeNull();
         const waiting = textUnder(screen.findByTestId('ip-waiting'));
-        expect(waiting).toContain('You have view-only access to this session.');
+        expect(waiting).toContain('View only · outside request count');
         expect(waiting).toContain('npm test');
+        expect(waiting).not.toContain(t('ignorePrevious.connection.staleRequest'));
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-r13'))).toMatch(/Not heard from in/);
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session'), 'Open session');
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
         expect(permissionCalls()).toHaveLength(0);
     });
 
-    it('W9: edit access without approval rights says the owner did not allow it', async () => {
+    it('W9: edit access without approval rights explains inclusion without offering approval', async () => {
         seed([
             sessionWithRequest('s1', 'r14', { tool: 'Bash', arguments: { command: 'npm test' } }, { accessLevel: 'edit', canApprovePermissions: false }),
         ]);
@@ -530,8 +624,32 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-allow-r14')).toBeNull();
         expect(screen.findByTestId('ip-waiting-deny-r14')).toBeNull();
         expect(textUnder(screen.findByTestId('ip-waiting'))).toContain(
-            'The owner did not allow you to approve permissions for this session.',
+            'Can edit, cannot approve · in request count',
         );
+        expect(textUnder(screen.findByTestId('ip-waiting'))).not.toContain(t('ignorePrevious.connection.staleRequest'));
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-r14'))).toMatch(/Not heard from in/);
+    });
+
+    it('keeps unknown worker activity neutral when approval is unavailable', async () => {
+        seed([sessionWithRequest('s1', 'unknown-viewer', { tool: 'Bash', arguments: { command: 'npm test' }, createdAt: undefined }, {
+            accessLevel: 'view', activeAt: 0, thinkingAt: 0, runtimeActivityObservedAt: null,
+            latestTurnStatusObservedAt: null, latestReadyEventAt: null, pendingRequestObservedAt: null,
+        })]);
+        const screen = await renderPanel();
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-unknown-viewer'))).toBe(t('status.activityUnknown'));
+        expect(screen.findByTestId('ip-waiting-allow-unknown-viewer')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-unknown-viewer')).toBeNull();
+    });
+
+    it('does not recommend Allow or Deny for a stale question', async () => {
+        seed([sessionWithRequest('s1', 'stale-question', { tool: 'AskUserQuestion', kind: 'user_action', arguments: {
+            questions: [{ question: 'Which approach?', options: [{ label: 'First' }, { label: 'Second' }] }],
+        } })]);
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-card-stale-question')).not.toBeNull();
+        expect(screen.findByTestId('ip-waiting-allow-stale-question')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-stale-question')).toBeNull();
+        expect(textUnder(screen.findByTestId('ip-waiting-detail-stale-question'))).not.toContain(t('ignorePrevious.connection.staleRequest'));
     });
 
     it('W9: edit access with approval rights keeps the buttons', async () => {
@@ -543,14 +661,19 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-deny-r15')).toBeTruthy();
     });
 
-    it('W6: a session with unreadable metadata and a pending request shows a needs-a-look row', async () => {
-        seedUnreadableRow('u1', 1);
+    it.each([
+        [undefined, 1, null],
+        ['view', 0, 'View only · outside request count'],
+        ['edit', 1, 'Can edit, cannot approve · in request count'],
+    ] as const)('W6: unreadable metadata preserves restrictions and count membership for %s access', async (accessLevel, count, restriction) => {
+        seedUnreadableRow('u1', 1, null, { accessLevel, canApprovePermissions: false });
         const screen = await renderPanelWithCount();
         const waiting = textUnder(screen.findByTestId('ip-waiting'));
         expect(waiting).toContain(UNREADABLE);
         expect(waiting).not.toContain('Allow');
         expect(waiting).not.toContain('Deny');
-        expect(textUnder(screen.findByTestId('probe-count'))).toBe('1');
+        expect(textUnder(screen.findByTestId('probe-count'))).toBe(String(count));
+        if (restriction) expect(textUnder(screen.findByTestId('ip-waiting-unloaded-u1'))).toContain(restriction);
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session'), 'Open session');
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/u1(\?|$)/);
     });

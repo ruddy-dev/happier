@@ -6,14 +6,23 @@ import { terminalPalettes } from '../palette';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { CoordinatorComposerInputContext, createCoordinatorComposerObserver } from '../model/coordinatorComposerInput';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
+import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { DeskText } from '../typography/DeskText';
 
-/** Web-only opt-in around the real SessionView and the synthetic screenshot body alike. */
-export function CoordinatorComposer({ children }: React.PropsWithChildren) {
-    return Platform.OS === 'web' ? <WebCoordinatorComposer>{children}</WebCoordinatorComposer> : <>{children}</>;
+/** Per-composer opt-in around the real SessionView and the synthetic screenshot body alike. */
+export function CoordinatorComposer({ children, coordinatorId, phone = false }: React.PropsWithChildren<{ coordinatorId?: string; phone?: boolean }>) {
+    return Platform.OS === 'web' ? <WebCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</WebCoordinatorComposer> :
+        <NativeCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</NativeCoordinatorComposer>;
 }
 
-function WebCoordinatorComposer({ children }: React.PropsWithChildren) {
+function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {
+    const [observer] = React.useState(createCoordinatorComposerObserver);
+    const context = React.useMemo(() => phone && coordinatorId ? ({ observer, prompt: null, panelFooter: null,
+        panelLeading: <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> }) : null, [observer, coordinatorId, phone]);
+    return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
+}
+
+function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {
     const [observer] = React.useState(createCoordinatorComposerObserver);
     const [style] = useDeskPref('chatStyle');
     const [palette] = useDeskPref('terminalPalette');
@@ -25,9 +34,10 @@ function WebCoordinatorComposer({ children }: React.PropsWithChildren) {
         prompt: terminal ? <DeskText testID="ip-composer-prompt" aria-hidden style={{ color: paint.user, fontSize: 13, fontWeight: '700' }}>
             {t('ignorePrevious.composer.prompt')}<DeskText style={{ color: paint.mute }}>{' ~ '}</DeskText>{'> '}
         </DeskText> : null,
+        panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null,
         panelFooter: terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null,
         textStyle: terminal ? { fontFamily: DESK_FONT_STACK, color: paint.ink } : undefined,
-    }), [observer, terminal, paint]);
+    }), [observer, terminal, paint, phone, coordinatorId]);
     // CSS changes only this instance's existing web composer hosts. It neither discovers inputs
     // nor changes controls, focus, permission labels, context data or native layout.
     const selector = `#${scope}`;
@@ -70,4 +80,9 @@ function ComposerStatusStrip({ observer, paint }: {
             {waits.ready ? t('ignorePrevious.composer.waiting', { count: waits.count }) : t('ignorePrevious.composer.waitingUnknown')}
         </DeskText>
     </View>;
+}
+
+function PhoneShortcuts({ observer, coordinatorId }: { observer: ReturnType<typeof createCoordinatorComposerObserver>; coordinatorId: string }) {
+    const writing = React.useSyncExternalStore(observer.subscribe, () => observer.getSnapshot().writing, () => false);
+    return writing ? null : <CoordinatorPrompts coordinatorId={coordinatorId} phone />;
 }

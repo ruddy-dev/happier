@@ -446,9 +446,10 @@ describe('Desk worker controls catalogue replay', () => {
         updateSession({ accessLevel, canApprovePermissions: false });
         await s.apply('w1', { requests: { r1: { tool: 'Bash', arguments: { command: 'echo test' } } } });
         await s.openApprovals();
+        await s.screen.pressByTestIdAsync('ip-waiting-toggle-r1');
         expect(s.screen.findByTestId('ip-waiting-allow-r1')).toBeNull();
         expect(s.screen.findByTestId('ip-waiting-deny-r1')).toBeNull();
-        expect(s.screen.getTextContent()).toMatch(/view.only|not.*granted|not.*allow/i);
+        expect(s.screen.getTextContent()).toMatch(/view.only|cannot approve/i);
         if (accessLevel === 'view') {
             expect(s.screen.findByTestId('ip-stop-w1')).toBeNull();
             expect(s.screen.findByTestId('ip-mode-w1')).toBeNull();
@@ -496,6 +497,7 @@ describe('Desk worker controls catalogue replay', () => {
         };
         act(() => { storage.getState().applyMessages('w1', [message]); });
         expect(storage.getState().sessions.w1).toBe(before);
+        await s.screen.pressByTestIdAsync('ip-waiting-toggle-transcript-request');
         expect(s.screen.findByTestId('ip-waiting-allow-transcript-request')).not.toBeNull();
     });
 });

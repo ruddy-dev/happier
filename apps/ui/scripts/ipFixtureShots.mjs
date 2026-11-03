@@ -51,6 +51,9 @@ export function buildShotMatrix(mode = 'legacy') {
     return Object.entries(THEME_MAP).flatMap(([theme, mapping]) =>
         [[1440, 900], [1100, 800], [390, 844]].flatMap(([width, height]) => {
             const pages = [{ page: 'desk', label: 'Desk fixture', appPath: ROUTE }];
+            if ((theme === 'night' || theme === 'tokyo') && width !== 1100) {
+                pages.push({ page: 'shog', label: 'Shog up close', appPath: ROUTE, openShog: true });
+            }
             if ((theme === 'night' || theme === 'paper') && width !== 1100) pages.push(...EXTRA_PAGES);
             return pages.map(page => {
                 const name = `${theme}-${width}-${page.page}`;
@@ -222,7 +225,7 @@ function startStatic(dist) {
 }
 
 function appReadyElements(page, shot) {
-    if (shot.page !== 'desk') return [
+    if (shot.page !== 'desk' && shot.page !== 'shog') return [
         { locator: page.getByTestId(shot.readyTestId), state: 'visible', label: shot.readyTestId },
     ];
     // The 390 shot opens on Coordinator. Work stays mounted behind its phone tab.
@@ -265,6 +268,10 @@ async function captureApp(page, shot, origin) {
     await page.goto(`${origin}${shot.appPath}`, { waitUntil: 'load', timeout: 90_000 });
     await waitForAppReady(page, shot);
     if (shot.openApprovals) await page.getByTestId('ip-approvals-open').click();
+    if (shot.openShog) {
+        await page.getByTestId('ip-shog-open').click();
+        await page.getByTestId('ip-shog').waitFor({ state: 'visible' });
+    }
     await page.clock.runFor(1000);
     await page.evaluate(() => document.fonts.ready);
     const facts = await page.evaluate(() => ({
@@ -274,7 +281,7 @@ async function captureApp(page, shot, origin) {
         testIds: [...new Set([...document.querySelectorAll('[data-testid^="ip-"]')].map(e => e.getAttribute('data-testid')))],
     }));
     if (facts.path !== shot.appPath) throw new Error(`Redirected from ${shot.appPath} to ${facts.path}`);
-    if (shot.page === 'desk' && facts.restorePrompt) throw new Error('Account prompt shown instead of fixture coordinator');
+    if ((shot.page === 'desk' || shot.page === 'shog') && facts.restorePrompt) throw new Error('Account prompt shown instead of fixture coordinator');
     return facts;
 }
 
@@ -285,6 +292,10 @@ async function captureMockup(page, shot, origin) {
     const theme = await page.evaluate(() => ({ ...document.documentElement.dataset }));
     if (theme.style !== mapping.style || theme.v !== mapping.variant) {
         throw new Error(`Mockup theme mismatch: ${JSON.stringify(theme)}`);
+    }
+    if (shot.openShog) {
+        await page.locator('#headAv').click();
+        await page.locator('#shogx').waitFor({ state: 'visible' });
     }
     if (shot.mockupSection) {
         await page.locator('#setBtn').click();
@@ -308,7 +319,9 @@ async function assertAppHealthy(page, shot) {
     if (await page.getByText('Relay not supported', { exact: false }).first().isVisible()) {
         throw new Error(`Relay not supported on ${shot.appPath}`);
     }
-    for (const { locator, state, label } of appReadyElements(page, shot)) {
+    const elements = appReadyElements(page, shot);
+    if (shot.openShog) elements.push({ locator: page.getByTestId('ip-shog'), state: 'visible', label: 'ip-shog' });
+    for (const { locator, state, label } of elements) {
         const ready = state === 'attached' ? await locator.count() > 0 : await locator.isVisible();
         if (!ready) throw new Error(`Ready element ${label} is no longer ${state} on ${shot.appPath}`);
     }
