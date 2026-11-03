@@ -3,7 +3,7 @@ import { storage } from '@/sync/domains/state/storage';
 import { releaseDeskFixture } from '../deskFixtureGate';
 import { applyDeskFixture } from './applyDeskFixture';
 import demo from './demo/desk-demo.json';
-import { DEMO_STEP_MS, demoScript, getDemoConversation } from './demoConversation';
+import { DEMO_STEP_MS, demoScript, getDemoConversation, mountDemoConversation } from './demoConversation';
 
 const NOW = Date.UTC(2026, 10, 1, 14, 2);
 const ids = demo.sessions.map(session => session.id);
@@ -25,7 +25,7 @@ function player() {
 describe('scripted demo on the real fixture stores', () => {
     const before = storage.getState();
     beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); storage.setState(before, true); });
-    afterEach(() => { releaseDeskFixture(); storage.setState(before, true); vi.useRealTimers(); });
+    afterEach(() => { releaseDeskFixture(); getDemoConversation()?.release(); storage.setState(before, true); vi.useRealTimers(); });
 
     it('derives all six sessions, the question, PR and briefing in source order, interleaving workers', () => {
         expect(new Set(demoScript.map(step => step.sessionId))).toEqual(new Set(ids));
@@ -123,12 +123,74 @@ describe('scripted demo on the real fixture stores', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
+    it.each([
+        ['seed', 1],
+        ['restart', 1],
+        ['restart', 3],
+        ['step', 2],
+        ['completion', 1],
+        ['completion', 4],
+    ] as const)('release from real storage during %s write %i stops the entire fixture write sequence', (phase, releaseAt) => {
+        if (phase !== 'seed') {
+            applyDeskFixture(NOW, 'demo');
+            player().play();
+            if (phase === 'restart') vi.advanceTimersByTime(DEMO_STEP_MS * 3);
+            if (phase === 'completion') vi.advanceTimersByTime(DEMO_STEP_MS * (demoScript.length - 1));
+        }
+        let notifications = 0;
+        let releasing = false;
+        let releaseReturned = false;
+        const laterWrites = vi.fn();
+        const unsubscribe = storage.subscribe(() => {
+            if (releaseReturned) { laterWrites(); return; }
+            if (releasing || ++notifications !== releaseAt) return;
+            releasing = true;
+            releaseDeskFixture();
+            // Cleanup writes are allowed inside release, but none may follow its return.
+            releaseReturned = true;
+        });
+        try {
+            if (phase === 'seed') applyDeskFixture(NOW, 'demo');
+            else if (phase === 'restart') player().restart();
+            else vi.advanceTimersByTime(DEMO_STEP_MS);
+            expect(releaseReturned).toBe(true);
+            expect(ids.filter(id => storage.getState().sessions[id])).toEqual([]);
+            expect(ids.filter(id => storage.getState().sessionMessages[id])).toEqual([]);
+            expect(getDemoConversation()).toBeNull();
+            vi.advanceTimersByTime(DEMO_STEP_MS * demoScript.length);
+            expect(laterWrites).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            unsubscribe();
+        }
+    });
+
+    it('mounting a second player releases the playing predecessor', () => {
+        const oldWrite = vi.fn();
+        const old = mountDemoConversation(oldWrite);
+        old.play();
+        oldWrite.mockClear();
+        const nextWrite = vi.fn();
+        const next = mountDemoConversation(nextWrite);
+        expect(getDemoConversation()).toBe(next);
+        next.play();
+        nextWrite.mockClear();
+        vi.advanceTimersByTime(DEMO_STEP_MS);
+        old.play(); old.restart();
+        old.release();
+        expect(oldWrite).not.toHaveBeenCalled();
+        expect(nextWrite).toHaveBeenCalledWith(1, false);
+        expect(getDemoConversation()).toBe(next);
+    });
+
     it.each(['release', 'replace'] as const)('%s mid-play cancels timers, subscriptions and later store writes', action => {
         const release = applyDeskFixture(NOW, 'demo');
         const run = player();
         run.play();
         vi.advanceTimersByTime(DEMO_STEP_MS * Math.floor(demoScript.length / 2));
+        expect(vi.getTimerCount()).toBe(1);
         if (action === 'release') release(); else applyDeskFixture(NOW);
+        expect(vi.getTimerCount()).toBe(0);
         expect(getDemoConversation()).toBeNull();
         const writes = vi.fn();
         const unsubscribe = storage.subscribe(writes);
