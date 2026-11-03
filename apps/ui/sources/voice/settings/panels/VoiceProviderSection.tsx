@@ -7,6 +7,7 @@ import { ItemGroup } from '@/components/ui/lists/ItemGroup';
 import type { VoiceSettings } from '@/sync/domains/settings/voiceSettings';
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
+import { DeskVoicePageContext } from '@/ignorePrevious/appearance/deskPageThemeContext';
 
 export function VoiceProviderSection(props: {
   voice: VoiceSettings;
@@ -14,6 +15,7 @@ export function VoiceProviderSection(props: {
   happierVoiceSupported: boolean;
 }) {
   const { theme } = useUnistyles();
+  const deskVoice = React.useContext(DeskVoicePageContext);
   const select = (next: VoiceSettings) => props.setVoice(next);
 
   const billingMode = props.voice.adapters.realtime_elevenlabs.billingMode;
@@ -28,6 +30,7 @@ export function VoiceProviderSection(props: {
         testID="ip-voice-mode-off"
         title={t('settingsVoice.mode.off')}
         subtitle={t('settingsVoice.mode.offSubtitle')}
+        subtitleLines={deskVoice ? 0 : undefined}
         rightElement={isOff ? <Icon name="check-circle" size={24} color={theme.colors.accent.blue} /> : null}
         onPress={() => select({ ...props.voice, providerId: 'off' })}
         showChevron={false}
@@ -37,6 +40,7 @@ export function VoiceProviderSection(props: {
         <Item
           title={t('settingsVoice.mode.happier')}
           subtitle={t('settingsVoice.mode.happierSubtitle')}
+          subtitleLines={deskVoice ? 0 : undefined}
           rightElement={isHappier ? <Icon name="check-circle" size={24} color={theme.colors.accent.blue} /> : null}
           onPress={() =>
             select({
@@ -55,6 +59,7 @@ export function VoiceProviderSection(props: {
       <Item
         title={t('settingsVoice.mode.byo')}
         subtitle={t('settingsVoice.mode.byoSubtitle')}
+        subtitleLines={deskVoice ? 0 : undefined}
         rightElement={isByo ? <Icon name="check-circle" size={24} color={theme.colors.accent.blue} /> : null}
         onPress={() =>
           select({
@@ -72,6 +77,7 @@ export function VoiceProviderSection(props: {
       <Item
         title={t('settingsVoice.mode.local')}
         subtitle={t('settingsVoice.mode.localSubtitle')}
+        subtitleLines={deskVoice ? 0 : undefined}
         rightElement={isLocal ? <Icon name="check-circle" size={24} color={theme.colors.accent.blue} /> : null}
         onPress={() => select({ ...props.voice, providerId: 'local_conversation' })}
         showChevron={false}
