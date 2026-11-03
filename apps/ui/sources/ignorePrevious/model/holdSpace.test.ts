@@ -16,7 +16,7 @@ describe('hold Space gesture', () => {
         expect(reduceHoldSpace(idle, down)).toEqual({ next: holding, action: 'start', preventDefault: true });
     });
     it.each([
-        { repeat: true }, { shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true },
+        { shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true },
         { isComposing: true }, { keyCode: 229 }, { isSessionInput: false }, { isInputEmpty: false },
         { dictationActive: true }, { enabled: false }, { key: 'Spacebar' }, { type: 'keyup' as const },
     ])('leaves the idle event alone with guard %j', (guard) => {
@@ -25,12 +25,26 @@ describe('hold Space gesture', () => {
     it('prevents repeated Space while holding without starting again', () => {
         expect(reduceHoldSpace(holding, { ...down, repeat: true })).toEqual({ next: holding, action: null, preventDefault: true });
     });
+    it.each([
+        { shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true },
+        { isComposing: true }, { keyCode: 229 }, { isSessionInput: false }, { isInputEmpty: false },
+        { enabled: false },
+    ])('passes idle Space repeats through with guard %j', (guard) => {
+        expect(reduceHoldSpace(idle, { ...down, repeat: true, ...guard })).toEqual(untouched);
+    });
     it('releases on keyup even if focus, contents or modifiers changed', () => {
         expect(reduceHoldSpace(holding, { ...down, type: 'keyup', shiftKey: true, isSessionInput: false, isInputEmpty: false }))
             .toEqual({ next: idle, action: 'release', preventDefault: true });
     });
-    it('cancels on Escape', () => {
-        expect(reduceHoldSpace(holding, { ...down, key: 'Escape' })).toEqual({ next: idle, action: 'cancel', preventDefault: true });
+    it('cancels on Escape and suppresses leftover repeats without another action', () => {
+        const started = reduceHoldSpace(idle, down);
+        const cancelled = reduceHoldSpace(started.next, { ...down, key: 'Escape' });
+        expect(cancelled).toEqual({ next: idle, action: 'cancel', preventDefault: true });
+        for (let repeat = 0; repeat < 3; repeat++) {
+            expect(reduceHoldSpace(cancelled.next, { ...down, repeat: true }))
+                .toEqual({ next: idle, action: null, preventDefault: true });
+        }
+        expect(reduceHoldSpace(cancelled.next, { ...down, type: 'keyup' })).toEqual(untouched);
     });
     it.each(['blur', 'hidden'] as const)('releases on %s', (type) => {
         expect(reduceHoldSpace(holding, { type })).toEqual({ next: idle, action: 'release', preventDefault: false });
