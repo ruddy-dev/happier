@@ -11,6 +11,7 @@ import type { Session } from '@/sync/domains/state/storageTypes';
 import { setCoordinatorOverride } from '../deskPrefs';
 import scenario from './desk-fixture.json';
 import demo from './demo/desk-demo.json';
+import { demoScript, mountDemoConversation } from './demoConversation';
 
 type FixtureLine = { from: string; text: string; ageMs?: number };
 type FixtureScenario = {
@@ -83,9 +84,48 @@ export function applyDeskFixture(now: number = Date.now(), data?: string): () =>
     const specs = selected.sessions;
     const wasReady = storage.getState().isDataReady;
     let released = false;
+    // Real store subscribers can synchronously release the fixture during any write.
+    const writeIfActive = (write: () => void) => { if (!released) write(); };
+    const linesFor = (spec: FixtureSession) => spec.id === selected.coordinatorId ? selected.coordinatorBody.transcript : spec.transcript ?? [];
+    const applyLines = (spec: FixtureSession, count: number) => {
+        const messages = linesFor(spec).slice(0, count).map((line, index): NormalizedMessage => {
+            const id = `${spec.id}-m${index + 1}`;
+            const common = { id, seq: index + 1, localId: null, createdAt: now - (line.ageMs ?? 0), isSidechain: false };
+            return line.from === 'you'
+                ? { ...common, role: 'user', content: { type: 'text', text: line.text } }
+                : { ...common, role: 'agent', content: [{ type: 'text', text: line.text, uuid: id, parentUUID: null }] };
+        });
+        // The same normalized-message owner as sync; empty transcripts still become loaded.
+        writeIfActive(() => storage.getState().applyMessages(spec.id, messages));
+        writeIfActive(() => storage.getState().applyMessagesLoaded(spec.id));
+    };
+    const applyDemoProgress = (step: number, reset: boolean) => {
+        const complete = step === demoScript.length;
+        // Restart removes reducer history. Completion also drops transient runtime/grace fields,
+        // so the final fixture is exactly the static demo, independent of the playback clock.
+        if (reset || complete) writeIfActive(() => storage.getState().deleteSessions(specs.map(spec => spec.id)));
+        const visible = demoScript.slice(0, step);
+        const changedId = demoScript[step - 1]?.sessionId;
+        const changed = specs.flatMap((spec, index) => {
+            if (!reset && !complete && spec.id !== changedId) return [];
+            const count = visible.filter(event => event.sessionId === spec.id).length;
+            const finished = count === linesFor(spec).length;
+            const progressSpec = complete || finished ? spec : {
+                ...spec,
+                active: spec.id === selected.coordinatorId || count > 0,
+                thinking: count > 0,
+                request: undefined,
+            };
+            return [{ spec, count, session: buildSession(progressSpec, index, now, true) }];
+        });
+        writeIfActive(() => storage.getState().applySessions(changed.map(row => row.session)));
+        for (const row of changed) applyLines(row.spec, row.count);
+    };
+    const player = data === 'demo' ? mountDemoConversation(applyDemoProgress) : null;
     const release = () => {
         if (released) return;
         released = true;
+        player?.release();
         unregister();
         storage.getState().deleteSessions(specs.map((spec) => spec.id));
         if (!wasReady) storage.setState({ isDataReady: false });
@@ -94,24 +134,11 @@ export function applyDeskFixture(now: number = Date.now(), data?: string): () =>
     const unregister = registerDeskFixtureRelease(release);
     try {
         setCoordinatorOverride(selected.coordinatorId);
-        storage.getState().applySessions(specs.map((spec, index) => buildSession(spec, index, now, data === 'demo')));
+        writeIfActive(() => storage.getState().applySessions(specs.map((spec, index) => buildSession(spec, index, now, data === 'demo'))));
         if (data === 'demo') {
-            for (const spec of specs) {
-                const lines = spec.id === selected.coordinatorId ? selected.coordinatorBody.transcript : spec.transcript ?? [];
-                const messages = lines.map((line, index): NormalizedMessage => {
-                    const id = `${spec.id}-m${index + 1}`;
-                    const common = { id, seq: index + 1, localId: null, createdAt: now - (line.ageMs ?? 0), isSidechain: false };
-                    return line.from === 'you'
-                        ? { ...common, role: 'user', content: { type: 'text', text: line.text } }
-                        : { ...common, role: 'agent', content: [{ type: 'text', text: line.text, uuid: id, parentUUID: null }] };
-                });
-                // The sync layer calls this same owner with normalized messages. It reduces the transcript
-                // and pending requests into the real store projections; no separate demo transcript store.
-                storage.getState().applyMessages(spec.id, messages);
-                storage.getState().applyMessagesLoaded(spec.id);
-            }
+            for (const spec of specs) applyLines(spec, linesFor(spec).length);
         }
-        storage.getState().applyReady();
+        writeIfActive(() => storage.getState().applyReady());
     } catch (error) {
         release();
         throw error;

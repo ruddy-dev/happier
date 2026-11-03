@@ -9,6 +9,8 @@ import { storage } from '@/sync/domains/state/storage';
 import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
 
 import DeskFixturePage from '@/app/(app)/dev/desk-fixture';
+import demo from './demo/desk-demo.json';
+import { DEMO_STEP_MS, demoScript } from './demoConversation';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -20,6 +22,12 @@ vi.mock('@expo/vector-icons', async () => {
 vi.mock('@react-navigation/native', async () => {
     const { createReactNavigationNativeMock } = await import('@/dev/testkit/mocks/reactNavigation');
     return createReactNavigationNativeMock();
+});
+
+const motion = vi.hoisted(() => ({ reduced: false }));
+vi.mock('@/hooks/ui/useReducedMotionPreference', async () => {
+    const { createReducedMotionModuleMock } = await import('@/dev/testkit/mocks/reducedMotion');
+    return createReducedMotionModuleMock(() => motion.reduced);
 });
 
 const route = vi.hoisted(() => ({ data: undefined as string | undefined }));
@@ -91,6 +99,8 @@ describe('landing demo route', () => {
         vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
     });
     afterEach(() => {
+        vi.useRealTimers();
+        motion.reduced = false;
         vi.unstubAllEnvs();
         storage.setState(before, true);
         setCoordinatorOverride(null);
@@ -134,6 +144,72 @@ describe('landing demo route', () => {
         expect(Object.keys(storage.getState().sessionMessages)).toHaveLength(0);
     });
 
+    it.each([false, true])('C: controls play, pause, resume, restart and finish with reduced motion=%s', async reduced => {
+        route.data = 'demo';
+        motion.reduced = reduced;
+        const scrollToEnd = vi.fn();
+        const screen = await renderScreen(<DeskFixturePage />, {
+            wrapper: Panes,
+            // Native scrolling is a host boundary; the fixture's callback and motion decision run for real.
+            createNodeMock: element => {
+                const props = element.props;
+                return props && typeof props === 'object' && 'testID' in props && props.testID === 'ip-fixture-coordinator-body' ? { scrollToEnd } : null;
+            },
+        });
+        await vi.waitFor(async () => {
+            await act(async () => {});
+            expect(screen.findByTestId('ip-demo-play')).not.toBeNull();
+        });
+        expect(screen.getTextContent()).toContain('Simulate conversation');
+        expect(screen.findByTestId('ip-demo-restart')).toBeNull();
+        vi.useFakeTimers();
+        await screen.pressByTestIdAsync('ip-demo-play');
+        expect(screen.getTextContent()).toContain('Pause');
+        expect(screen.getTextContent()).not.toContain(demo.coordinatorBody.transcript[0].text);
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS); });
+        expect(screen.getTextContent()).toContain(demo.coordinatorBody.transcript[0].text);
+        const body = screen.findByTestId('ip-fixture-coordinator-body')!;
+        await act(async () => { body.props.onContentSizeChange(500, 1000); });
+        expect(scrollToEnd).toHaveBeenLastCalledWith({ animated: !reduced });
+        // Whole lines appear at the step boundary, including with reduced motion. No typing ticks.
+        const textAtTick = screen.getTextContent();
+        await act(async () => { vi.advanceTimersByTime(100); });
+        expect(screen.getTextContent()).toBe(textAtTick);
+        await screen.pressByTestIdAsync('ip-demo-play');
+        expect(screen.getTextContent()).toContain('Resume');
+        const paused = screen.getTextContent();
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * 3); });
+        expect(screen.getTextContent()).toBe(paused);
+        await screen.pressByTestIdAsync('ip-demo-play');
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS); });
+        expect(storage.getState().sessionMessages[demoScript[1].sessionId]?.messagesById).toBeDefined();
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS); });
+        expect(screen.getTextContent()).toContain(demo.coordinatorBody.transcript[1].text);
+        await screen.pressByTestIdAsync('ip-demo-restart');
+        expect(screen.getTextContent()).not.toContain(demo.coordinatorBody.transcript[0].text);
+        await screen.pressByTestIdAsync('ip-approvals-open');
+        const questionIndex = demoScript.findIndex(step => step.sessionId === 'demo-recipe-search' && step.line.from === 'agent');
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * questionIndex); });
+        expect(screen.getTextContent()).not.toContain('How should ingredient search match recipes?');
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS); });
+        expect(screen.getTextContent()).toContain('How should ingredient search match recipes?');
+        expect(screen.findByTestId('ip-waiting-send-demo-recipe-search-r1')?.props.disabled).toBe(true);
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * (demoScript.length - questionIndex - 1)); });
+        expect(screen.getTextContent()).toContain('Simulate conversation');
+        expect(screen.findByTestId('ip-demo-restart')).not.toBeNull();
+        expect(screen.getTextContent()).toContain(demo.coordinatorBody.transcript.at(-1)!.text);
+        scrollToEnd.mockClear();
+        await act(async () => { body.props.onContentSizeChange(500, 2000); });
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: !reduced });
+        await screen.pressByTestIdAsync('ip-demo-restart');
+        await screen.unmount();
+        const writes = vi.fn();
+        const unsubscribe = storage.subscribe(writes);
+        await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * demoScript.length); });
+        expect(writes).not.toHaveBeenCalled();
+        unsubscribe();
+    });
+
     it.each([undefined, 'unknown'])('C: data=%s keeps the original five-session fixture and transcript', async data => {
         route.data = data;
         const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
@@ -141,6 +217,7 @@ describe('landing demo route', () => {
             await act(async () => {});
             expect(screen.findByTestId('ip-fixture-coordinator-body')).not.toBeNull();
         });
+        expect(screen.findByTestId('ip-demo-play')).toBeNull();
         expect(getStoredCoordinatorId()).toBe('fx-coord');
         expect(Object.keys(storage.getState().sessions).sort()).toEqual(['fx-coord', 'fx-w1', 'fx-w2', 'fx-w3', 'fx-w4']);
         expect(screen.getTextContent()).toContain('What is waiting on me?');

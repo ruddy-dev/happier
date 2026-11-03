@@ -1,13 +1,18 @@
 /**
  * Dev-only stand-in for the coordinator's chat in fixture builds. Happier's chat needs an account
- * (without one it shows "Restore with Secret Key"), so the fixture shows a fixed transcript instead.
+ * (without one it shows "Restore with Secret Key"), so the fixture shows a local transcript instead.
  * Loaded only by CoordinatorPane when EXPO_PUBLIC_IP_FIXTURES=1; never import it anywhere else.
  */
 import * as React from 'react';
-import { ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
+import { t } from '@/text';
+import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
+import { isHostVisible, isRuntimeActive, subscribeToRuntimeActiveChange } from '@/utils/runtime/isRuntimeActive';
+import { DeskText } from '../typography/DeskText';
+import { getDemoConversation } from './demoConversation';
 
 import scenario from './desk-fixture.json';
 import demo from './demo/desk-demo.json';
@@ -15,47 +20,87 @@ import { storage } from '@/sync/domains/state/storage';
 import { CreatureFixture } from './CreatureFixture';
 import { FreshStartFixture } from './FreshStartFixture';
 
+const subscribeIdle = () => () => {};
+// useSyncExternalStore needs a stable snapshot for the original, non-player fixture.
+const idleTranscript = { status: 'idle' as const, started: false, step: 0, transcript: scenario.coordinatorBody.transcript };
+const getIdleSnapshot = () => idleTranscript;
+
 export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingActions }: { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
     const hasDemo = storage(state => Boolean(state.sessions[demo.coordinatorId]));
-    const { transcript, composerPlaceholder } = (hasDemo ? demo : scenario).coordinatorBody;
+    const player = hasDemo ? getDemoConversation() : null;
+    const playback = React.useSyncExternalStore(player?.subscribe ?? subscribeIdle, player?.getSnapshot ?? getIdleSnapshot);
+    const transcript = playback.transcript;
+    const { composerPlaceholder } = (hasDemo ? demo : scenario).coordinatorBody;
+    const reducedMotion = useReducedMotionPreference();
+    const scroll = React.useRef<ScrollView>(null);
+    React.useEffect(() => {
+        if (!player) return;
+        const pauseHidden = () => { if (!isRuntimeActive() || !isHostVisible()) player.pause(); };
+        const unsubscribe = subscribeToRuntimeActiveChange(pauseHidden);
+        pauseHidden();
+        return () => { unsubscribe(); player.pause(); };
+    }, [player]);
+    const state = player ? playback : null;
+    const label = state?.status === 'playing' ? t('ignorePrevious.demo.pause')
+        : state?.status === 'paused' ? t('ignorePrevious.demo.resume') : t('ignorePrevious.demo.simulate');
+    const buttonStyle = { minHeight: 48, paddingHorizontal: 12, justifyContent: 'center' as const,
+        borderWidth: 1, borderRadius: 10, borderColor: theme.colors.border.default, backgroundColor: theme.colors.surface.elevated };
+
     return (
-        <ScrollView testID="ip-fixture-coordinator-body" style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }}>
-            <CreatureFixture />
-            <FreshStartFixture />
-            <View style={{ gap: 10, padding: 16 }}>
-                {transcript.map((line, index) => {
-                    const mine = line.from === 'you';
-                    return (
-                        <View
-                            key={index}
-                            style={{
-                                alignSelf: mine ? 'flex-end' : 'flex-start',
-                                maxWidth: '80%',
-                                paddingHorizontal: 12,
-                                paddingVertical: 8,
-                                borderRadius: 12,
-                                backgroundColor: mine ? theme.colors.surface.elevated : theme.colors.surface.inset,
-                            }}
-                        >
-                            <Text style={{ color: theme.colors.text.primary, fontSize: 14 }}>{line.text}</Text>
-                        </View>
-                    );
-                })}
-            </View>
-            <View
-                style={{
-                    margin: 12,
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border.default,
-                }}
-            >
-                <Text style={{ color: theme.colors.text.secondary, fontSize: 14 }}>{composerPlaceholder}</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingTop: 8 }}>{footerLeadingActions}{statusTrailingActions}</View>
-            </View>
-        </ScrollView>
+        <View style={{ flex: 1 }}>
+            {player && state ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 12 }}>
+                <Pressable testID="ip-demo-play" accessibilityRole="button" accessibilityLabel={label}
+                    onPress={state.status === 'playing' ? player.pause : player.play} style={buttonStyle}>
+                    <DeskText style={{ color: theme.colors.text.primary }}>{label}</DeskText>
+                </Pressable>
+                {state.started ? <Pressable testID="ip-demo-restart" accessibilityRole="button" accessibilityLabel={t('ignorePrevious.demo.restart')}
+                    onPress={player.restart} style={buttonStyle}>
+                    <DeskText style={{ color: theme.colors.text.primary }}>{t('ignorePrevious.demo.restart')}</DeskText>
+                </Pressable> : null}
+            </View> : null}
+            <ScrollView ref={scroll} testID="ip-fixture-coordinator-body" style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }}
+                onContentSizeChange={() => {
+                    if (state?.started && state.step > 0 && state.status !== 'paused') {
+                        scroll.current?.scrollToEnd({ animated: !reducedMotion });
+                    }
+                }}>
+                <CreatureFixture />
+                <FreshStartFixture />
+                <View style={{ gap: 10, padding: 16 }}>
+                    {transcript.map((line, index) => {
+                        const mine = line.from === 'you';
+                        return (
+                            <View
+                                key={index}
+                                style={{
+                                    alignSelf: mine ? 'flex-end' : 'flex-start',
+                                    maxWidth: '80%',
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 8,
+                                    borderRadius: 12,
+                                    backgroundColor: mine ? theme.colors.surface.elevated : theme.colors.surface.inset,
+                                }}
+                            >
+                                <Text style={{ color: theme.colors.text.primary, fontSize: 14 }}>{line.text}</Text>
+                            </View>
+                        );
+                    })}
+                </View>
+                <View
+                    style={{
+                        margin: 12,
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border.default,
+                    }}
+                >
+                    <Text style={{ color: theme.colors.text.secondary, fontSize: 14 }}>{composerPlaceholder}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingTop: 8 }}>{footerLeadingActions}{statusTrailingActions}</View>
+                </View>
+            </ScrollView>
+        </View>
     );
 }

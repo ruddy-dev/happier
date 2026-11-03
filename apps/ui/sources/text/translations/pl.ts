@@ -11517,6 +11517,12 @@ settingsSession: {
     },
   },
     ignorePrevious: {
+        demo: {
+            simulate: 'Simulate conversation',
+            pause: 'Pause',
+            resume: 'Resume',
+            restart: 'Restart',
+        },
         voice: {
             title: 'Voice',
             unsent: "Dictation fills the coordinator's message box. Nothing is sent until you press Send.",
