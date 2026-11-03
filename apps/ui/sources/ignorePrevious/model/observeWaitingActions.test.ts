@@ -191,8 +191,9 @@ it.each(['sent', 'unavailable', 'sending'] as const)('retires loaded transcript-
     storage.getState().applyMessages('observer-worker', [transcriptRequest()]);
     storage.getState().applyMessagesLoaded('observer-worker');
     expect(waitingItems.waitingItemGenerationKey(readDeskWaits().items[0])).toBe(key);
-    expect(history.getState().actions.has(key)).toBe(false);
-    expect(history.getState().departed.has(key)).toBe(false);
+    expect(history.getState().actions.has(key)).toBe(phase === 'sending');
+    expect(history.getState().departed.has(key)).toBe(phase === 'sending');
+    if (phase === 'sending') expect(history.getState().actions.get(key)).toMatchObject({ contentsChanged: true });
 });
 
 it('bounds watched-ID work independently of a 10,000-entry historical aggregate', () => {

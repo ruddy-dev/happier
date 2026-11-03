@@ -321,7 +321,7 @@ describe('session snapshots: transcript aggregates', () => {
         expect(waits.unloaded).toMatchObject([{ sessionId, reason: 'notLoaded' }]);
     });
 
-    it('F3: normal same-ID ingestion coalesces the older terminal and later pending instead of producing the counterexample', () => {
+    it('keeps a current different-payload request pending after main-thread ID coalescing', () => {
         storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true, agentState: null })]);
         const first = pendingMessage('Bash', 'r', 200);
         if (first.role !== 'agent' || first.content[0].type !== 'tool-call') throw new Error('Expected tool call');
@@ -343,18 +343,18 @@ describe('session snapshots: transcript aggregates', () => {
         const entry = storage.getState().sessionMessages[sessionId];
         expect(entry.messageIdsOldestFirst).toHaveLength(1);
         expect(entry.messagesById[entry.messageIdsOldestFirst[0]].createdAt).toBe(200);
-        expect(entry.renderableAggregate?.requestStates.get('r')).toMatchObject({ status: 'terminal', createdAt: 200 });
+        expect(entry.renderableAggregate?.requestStates.get('r')).toMatchObject({ status: 'pending', createdAt: 200 });
         const session = storage.getState().sessions[sessionId];
-        expect(listPendingSessionRequests(session)).toEqual([]);
-        expect(observePendingSessionRequest(session, 'r', entry.renderableAggregate?.requestStates.get('r')).status).toBe('terminal');
+        expect(listPendingSessionRequests(session)).toMatchObject([{ arguments: { command: 'echo A' }, createdAt: 100 }]);
+        expect(observePendingSessionRequest(session, 'r', entry.renderableAggregate?.requestStates.get('r')).status).toBe('pending');
     });
 
     it.each([
-        ['stale A behind completed B', 100, 400, 'echo A', null],
+        ['stale A behind completed B', 100, 400, 'echo A', 100],
         ['uncovered A after terminal', 250, 400, 'echo A', 250],
         ['unknown A behind terminal', undefined, 400, 'echo A', null],
-        ['B newer than its completion', 100, 250, 'echo A', 300],
-        ['B exactly at completion', 100, 300, 'echo A', null],
+        ['B newer than its completion', 100, 250, 'echo A', 100],
+        ['B exactly at completion', 100, 300, 'echo A', 100],
         ['no terminal leaves agent authority intact', 100, null, 'echo A', 100],
         ['new B after completed B', 500, 400, 'echo B', 500],
         ['new same-ID A reopen', 500, 400, 'echo A', 500],
@@ -381,12 +381,12 @@ describe('session snapshots: transcript aggregates', () => {
             expect(roots).toHaveLength(2);
             if (scenario === 'stale A behind completed B') {
                 expect(roots[0]).toMatchObject({ kind: 'tool-call', createdAt: 200,
-                    tool: { input: { command: 'echo A' }, permission: { id: 'r', status: 'approved' } } });
+                    tool: { input: { command: 'echo A' }, permission: { id: 'r', status: 'pending' } } });
                 expect(roots[1]).toMatchObject({ kind: 'tool-call', createdAt: 250,
-                    children: [{ createdAt: 300, tool: { input: { command: 'echo B' }, permission: { id: 'r', status: 'pending' } } }] });
+                    children: [{ createdAt: 300, tool: { input: { command: 'echo B' }, permission: { id: 'r', status: 'approved' } } }] });
             }
-            const expected = expectedAt === null ? [] : [{ id: 'r', tool: 'Bash', kind: 'permission',
-                arguments: { command: expectedAt === 300 ? 'echo B' : agentCommand }, createdAt: expectedAt }];
+            const expected = [{ id: 'r', tool: 'Bash', kind: 'permission',
+                arguments: { command: agentCommand }, createdAt: expectedAt }];
             // The real ordinary helper is used by Inbox and voice, not only Desk.
             expect(listPendingPermissionRequests(session, roots)).toEqual(expected);
             expect(listPendingSessionRequests(session)).toEqual(expected);
@@ -527,7 +527,7 @@ describe('session snapshots: transcript aggregates', () => {
         const refreshed = storage.getState().sessionMessages[sessionId].renderableAggregate!;
         expect(refreshed.completedRequestsRef).toBe(sameCompletions);
         expect(refreshed.requestStates.get('acted')?.status).toBe('pending');
-        const completedRequests = { acted: { tool: 'Bash', arguments: { command: 'echo acted' },
+        const completedRequests = { acted: { tool: 'Bash', arguments: { permissionId: 'acted', status: 'pending', command: 'echo acted' },
             createdAt: 1, completedAt: 2, status: 'approved' } } satisfies NonNullable<Session['agentState']>['completedRequests'];
         storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 2,
             agentState: { requests: {}, completedRequests } }]);

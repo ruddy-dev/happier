@@ -473,7 +473,7 @@ describe('transcript request states cache', () => {
         const pending = pendingToolCallMessage('m1', 300);
         if (pending.kind !== 'tool-call') throw new Error('Expected tool call fixture');
         const terminal: Message = { ...pending, id: 'older', createdAt: 200,
-            tool: { ...pending.tool, permission: { id: 'm1-perm', status: 'approved' } } };
+            tool: { ...pending.tool, createdAt: 200, permission: { id: 'm1-perm', status: 'approved' } } };
         const messages = [terminal, pending];
         const session = createSessionFixture({ active: true, pendingPermissionRequestCount: 1,
             pendingUserActionRequestCount: 0, pendingRequestObservedAt: 100,

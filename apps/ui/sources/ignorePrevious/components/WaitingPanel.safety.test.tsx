@@ -315,6 +315,91 @@ describe('WaitingPanel safety', () => {
 
     // Each W2 test uses its own request id: the dispatch guard's registry is module-wide, and every
     // deferred is resolved before the test ends so no entry outlives its card.
+    it.each(['allow', 'deny'] as const)('keeps an earlier %s visible through same-ID content replacement without a second dispatch', async kind => {
+        const gate = createDeferred<{ ok: true }>();
+        state.rpc.mockImplementation(async (call: RpcCall) => call.method === 'permission' ? gate.promise : { ok: true });
+        const session = sessionWithRequest('replacement', 'changed-id', { tool: 'Bash', arguments: { command: 'echo earlier' } });
+        seed([session]);
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId(`ip-waiting-${kind}-changed-id`), kind);
+        try {
+            act(() => storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+                agentState: { requests: { 'changed-id': { tool: 'Bash', arguments: { command: 'echo replacement' }, createdAt: 10 },
+                    independent: { tool: 'Bash', arguments: { command: 'echo independent' }, createdAt: 20 } } } }]));
+            await revealWaitingDetails(screen);
+            expect(screen.findByTestId('ip-waiting-allow-changed-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+            expect(screen.findByTestId('ip-waiting-deny-changed-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+            expect(screen.findByTestId('ip-waiting-earlier-changed-id')).not.toBeNull();
+            expect(screen.findByTestId('ip-waiting-allow-independent')?.props.accessibilityState).toMatchObject({ disabled: false });
+        } finally {
+            await act(async () => gate.resolve({ ok: true }));
+        }
+        expect(permissionCalls()).toHaveLength(1);
+        expect(textUnder(screen.findByTestId('ip-waiting-earlier-changed-id'))).toContain('Open the session');
+        expect(screen.findByTestId('ip-waiting-allow-changed-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+        expect(screen.findByTestId('ip-answered-changed-id')).toBeNull();
+    });
+
+    it.each(['allow', 'deny'] as const)('rechecks stale %s before React updates, including equal timestamps', async kind => {
+        const session = sessionWithRequest('stale', 'press-id', { tool: 'Bash', arguments: { command: 'echo reviewed' } });
+        seed([session]);
+        const screen = await renderPanel();
+        const press = screen.findByTestId(`ip-waiting-${kind}-press-id`)!;
+        act(() => {
+            storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+                agentState: { requests: { 'press-id': { tool: 'Bash', arguments: { command: 'echo changed' }, createdAt: 10 } } } }]);
+            press.props.onPress();
+        });
+        expect(permissionCalls()).toHaveLength(0);
+        expect(screen.findByTestId('ip-waiting-changed-press-id')).not.toBeNull();
+    });
+
+    it.each([['allow', false], ['deny', false], ['allow', true], ['deny', true]] as const)('remembers an in-flight %s content change even if the old payload returns, partial=%s', async (kind, partial) => {
+        const gate = createDeferred<{ ok: true }>();
+        state.rpc.mockImplementation(async (call: RpcCall) => call.method === 'permission' ? gate.promise : { ok: true });
+        const original = sessionWithRequest('roundtrip', 'roundtrip-id', { tool: 'Bash', arguments: { command: 'echo first' } });
+        seed([original]);
+        if (partial) act(() => storage.getState().applyMessages(original.id, [{ id: 'partial-text', localId: null, createdAt: 15,
+            role: 'user', isSidechain: false, content: { type: 'text', text: 'Context' } }]));
+        const screen = await renderPanel();
+        await pressTestInstanceAsync(screen.findByTestId(`ip-waiting-${kind}-roundtrip-id`));
+        act(() => storage.getState().applySessions([{ ...original, agentStateVersion: original.agentStateVersion + 1,
+            agentState: { requests: { 'roundtrip-id': { tool: 'Bash', arguments: { command: 'echo second' }, createdAt: 10 } } } }]));
+        act(() => storage.getState().applySessions([{ ...original, agentStateVersion: original.agentStateVersion + 2 }]));
+        await revealWaitingDetails(screen);
+        expect(screen.findByTestId('ip-waiting-earlier-roundtrip-id')).not.toBeNull();
+        await act(async () => gate.resolve({ ok: true }));
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-roundtrip-id'));
+        expect(permissionCalls()).toHaveLength(1);
+        expect(screen.findByTestId('ip-waiting-allow-roundtrip-id')?.props.accessibilityState).toMatchObject({ disabled: true });
+        expect(screen.findByTestId('ip-answered-roundtrip-id')).toBeNull();
+    });
+
+    it('keeps a cold ambiguous request visible for inspection while an independent request remains answerable', async () => {
+        const original = sessionWithRequest('inspection', 'ambiguous-id', { tool: 'Bash', arguments: { command: 'echo B' }, createdAt: 200 });
+        seed([original]);
+        act(() => storage.getState().applyMessages(original.id, [
+            { id: 'parent', localId: null, createdAt: 250, role: 'agent', isSidechain: false,
+                content: [{ type: 'tool-call', id: 'task', name: 'Task', input: {}, description: null, uuid: 'parent', parentUUID: null }] },
+            { id: 'child', localId: null, createdAt: 300, role: 'agent', isSidechain: true, sidechainId: 'task',
+                content: [{ type: 'tool-call', id: 'ambiguous-id', name: 'Bash', input: { command: 'echo B' }, description: null, uuid: 'child', parentUUID: null }] },
+        ]));
+        act(() => storage.getState().applySessions([{ ...original, agentStateVersion: original.agentStateVersion + 1,
+            agentState: { requests: { independent: { tool: 'Bash', arguments: { command: 'echo independent' }, createdAt: 700 } },
+                completedRequests: { 'ambiguous-id': { tool: 'Bash', arguments: { command: 'echo A' }, createdAt: 500, completedAt: 600, status: 'approved' } } } }]));
+        act(() => storage.getState().applyMessages(original.id, []));
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-inspect-ambiguous-id')).not.toBeNull();
+        expect(screen.findByTestId('ip-waiting-allow-ambiguous-id')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-ambiguous-id')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-allow-independent')?.props.disabled).toBe(false);
+        const open = screen.tree.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === t('ignorePrevious.openSession'));
+        await pressTestInstanceAsync(open);
+        expect(state.navigate).toHaveBeenCalled();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-deny-independent'));
+        expect(permissionCalls()).toMatchObject([{ payload: { id: 'independent', approved: false, decision: 'denied' } }]);
+    });
+
     it('W2: pressing Allow twice sends one permission answer', async () => {
         const gate = createDeferred<{ ok: true }>();
         state.rpc.mockImplementation(async (call: RpcCall) => (call.method === 'permission' ? gate.promise : { ok: true }));

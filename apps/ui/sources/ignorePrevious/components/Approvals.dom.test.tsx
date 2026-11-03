@@ -434,9 +434,9 @@ it.each(['success', 'legacy', 'expired', 'failure'] as const)('closed disappeara
         });
     }
     expect(Modal.alert).not.toHaveBeenCalled();
-    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).toBe('true');
     await click('ip-waiting-allow-request');
-    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+    expect(sessionAllowResult).toHaveBeenCalledTimes(1);
 });
 
 it('settlement while closed builds no details, and tracks only the acted-on request during token writes', async () => {
@@ -537,7 +537,7 @@ it.each(['success', 'legacy', 'expired', 'failure'] as const)('loaded transcript
     await terminalAndReturnTranscript();
     await openOccurrence();
     try {
-        expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+        expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).toBe('true');
         await click('ip-waiting-allow-request');
         expect(sessionAllowResult).toHaveBeenCalledTimes(1);
     } finally {
@@ -549,7 +549,7 @@ it.each(['success', 'legacy', 'expired', 'failure'] as const)('loaded transcript
         });
     }
     expect(Modal.alert).not.toHaveBeenCalled();
-    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).toBe('true');
     await click('ip-waiting-allow-request');
-    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+    expect(sessionAllowResult).toHaveBeenCalledTimes(1);
 });

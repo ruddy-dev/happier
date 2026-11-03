@@ -174,18 +174,18 @@ it('a reopened pending question cannot settle onto replacement content or leak i
     act(() => storage.getState().applySessions([{ ...questionWorker('Original⟨U+202E⟩'), agentStateVersion: 2 }]));
     expect(reopened.findByTestId('ip-waiting-changed-question')).not.toBeNull();
     await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-toggle-question'));
-    expect(reopened.findByTestId('ip-waiting-other-question-0')?.props.value).toBe('');
-    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-option-question-0-0'));
+    expect(reopened.findByTestId('ip-waiting-other-question-0')).toBeNull();
+    expect(reopened.findByTestId('ip-waiting-earlier-question')).not.toBeNull();
     try {
-        await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-send-question'));
+        expect(reopened.findByTestId('ip-waiting-send-question')).toBeNull();
         expect(boundary.answer).toHaveBeenCalledTimes(1); // The real shared transport lock still belongs to A.
     } finally { await act(async () => pending.resolve()); }
     await act(async () => oldSend());
     expect(boundary.answer).toHaveBeenCalledTimes(1);
-    expect(reopened.findByTestId('ip-waiting-send-question')?.props.disabled).toBe(false);
-    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-send-question'));
-    expect(boundary.answer).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(boundary.answer.mock.calls[1])).not.toContain('old draft');
+    expect(reopened.findByTestId('ip-waiting-send-question')?.props.disabled).not.toBe(false);
+    expect(reopened.findByTestId('ip-waiting-send-question')).toBeNull();
+    expect(boundary.answer).toHaveBeenCalledTimes(1);
+    expect(reopened.getTextContent()).not.toContain('old draft');
 });
 
 it('a new desk lifecycle does not inherit sent state from the previous desk', async () => {
@@ -428,7 +428,7 @@ it.each(['success', 'permission_request_expired', 'permission_request_not_found'
         act(() => storage.getState().applySessions([{ ...worker(sessionId, 'echo ⟨U+202E⟩'), agentStateVersion: original.agentStateVersion + 1 }]));
         expect(screen.findByTestId('ip-waiting-changed-shared')).not.toBeNull();
         await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
-        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(true);
         await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
         expect(boundary.allow).toHaveBeenCalledTimes(1);
         await act(async () => {
@@ -437,17 +437,18 @@ it.each(['success', 'permission_request_expired', 'permission_request_not_found'
                 ok: false, errorCode: completion, errorMessage: completion, requestId: 'shared',
             });
         });
-        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(true);
         // A callback captured from A cannot dispatch an answer for B after A releases its lock.
         await act(async () => { staleAllow(); });
         expect(boundary.allow).toHaveBeenCalledTimes(1);
         act(() => screen.tree.unmount());
         const reopened = await renderScreen(<WaitingPanel history={history} />);
         await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-toggle-shared'));
-        expect(reopened.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+        expect(reopened.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(true);
         const allow = reopened.findByTestId('ip-waiting-allow-shared')!.props.onPress;
         await act(async () => { allow(); allow(); });
-        expect(boundary.allow).toHaveBeenCalledTimes(2);
+        expect(boundary.allow).toHaveBeenCalledTimes(1);
+        expect(reopened.findByTestId('ip-waiting-earlier-shared')).not.toBeNull();
     },
 );
 
