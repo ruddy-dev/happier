@@ -24,15 +24,22 @@ import { canReuseTranscriptRenderableAggregateRequestStates } from '@/sync/domai
 import { readDeskWaits } from '../model/useDeskWaits';
 import { forgetWaitingAction, idleWaitingAction, setWaitingAction, type WaitingHistory } from '../model/waitingHistory';
 
-function StaleRequestNote({ sessionId, requestId }: { sessionId: string; requestId: string }) {
+function StaleRequestNote({ sessionId, requestId, offersApproval }: { sessionId: string; requestId: string; offersApproval: boolean }) {
     const session = useSessionListRenderable(sessionId);
     const now = useDeskNow();
     const { styles } = useWaitingAppearance();
     const unknown = !session || session.active !== true || workerLastSignalAt(session) === null;
-    if (!unknown && workerUnheardMinutes(session, now) === null) return null;
+    let note: string;
+    if (unknown) {
+        note = offersApproval ? t('ignorePrevious.waiting.workerUnknown') : t('status.activityUnknown');
+    } else {
+        const minutes = workerUnheardMinutes(session, now);
+        if (minutes === null) return null;
+        note = offersApproval ? t('ignorePrevious.connection.staleRequest') : t('ignorePrevious.connection.unheard', { minutes });
+    }
     return (
         <Text testID={`ip-waiting-stale-${requestId}`} style={styles.secondary}>
-            {unknown ? t('ignorePrevious.waiting.workerUnknown') : t('ignorePrevious.connection.staleRequest')}
+            {note}
         </Text>
     );
 }
@@ -137,7 +144,8 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
                     </Text>
                 </>
             )}
-            {item.kind === 'user_action' ? null : <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId} />}
+            {item.kind === 'user_action' ? null : <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId}
+                offersApproval={!item.disabledReason && !item.requiresInspection} />}
             <WaitingAnswers key={waitingItemGenerationKey(item)} item={item} expanded={expanded} refreshing={refreshing}
                 actions={actions} isCoordinator={isCoordinator}
                 onOpen={onOpen} onDirtyChange={onDirtyChange} onRequestChanged={() => {

@@ -9,7 +9,7 @@ import { storage } from '@/sync/domains/state/storage';
 import { t } from '@/text';
 
 import { useCoordinatorId } from '../model/useCoordinatorId';
-import { approvalDisabledReason, useDeskWaits } from '../model/useDeskWaits';
+import { useDeskWaits } from '../model/useDeskWaits';
 import { createWaitingHistory, waitingActionOutcome, type WaitingHistory } from '../model/waitingHistory';
 import { observeWaitingActions } from '../model/observeWaitingActions';
 import { useIssueKeys } from '../model/useIssueKeys';
@@ -155,8 +155,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange, onFocusFal
                 <WaitingRow key={item.key} item={item} actions={currentHistory} refreshing={!ready} onFocusedRemoval={reportFocusedRemoval} isCoordinator={coordinatorId === item.sessionId} onDirtyChange={reportCardDirty} issueKey={issueKeys.get(item.sessionId) ?? null} onOpen={open} />
             ))}
             {unloaded.map((wait) => {
-                const row = desk.list.find(row => row.id === wait.sessionId) ?? desk.unreadable.find(row => row.id === wait.sessionId);
-                const restriction = row ? waitingRestrictionLabel(approvalDisabledReason(row)) : null;
+                const restriction = waitingRestrictionLabel(wait.disabledReason);
                 return <View key={unloadedWaitKey(wait.sessionId)} testID={`ip-waiting-unloaded-${wait.sessionId}`} style={styles.card}>
                     <Text style={styles.title}>{wait.sessionTitle}</Text>
                     <Text style={styles.secondary}>

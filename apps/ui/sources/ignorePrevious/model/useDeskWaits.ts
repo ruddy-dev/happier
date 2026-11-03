@@ -24,7 +24,12 @@ import { toWaitingItems, unloadedWaitKey, waitingItemKey, type WaitingDisabledRe
  * has everything the app could read of it and found no request there (metadata it can't read, or a
  * pending count with no parsable request).
  */
-export type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string; reason: 'notLoaded' | 'unreadable' }>;
+export type UnloadedWait = Readonly<{
+    sessionId: string;
+    sessionTitle: string;
+    reason: 'notLoaded' | 'unreadable';
+    disabledReason: WaitingDisabledReason;
+}>;
 
 /** What the desk has of a session's transcript: its messages so far, and whether the full load finished. */
 export type DeskTranscript = Readonly<{ messages: readonly Message[]; isLoaded: boolean }>;
@@ -212,6 +217,7 @@ function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
     if (!projection.details) {
         const previous = projection.previousDetails;
         const oldItems = new Map(previous?.items.map((item) => [item.key, item]));
+        const oldUnloaded = new Map(previous?.unloaded.map((item) => [item.sessionId, item]));
         const items = toWaitingItems(projection.inputs.map(({ row, requests }) => ({
             sessionId: row.id,
             sessionTitle: getSessionName(row),
@@ -222,8 +228,8 @@ function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
             return old && shallow(old, item) ? old : item;
         });
         const unloaded = projection.unloaded.map(({ row, reason }) => {
-            const item: UnloadedWait = { sessionId: row.id, sessionTitle: getSessionName(row), reason };
-            const old = previous?.unloaded.find((value) => value.sessionId === row.id);
+            const item: UnloadedWait = { sessionId: row.id, sessionTitle: getSessionName(row), reason, disabledReason: approvalDisabledReason(row) };
+            const old = oldUnloaded.get(row.id);
             return old && shallow(old, item) ? old : item;
         });
         const next = {
