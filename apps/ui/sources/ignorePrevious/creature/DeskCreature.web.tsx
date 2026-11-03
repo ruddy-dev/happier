@@ -118,7 +118,7 @@ export function DeskCreature({ style, redEyes, mode, playback, artTheme, maskCol
         style={{ position: 'relative', width, height, overflow: 'hidden', pointerEvents: 'none',
             filter: style === 'terminal' ? 'grayscale(1)' : undefined, opacity: style === 'terminal' ? 0.6 : 1 }}>
         {loadFailed && <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <MaskFace size={40} bulb="rest" sleepy colours={maskColours} />
+            <MaskFace size={40} bulb="rest" colours={maskColours} />
         </div>}
     </div>;
 }

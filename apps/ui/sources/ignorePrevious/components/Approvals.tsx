@@ -121,7 +121,7 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: terminal ? 7 : 12, gap: 8,
                     ...(terminal ? { borderBottomWidth: 1, borderBottomColor: rule, marginBottom: 8 } : {}) }}>
-                    <MaskFace testID="ip-waiting-mask" size={22} bulb="rest" sleepy={false} />
+                    <MaskFace testID="ip-waiting-mask" size={22} bulb="rest" />
                     <Text
                         testID="ip-waiting-heading"
                         accessibilityRole="header"

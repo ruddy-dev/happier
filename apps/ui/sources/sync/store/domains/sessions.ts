@@ -961,12 +961,16 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
                 }
                 const nextRenderableBase = buildSessionListRenderableFromSession(
                     mergedSessions[session.id]!,
-                    // Explicitly exclude partial history, including the pending-request owner's
-                    // implicit storage-read fallback when no messages argument is supplied.
+                    // Exclude partial history from unread/activity and prevent an implicit
+                    // storage read. Its maintained request map still supplies pending evidence.
                     renderableMessages ?? [],
                     sessionMessagesForRenderable?.isLoaded === true
                     && isTranscriptRenderableAggregate(sessionMessagesForRenderable.renderableAggregate)
                         ? sessionMessagesForRenderable.renderableAggregate
+                        : undefined,
+                    sessionMessagesForRenderable?.isLoaded !== true
+                    && isTranscriptRenderableAggregate(sessionMessagesForRenderable?.renderableAggregate)
+                        ? { states: sessionMessagesForRenderable.renderableAggregate.requestStates }
                         : undefined,
                 );
                 const previousRenderable = state.sessionListRenderables?.[session.id];

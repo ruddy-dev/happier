@@ -288,6 +288,7 @@ export function buildSessionListRenderableFromSession(
     session: Session,
     messages?: ReadonlyArray<Message>,
     transcriptAggregate?: TranscriptRenderableAggregate | null,
+    partialTranscriptRequestStates?: TranscriptRequestStatesCache,
 ): SessionListRenderableSession {
     // Single derivation path: the transcript folds live in the aggregate.
     // Hot callers (streaming applyMessages) pass an incrementally-maintained
@@ -302,7 +303,10 @@ export function buildSessionListRenderableFromSession(
         }
         return null;
     })();
-    const statesCache: TranscriptRequestStatesCache = aggregate ? { states: aggregate.requestStates } : {};
+    // Partial history can establish pending/terminal evidence without establishing the
+    // committed-message unread/activity projection. Reuse its maintained request map only.
+    const statesCache: TranscriptRequestStatesCache = partialTranscriptRequestStates
+        ?? (aggregate ? { states: aggregate.requestStates } : {});
     const pending = derivePendingRequestFlagsFromSession(session, messages, statesCache);
     const latestCommittedMessageCreatedAt = aggregate ? aggregate.latestCommittedMessageCreatedAt : null;
     const latestTurnStatus = readSessionLatestTurnStatus(session);
