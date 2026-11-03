@@ -32,6 +32,11 @@ export function useCoordinatorTranscriptAppearance(): TranscriptAppearance {
         const paint = terminalPalettes[palette];
         return {
             fontFamily: DESK_FONT_STACK,
+            questionColors: {
+                text: paint.ink, secondary: paint.mute, surface: paint.panel2,
+                border: paint.mute, accent: paint.hl, onAccent: paint.bg,
+                button: paint.yel, buttonText: paint.yelink,
+            },
             userLeading: <Text accessibilityElementsHidden importantForAccessibility="no" style={{ color: paint.hl, fontFamily: DESK_FONT_STACK }}>{'> '}</Text>,
             userBubbleStyle: { backgroundColor: paint.panel, borderRadius: 0 },
             agentContainerStyle: {

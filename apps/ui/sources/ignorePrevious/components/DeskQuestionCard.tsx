@@ -8,7 +8,7 @@ import { terminalPalettes, useDeskPaint } from '../palette';
 import { DeskContextDataContext, resolveQuestionContext } from '../model/questionContext';
 
 /** Presentation only: the question renderer retains ownership of answers and submission. */
-export function DeskQuestionCard({ children, active, contextText }: { children: React.ReactNode; active: boolean; contextText: readonly string[] }) {
+export function DeskQuestionCard({ children, active, actionable, contextText }: { children: React.ReactNode; active: boolean; actionable: boolean; contextText: readonly string[] }) {
     const providedData = React.useContext(DeskContextDataContext);
     const context = resolveQuestionContext(contextText, providedData);
     const [style] = useDeskPref('chatStyle');
@@ -21,7 +21,7 @@ export function DeskQuestionCard({ children, active, contextText }: { children: 
         overflow: 'hidden',
     }}>
         {active ? <View style={{ backgroundColor: paint.yel, paddingHorizontal: 12, paddingVertical: 6 }}>
-            <Text style={{ color: paint.yelink, fontFamily: DESK_FONT_STACK, fontWeight: '700' }}>{t('ignorePrevious.transcriptQuestionChrome.title')}</Text>
+            <Text style={{ color: paint.yelink, fontFamily: DESK_FONT_STACK, fontWeight: '700' }}>{actionable ? t('ignorePrevious.transcriptQuestionChrome.title') : t('tools.names.question')}</Text>
         </View> : null}
         <View style={{ padding: 12 }}>
             {context ? <Text testID="ip-question-context" style={{ color: paint.mute, fontFamily: DESK_FONT_STACK }}>{t('ignorePrevious.transcriptQuestionChrome.context')}: {context.project} · {context.issue}</Text> : null}
