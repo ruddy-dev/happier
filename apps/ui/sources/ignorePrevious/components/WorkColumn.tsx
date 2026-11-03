@@ -6,6 +6,8 @@ import { resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
 import { matchesSessionControlProvider } from '@/sync/domains/sessionControl/readSessionControlMetadata';
 import { getModelOverrideForSpawn } from '@/sync/domains/models/modelOverride';
 import { resolveMetadataModelOverride } from '@/sync/domains/sessionAuthoring/sessionAuthoringNormalization';
+import { storage } from '@/sync/domains/state/storage';
+import { useShallow } from 'zustand/react/shallow';
 
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
@@ -19,6 +21,8 @@ import { useCoordinatorId } from '../model/useCoordinatorId';
 import { workerLastActivityAt, workerUnheardMinutes } from '../model/workerFreshness';
 import { isDeskWorkerBusy } from '../model/workerBusy';
 import { workerUsageLimit } from '../model/workerUsageLimit';
+import { deriveIssueArchive } from '../model/issueArchive';
+import { buildWorkerPrBadge } from '../model/workerPrBadge';
 import { useDeskNow } from '../model/useDeskNow';
 import { useWorkCardData } from '../model/useWorkCardData';
 import { bulbColour, useDeskPaint } from '../palette';
@@ -114,13 +118,30 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
         () => (coordinatorId ? desk.list.filter((row) => row.id !== coordinatorId) : desk.list),
         [desk.list, coordinatorId],
     );
-    const workers = React.useMemo(() => ({ ...desk, list: live }), [desk, live]);
+    const allWorkers = React.useMemo(() => [...live, ...desk.archived, ...desk.unreadable]
+        .filter(row => row.id !== coordinatorId), [live, desk.archived, desk.unreadable, coordinatorId]);
+    const workers = React.useMemo(() => ({ ...desk, list: allWorkers }), [desk, allWorkers]);
     const [details, setDetails] = React.useState(false);
     const [openKeys, setOpenKeys] = React.useState<ReadonlySet<string>>(() => new Set());
 
     const nowMs = useDeskNow();
     const workData = useWorkCardData(coordinatorId, workers, nowMs);
     const { issueKeys } = workData;
+    // One store-only projection. A merge observed while cards are folded still updates admission.
+    const prStates = storage(useShallow(state => Object.fromEntries(allWorkers.map(row => [row.id,
+        buildWorkerPrBadge(state.getSessionProjectScmSnapshot(row.id), nowMs)?.state ?? null,
+    ]))));
+    const archiveStates = React.useMemo(() => {
+        const byIssue = new Map<string, SessionListRenderableSession[]>();
+        for (const row of allWorkers) {
+            const key = issueKeys.get(row.id);
+            if (!key) continue;
+            const rows = byIssue.get(key);
+            if (rows) rows.push(row);
+            else byIssue.set(key, [row]);
+        }
+        return new Map([...byIssue].map(([key, sessions]) => [key, deriveIssueArchive(key, sessions, prStates, coordinatorId, nowMs)]));
+    }, [allWorkers, issueKeys, prStates, coordinatorId, nowMs]);
     // Rows rebuild when the list, a full record, an issue key or the desk clock changes; nothing else.
     const rows = React.useMemo(() => toWorkerRows(live, lookup, issueKeys, nowMs), [live, lookup, issueKeys, nowMs]);
     const groups = React.useMemo(() => groupWorkersByIssue(rows), [rows]);
@@ -201,6 +222,8 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
                             group={group}
                             item={key ? workData.items.get(key) : null}
                             projectName={key ? workData.projectNames?.get(key.split('-')[0]) : undefined}
+                            archive={archiveStates.get(key)}
+                            knownProjectCodes={workData.knownProjectCodes}
                             open={details || openKeys.has(key)}
                             onToggle={() => toggle(key)}
                             faceStyle={faceStyle}

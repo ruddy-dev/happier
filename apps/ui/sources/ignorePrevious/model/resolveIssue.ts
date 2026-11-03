@@ -1,4 +1,7 @@
 import { issueKeyFromBranch, issueKeyFromPath, issueKeyFromTag, issueKeyFromTitle } from './issueKey';
+import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import type { Session } from '@/sync/domains/state/storageTypes';
+import { getSessionDisplayTitle } from '@/utils/sessions/sessionUtils';
 
 export type IssueSources = Readonly<{
     /** The coordinator's `<ID>-<role>` tag from the session's metadata, e.g. `ATR-6-build`. */
@@ -32,4 +35,19 @@ export function resolveIssue(src: IssueSources, knownProjectCodes?: ReadonlySet<
     const fromTitle = issueKeyFromTitle(src.title, knownProjectCodes);
     if (fromTitle && (!anchor || projectOf(fromTitle) === projectOf(anchor))) return fromTitle;
     return anchor;
+}
+
+/** List rows cannot establish a weaker link until the full record's tag has caught up. */
+export function resolveSessionIssue(
+    row: SessionListRenderableSession,
+    loaded: Session | undefined,
+    branch: string | null,
+    knownProjectCodes?: ReadonlySet<string>,
+): string | null {
+    if (!loaded?.metadata || loaded.metadataVersion < row.metadataVersion) return null;
+    const tag = loaded.metadata.tag;
+    return resolveIssue({
+        tag: typeof tag === 'string' ? tag : null,
+        title: getSessionDisplayTitle(row), branch, path: row.metadata?.path ?? null,
+    }, knownProjectCodes);
 }
