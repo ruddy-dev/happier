@@ -8,6 +8,7 @@ import { FocusReturnProvider, useFocusReturnFallbackRef } from '@/keyboard/focus
 import { DeskTopBar } from './DeskTopBar';
 import { DeskUsageButton } from './DeskUsageButton';
 import type { DeskUsageInput } from '../model/deskUsage';
+import type { TerminalPalette } from '../palette';
 import { deskPrefs, type ChatStyle } from '../deskPrefs';
 
 // Real web hosts exercise the upstream portal, pointer propagation and focus.
@@ -39,9 +40,11 @@ vi.mock('@/hooks/server/connectedServices/useProviderAccountUsageSnapshots', () 
 let root: Root;
 let container: HTMLDivElement;
 let previousChatStyle: ChatStyle;
+let previousPalette: TerminalPalette;
 const outsideAction = vi.fn();
 beforeEach(() => {
     previousChatStyle = deskPrefs.get('chatStyle');
+    previousPalette = deskPrefs.get('terminalPalette');
     // Import-factory calls happen during collection; retain them for the named guard.
     outsideAction.mockClear();
     container = document.createElement('div');
@@ -51,6 +54,7 @@ beforeEach(() => {
 afterEach(async () => {
     await act(async () => root.unmount());
     deskPrefs.set('chatStyle', previousChatStyle);
+    deskPrefs.set('terminalPalette', previousPalette);
     container.remove();
     vi.restoreAllMocks();
 });
@@ -180,8 +184,12 @@ it('R41: phone announces the supplied known status and drops it when the input d
     expect(element('ip-top-usage').getAttribute('aria-label')).toBe('Usage: Not available');
     expect(element('ip-usage-row-maxWeek').textContent).toBe('Max weekNot available');
 });
-it.each(['close', 'escape'] as const)('M12: %s closes usage and returns focus to Usage', async method => {
-    await render();
+it.each([
+    ['terminal', false, 'close'], ['terminal', true, 'escape'],
+    ['mask', false, 'escape'], ['mask', true, 'close'],
+] as const)('M12: %s phone=%s %s closes usage and returns focus to Usage', async (style, phone, method) => {
+    deskPrefs.set('chatStyle', style);
+    await render(phone);
     await click('ip-top-usage');
     element('ip-usage-close').focus();
     if (method === 'close') await click('ip-usage-close');
@@ -190,6 +198,27 @@ it.each(['close', 'escape'] as const)('M12: %s closes usage and returns focus to
     });
     expect(document.querySelector('[data-testid="ip-usage-popover"]')).toBeNull();
     expect(element('ip-top-usage').getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(element('ip-top-usage'));
+});
+it('R59/R60: changing the Terminal palette keeps the named open dialog and Close focus', async () => {
+    deskPrefs.set('chatStyle', 'terminal');
+    deskPrefs.set('terminalPalette', 'tokyo');
+    await render(true);
+    await click('ip-top-usage');
+    const dialog = element('ip-usage-popover');
+    const close = element('ip-usage-close');
+    expect(dialog.getAttribute('role')).toBe('dialog');
+    expect(dialog.getAttribute('aria-label')).toBe('Usage');
+    expect(document.activeElement).toBe(close);
+    for (const palette of ['kanagawa', 'gruvbox', 'dracula', 'terminalPaper', 'tokyo'] as const) {
+        await act(async () => deskPrefs.set('terminalPalette', palette));
+        expect(element('ip-usage-popover')).toBe(dialog);
+        expect(element('ip-usage-close')).toBe(close);
+        expect(document.activeElement).toBe(close);
+        expect(element('ip-top-usage').getAttribute('aria-expanded')).toBe('true');
+        expect(dialog.textContent).not.toMatch(/[\d%]/);
+    }
+    await click('ip-usage-close');
     expect(document.activeElement).toBe(element('ip-top-usage'));
 });
 it('M12: outside input keeps focus and accepts typing after Usage closes', async () => {
