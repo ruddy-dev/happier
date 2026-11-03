@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SessionViewComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
 import { storage } from '@/sync/domains/state/storage';
@@ -6,6 +7,7 @@ import { useActiveServerAccountScope } from '@/sync/store/hooks';
 import { getSessionDraftSnapshot, writeExistingSessionDraft } from '@/sync/ops/sessionDrafts/sessionDraftRepository';
 import { t } from '@/text';
 import { createDeviceSttController } from '@/voice/input/DeviceSttController';
+import { reduceHoldSpace, type HoldSpaceEvent, type HoldSpaceState } from './holdSpace';
 
 export function mergeDictationTranscript(draft: string, transcript: string): string {
     const text = transcript.trim();
@@ -14,16 +16,21 @@ export function mergeDictationTranscript(draft: string, transcript: string): str
 }
 
 type DictationState = 'idle' | 'listening' | 'error';
-type DictationActions = { press(): void; cancel(): void };
+type DictationActions = { press(): void; release(): void; cancel(): void };
+type DictationOptions = { holdSpace?: boolean };
 
 /** Device recognition only. The draft repository owns text; there is no send dependency. */
-export function useDeskDictation(sessionId: string) {
+export function useDeskDictation(sessionId: string, options?: DictationOptions) {
     const scope = useActiveServerAccountScope();
     const [state, setState] = React.useState<DictationState>('idle');
+    const [startedByHold, setStartedByHold] = React.useState(false);
+    const holdSpaceEnabled = React.useRef(true);
+    holdSpaceEnabled.current = options?.holdSpace ?? true;
     const actions = React.useRef<DictationActions | null>(null);
 
     React.useEffect(() => {
         let disposed = false;
+        let hold: HoldSpaceState = { phase: 'idle' };
         let operation: { stopping: boolean; recording: boolean } | null = null;
         const update = (next: DictationState) => { if (!disposed) setState(next); };
         const cancel = () => {
@@ -68,14 +75,18 @@ export function useDeskDictation(sessionId: string) {
                 }
             },
         });
-        const press = () => {
+        const release = () => {
+            if (operation?.recording) void finish();
+            else if (operation) cancel(); // Withdraw permission/start without ever starting another operation.
+        };
+        const press = (byHold = false) => {
             if (disposed) return;
             if (operation) {
-                if (operation?.recording) void finish();
-                else cancel(); // A second press during permission/start withdraws that request.
+                release();
                 return;
             }
             if (!scope) { update('error'); return; }
+            setStartedByHold(byHold);
             const current = { stopping: false, recording: false };
             operation = current;
             update('idle');
@@ -83,21 +94,49 @@ export function useDeskDictation(sessionId: string) {
                 if (!disposed && operation === current) fail();
             });
         };
-        actions.current = { press, cancel };
+        actions.current = { press, release, cancel };
         update('idle');
+        setStartedByHold(false);
+        const gesture = (event: HoldSpaceEvent) => {
+            const result = reduceHoldSpace(hold, event);
+            hold = result.next;
+            if (result.action === 'start') press(true);
+            else if (result.action === 'release') release();
+            else if (result.action === 'cancel') cancel();
+            return result;
+        };
         const onKey = (event: KeyboardEvent) => {
+            // AgentInput owns this test id. Require the actual input AND the desk pane,
+            // so worker/new-session composers and Shog controls keep their own Space behavior.
+            const target = event.target;
+            const input = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement ? target : null;
+            const isSessionInput = Boolean(input?.closest('[data-testid="ip-coordinator-pane"]')
+                && input.closest('[data-testid="session-composer-input"]'));
+            const result = gesture({
+                type: event.type === 'keyup' ? 'keyup' : 'keydown',
+                key: event.key, repeat: event.repeat,
+                shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, altKey: event.altKey, metaKey: event.metaKey,
+                isComposing: event.isComposing, keyCode: event.keyCode,
+                isSessionInput, isInputEmpty: input?.value === '',
+                dictationActive: operation !== null, enabled: holdSpaceEnabled.current,
+            });
+            if (result.preventDefault) event.preventDefault();
+            if (result.action === 'cancel') { event.stopPropagation(); return; }
+            if (event.type !== 'keydown') return;
             if (event.key !== 'Escape' || !operation) return;
             event.preventDefault();
             event.stopPropagation();
             cancel();
         };
         const onBlur = () => {
-            if (operation?.recording) void finish();
-            else if (operation) cancel();
+            const result = gesture({ type: 'blur' });
+            if (!result.action) release();
         };
         const onVisibility = () => { if (document.visibilityState === 'hidden') onBlur(); };
-        if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const web = Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined';
+        if (web) {
             window.addEventListener('keydown', onKey, true);
+            window.addEventListener('keyup', onKey, true);
             window.addEventListener('blur', onBlur);
             document.addEventListener('visibilitychange', onVisibility);
         }
@@ -106,8 +145,9 @@ export function useDeskDictation(sessionId: string) {
             actions.current = null;
             operation = null;
             controller.cancel(sessionId);
-            if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+            if (web) {
                 window.removeEventListener('keydown', onKey, true);
+                window.removeEventListener('keyup', onKey, true);
                 window.removeEventListener('blur', onBlur);
                 document.removeEventListener('visibilitychange', onVisibility);
             }
@@ -116,25 +156,32 @@ export function useDeskDictation(sessionId: string) {
 
     const onPress = React.useCallback(() => actions.current?.press(), []);
     const cancel = React.useCallback(() => actions.current?.cancel(), []);
+    const release = React.useCallback(() => actions.current?.release(), []);
     const mic = React.useMemo(() => ({ onPress, isActive: state === 'listening' }), [onPress, state]);
-    return { mic, state, cancel };
+    return { mic, state, cancel, release, startedByHold };
 }
 
 /** AgentInput's submit mic is voice-gated and disappears with a draft. Use its existing badge slot. */
-export function useDeskDictationControls(sessionId: string, controls: SessionViewComposerOverrides): SessionViewComposerOverrides {
-    const { mic, state } = useDeskDictation(sessionId);
-    return React.useMemo(() => ({
-        ...controls,
-        mic: null,
-        statusBadges: [...(controls.statusBadges ?? []), {
-            key: 'desk-dictation',
-            testID: 'ip-dictation-status',
-            label: `${state === 'idle' ? '' : `${t(state === 'listening' ? 'ignorePrevious.dictation.listening' : 'ignorePrevious.dictation.failed')} `}${t('ignorePrevious.dictation.privacyShort')}`,
-            accessibilityLabel: `${t(mic.isActive ? 'ignorePrevious.dictation.stop' : 'ignorePrevious.dictation.start')} ${t('ignorePrevious.dictation.privacy')}`,
-            accessibilityHint: t(state === 'error' ? 'ignorePrevious.dictation.error' : 'ignorePrevious.dictation.instructions'),
-            tone: state === 'error' ? 'danger' : mic.isActive ? 'active' : 'neutral',
-            onPress: mic.onPress,
-            icon: (tint: string) => React.createElement(Ionicons, { name: mic.isActive ? 'mic' : 'mic-outline', size: 16, color: tint }),
-        }],
-    }), [controls, mic, state]);
+export function useDeskDictationControls(sessionId: string, controls: SessionViewComposerOverrides, options?: DictationOptions): SessionViewComposerOverrides {
+    const { mic, state, startedByHold } = useDeskDictation(sessionId, options);
+    return React.useMemo(() => {
+        const listening = t(startedByHold ? 'ignorePrevious.dictation.listeningHoldSpace' : 'ignorePrevious.dictation.listening');
+        const status = state === 'listening' ? listening : t('ignorePrevious.dictation.failed');
+        const hint = t(state === 'error' ? 'ignorePrevious.dictation.error' : 'ignorePrevious.dictation.instructions');
+        const holdHint = Platform.OS === 'web' && options?.holdSpace !== false ? ` ${t('ignorePrevious.dictation.holdSpaceHint')}` : '';
+        return {
+            ...controls,
+            mic: null,
+            statusBadges: [...(controls.statusBadges ?? []), {
+                key: 'desk-dictation',
+                testID: 'ip-dictation-status',
+                label: `${state === 'idle' ? '' : `${status} `}${t('ignorePrevious.dictation.privacyShort')}`,
+                accessibilityLabel: `${t(mic.isActive ? 'ignorePrevious.dictation.stop' : 'ignorePrevious.dictation.start')} ${t('ignorePrevious.dictation.privacy')}`,
+                accessibilityHint: `${hint}${holdHint}`,
+                tone: state === 'error' ? 'danger' : mic.isActive ? 'active' : 'neutral',
+                onPress: mic.onPress,
+                icon: (tint: string) => React.createElement(Ionicons, { name: mic.isActive ? 'mic' : 'mic-outline', size: 16, color: tint }),
+            }],
+        };
+    }, [controls, mic, state, startedByHold, options?.holdSpace]);
 }
