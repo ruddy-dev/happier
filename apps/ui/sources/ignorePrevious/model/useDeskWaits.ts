@@ -185,7 +185,9 @@ function selectProjection(state: State, scope?: DeskWaitsSummaryScope): { snapsh
     if (!projection || projection.summary.ready !== ready
         || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)
         || !shallow(projection.loadingSessionIds, loadingSessionIds)) {
-        const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
+        // R10 keeps view-only requests readable without asking the viewer to answer them.
+        const count = inputs.reduce((sum, input) => sum + (approvalDisabledReason(input.row) === 'readOnly' ? 0 : input.requests.length), 0)
+            + unloaded.filter(input => approvalDisabledReason(input.row) !== 'readOnly').length;
         const summary = projection?.summary.count === count && projection.summary.ready === ready
             ? projection.summary : { count, ready };
         projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
@@ -288,10 +290,10 @@ function selectActivity(state: State, scope?: DeskWaitsSummaryScope): DeskWaitsA
     const { projection } = selectProjection(state, scope);
     if (!projection.activity) {
         const count = projection.summary.ready ? projection.summary.count : null;
-        const requests = projection.inputs.flatMap(({ row, requests }) => requests.map(request => ({
+        const requests = projection.inputs.filter(({ row }) => approvalDisabledReason(row) !== 'readOnly').flatMap(({ row, requests }) => requests.map(request => ({
             sessionId: row.id, requestId: request.id,
         })));
-        const unloadedSessionIds = projection.unloaded.map(({ row }) => row.id);
+        const unloadedSessionIds = projection.unloaded.filter(({ row }) => approvalDisabledReason(row) !== 'readOnly').map(({ row }) => row.id);
         const previous = projection.previousActivity;
         projection.activity = previous && previous.count === count
             && shallow(previous.unloadedSessionIds, unloadedSessionIds)

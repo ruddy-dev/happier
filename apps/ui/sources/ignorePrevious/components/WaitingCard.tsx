@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { createPermissionActionDispatchGuard } from '@/components/tools/shell/permissions/permissionActionDispatchGuard';
 import { resolveWaitingQuestions } from '../model/waitingQuestions';
 import { WaitingQuestion } from './WaitingQuestion';
-import { Text } from '@/components/ui/text/Text';
+import { DeskText as Text } from '../typography/DeskText';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { sessionAllowResult, sessionDenyResult } from '@/sync/ops';
@@ -13,17 +13,20 @@ import { storage } from '@/sync/domains/state/storage';
 import { useSessionListRenderable, useSocketStatus } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { useDeskNow } from '../model/useDeskNow';
-import { workerUnheardMinutes } from '../model/workerFreshness';
+import { workerLastSignalAt, workerUnheardMinutes } from '../model/workerFreshness';
 import type { WaitingItem } from '../model/waitingItems';
+import { readDeskWaits } from '../model/useDeskWaits';
+import { useDeskPref } from '../deskPrefs';
 
 function StaleRequestNote({ sessionId, requestId }: { sessionId: string; requestId: string }) {
     const session = useSessionListRenderable(sessionId);
     const now = useDeskNow();
     const { theme } = useUnistyles();
-    if (!session || workerUnheardMinutes(session, now) === null) return null;
+    const unknown = !session || session.active !== true || workerLastSignalAt(session) === null;
+    if (!unknown && workerUnheardMinutes(session, now) === null) return null;
     return (
         <Text testID={`ip-waiting-stale-${requestId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
-            {t('ignorePrevious.connection.staleRequest')}
+            {unknown ? t('ignorePrevious.waiting.workerUnknown') : t('ignorePrevious.connection.staleRequest')}
         </Text>
     );
 }
@@ -32,11 +35,13 @@ type Theme = ReturnType<typeof useUnistyles>['theme'];
 
 export function cardStyles(theme: Theme) {
     return {
-        card: { gap: 6, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface.elevated },
+        card: { gap: 6, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border.default },
         title: { color: theme.colors.text.primary, fontSize: 15 },
         button: {
             paddingHorizontal: 12,
             paddingVertical: 8,
+            minHeight: 48,
+            justifyContent: 'center',
             borderRadius: 10,
             borderWidth: 1,
             borderColor: theme.colors.border.default,
@@ -60,21 +65,49 @@ export function OpenSessionButton({ sessionId, onOpen }: { sessionId: string; on
 /**
  * One request waiting on you. All answers go through the same dispatch guard as the session's
  * own permission footer, under the same key, so two surfaces (or two presses) never send at once.
- * Once this card's answer is sent its buttons stay off until the request leaves the list; a send
- * that fails turns them back on. The desk holds the request only while its answer is in flight:
+ * Sent and expired/missing results keep this card's buttons off while the request stays listed;
+ * other send failures permit retry. The desk holds the shared guard only while sending:
  * if the agent never drops the request, the session's footer can still answer it.
  */
-export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange, isCoordinator = false }: {
+export type WaitingOutcome = 'allowed' | 'denied' | 'unavailable';
+
+export function WaitingCard({ item, issueKey, onOpen, onSettled, settledOutcome, onDirtyChange, onFocusedRemoval, refreshing = false, isCoordinator = false }: {
     item: WaitingItem;
     isCoordinator?: boolean;
     issueKey: string | null;
     onOpen: (sessionId: string) => void;
-    onAnswered: (outcome: 'allowed' | 'denied') => void;
+    onSettled: (outcome: WaitingOutcome) => void;
+    settledOutcome?: WaitingOutcome;
     /** 3.3 reports an unsent pick/text here and clears it on send or discard. */
     onDirtyChange?: (dirty: boolean) => void;
+    onFocusedRemoval?: () => void;
+    refreshing?: boolean;
 }) {
     const { theme } = useUnistyles();
     const styles = cardStyles(theme);
+    const [chatStyle] = useDeskPref('chatStyle');
+    const terminal = chatStyle === 'terminal';
+    const [disclosure, setDisclosure] = React.useState<'unopened' | 'open' | 'closed'>('unopened');
+    const content = item.requestContent;
+    const [reviewedContent, setReviewedContent] = React.useState<string | null>(null);
+    const [blockedByChange, setBlockedByChange] = React.useState(false);
+    const changed = blockedByChange || (reviewedContent !== null && reviewedContent !== content);
+    const expanded = disclosure === 'open' && !changed;
+    const [focused, setFocused] = React.useState(false);
+    const rowRef = React.useRef<View>(null);
+    const toggleRef = React.useRef<View>(null);
+    React.useLayoutEffect(() => {
+        const row = rowRef.current;
+        return () => {
+            if (Platform.OS === 'web' && typeof HTMLElement !== 'undefined' && row instanceof HTMLElement
+                && row.contains(document.activeElement)) onFocusedRemoval?.();
+        };
+    }, [onFocusedRemoval]);
+    React.useLayoutEffect(() => {
+        if (changed && Platform.OS === 'web' && typeof HTMLElement !== 'undefined'
+            && rowRef.current instanceof HTMLElement && rowRef.current.contains(document.activeElement)
+            && toggleRef.current instanceof HTMLElement) toggleRef.current.focus();
+    }, [changed]);
     // The same literal as PermissionFooter's requestKey: the two surfaces arbitrate one request.
     const requestKey = `${item.sessionId}\u0000${item.requestId}`;
     const guardRef = React.useRef<ReturnType<typeof createPermissionActionDispatchGuard> | null>(null);
@@ -85,14 +118,15 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
     }
     const guard = guardRef.current;
 
-    const [phase, setPhase] = React.useState<'idle' | 'sending' | 'sent'>('idle');
+    const [phase, setPhase] = React.useState<'idle' | 'sending' | 'sent' | 'unavailable'>(
+        settledOutcome === 'unavailable' ? 'unavailable' : settledOutcome ? 'sent' : 'idle');
     const busy = phase === 'sending';
     const { status } = useSocketStatus();
     const disconnected = status !== 'connected';
-    const disabled = disconnected || phase !== 'idle';
+    const disabled = disconnected || refreshing || phase !== 'idle' || !expanded;
     // Whether this card holds the request (its own answer is in flight or sent). Read in the press
     // handler, where a second press in the same commit can't see the state update yet.
-    const holdsRef = React.useRef(false);
+    const holdsRef = React.useRef(settledOutcome !== undefined);
     const [elsewhere, setElsewhere] = React.useState(false);
     const [questionError, setQuestionError] = React.useState<string | null>(null);
     const request = storage(state => state.sessions[item.sessionId]?.agentState?.requests?.[item.requestId]);
@@ -102,7 +136,15 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
     }, [request, item.disabledReason, item.kind, isCoordinator]);
 
     const send = async (kind: 'allow' | 'deny', call: () => Promise<SessionPermissionResult | void>) => {
-        if (storage.getState().socketStatus !== 'connected') return;
+        if (disabled || holdsRef.current || storage.getState().socketStatus !== 'connected' || !storage.getState().isDataReady) return;
+        // A request can change between the displayed detail and this press, before React commits.
+        const current = readDeskWaits().items.find(current => current.key === item.key);
+        if (!current || current.disabledReason) return;
+        if (current.requestContent !== content) {
+            setBlockedByChange(true);
+            setDisclosure('closed');
+            return;
+        }
         try {
             // The guard runs the action only when this press wins the request. A press refused
             // while this card is answering changes nothing; one refused because another screen
@@ -115,13 +157,16 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
                 const result = await call();
                 if (result && !result.ok) throw result;
             });
-            if (sent) { onAnswered(kind === 'allow' ? 'allowed' : 'denied'); setPhase('sent'); }
+            if (sent) { onSettled(kind === 'allow' ? 'allowed' : 'denied'); setPhase('sent'); }
             else if (!holdsRef.current) setElsewhere(true);
         } catch (error) {
             holdsRef.current = false;
             setPhase('idle');
             const code = typeof error === 'object' && error !== null && 'errorCode' in error ? error.errorCode : null;
             if (code === 'permission_request_not_found' || code === 'permission_request_expired') {
+                holdsRef.current = true;
+                setPhase('unavailable');
+                onSettled('unavailable');
                 Modal.alert(t('ignorePrevious.waiting.alreadyAnsweredTitle'), t('ignorePrevious.waiting.alreadyAnswered'));
             } else if (questions) {
                 setQuestionError(t('ignorePrevious.waiting.answerFailed'));
@@ -148,9 +193,35 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
     );
 
     return (
-        <View testID={`ip-waiting-card-${item.requestId}`} style={styles.card}>
+        <View ref={rowRef} testID={`ip-waiting-card-${item.requestId}`}
+            style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border.default }}>
+            <Pressable ref={toggleRef} testID={`ip-waiting-toggle-${item.requestId}`} accessibilityRole="button"
+                accessibilityLabel={t(expanded ? 'ignorePrevious.waiting.hideDetails' : 'ignorePrevious.waiting.showDetails', {
+                    name: item.sessionTitle, issue: issueKey ?? t('ignorePrevious.noIssue'), summary: item.summary,
+                })}
+                accessibilityState={{ expanded }} aria-expanded={expanded}
+                onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+                onPress={() => {
+                    if (expanded) setDisclosure('closed');
+                    else { setReviewedContent(content); setBlockedByChange(false); setDisclosure('open'); }
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 52, paddingVertical: 10,
+                    paddingHorizontal: 4, backgroundColor: focused ? theme.colors.surface.inset : 'transparent',
+                    borderRadius: terminal ? 0 : 6,
+                    borderWidth: 1, borderColor: focused ? theme.colors.border.strong : 'transparent' }}>
+                <Text testID={`ip-waiting-cursor-${item.requestId}`} accessible={false}
+                    style={{ color: theme.colors.text.primary, width: 12 }}>{terminal && focused ? '›' : expanded ? '−' : '+'}</Text>
+                <Text numberOfLines={1} style={{ color: theme.colors.text.primary, fontSize: 13, flex: 1, minWidth: 0 }}>{item.summary}</Text>
+                <Text testID={`ip-waiting-issue-${item.requestId}`} numberOfLines={1}
+                    style={{ ...styles.secondary, fontSize: 11, maxWidth: '30%' }}>{issueKey ?? t('ignorePrevious.noIssue')}</Text>
+            </Pressable>
+            {changed ? <Text testID={`ip-waiting-changed-${item.requestId}`} accessibilityRole="alert"
+                accessibilityLiveRegion="polite" style={styles.secondary}>{t('ignorePrevious.waiting.requestChanged')}</Text> : null}
+            {/* Mount details on first demand, then retain the draft and guard across collapse. */}
+            {disclosure !== 'unopened' ? <View testID={`ip-waiting-detail-${item.requestId}`}
+                accessibilityElementsHidden={!expanded} importantForAccessibility={expanded ? 'auto' : 'no-hide-descendants'}
+                style={{ display: expanded ? 'flex' : 'none', gap: 8, paddingHorizontal: 6, paddingBottom: 12 }}>
             <Text style={styles.title}>{item.sessionTitle}</Text>
-            <Text testID={`ip-waiting-issue-${item.requestId}`} style={styles.secondary}>{issueKey ?? t('ignorePrevious.noIssue')}</Text>
             {item.kind === 'user_action' ? (
                 <Text style={styles.secondary}>{t('ignorePrevious.question')}</Text>
             ) : (
@@ -166,9 +237,8 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
                     </Text>
                 </>
             )}
-            {item.kind === 'user_action' ? null : (
-                <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId} />
-            )}
+            {item.kind === 'user_action' ? null : <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId} />}
+            {phase === 'unavailable' ? <Text style={styles.secondary}>{t('ignorePrevious.waiting.alreadyAnswered')}</Text> : null}
             {item.kind !== 'user_action' && item.disabledReason ? (
                 <Text style={styles.secondary}>
                     {item.disabledReason === 'readOnly'
@@ -197,6 +267,7 @@ export function WaitingCard({ item, issueKey, onOpen, onAnswered, onDirtyChange,
                 )}
                 <OpenSessionButton sessionId={item.sessionId} onOpen={onOpen} />
             </View>
+            </View> : null}
         </View>
     );
 }

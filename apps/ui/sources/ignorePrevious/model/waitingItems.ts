@@ -16,6 +16,8 @@ export type WaitingItem = {
     summary: string;
     /** What the request will do, in full, for the card someone approves from. */
     detail: string;
+    /** Unformatted payload for detecting replacements even when display escaping looks identical. */
+    requestContent: string;
     /** The agent's own description of the request: a claim, shown labelled as the agent's. */
     agentNote: string | null;
     createdAt: number | null;
@@ -127,7 +129,7 @@ function describeArguments(tool: string, args: unknown): string {
 /**
  * What a request will do, in full, for a card with a one-tap Allow beside it. A shell command
  * (any tool, any of the agents' shapes) is shown raw and uncut, env prelude included, followed by
- * every other field it came with; an edit shows its file; anything else shows its tool and arguments.
+ * every other field it came with; other tools show all arguments, including file edits.
  */
 export function describeRequest(tool: string, args: unknown): string {
     return displayText(describeRawRequest(tool, args));
@@ -139,8 +141,7 @@ function describeRawRequest(tool: string, args: unknown): string {
     if (shell) {
         return Object.keys(shell.rest).length === 0 ? shell.command : `${shell.command}\n${JSON.stringify(shell.rest, null, 2)}`;
     }
-    const file = FILE_TOOLS.has(tool) ? stringField(parsed, 'file_path') : null;
-    return file ?? describeArguments(tool, parsed);
+    return describeArguments(tool, parsed);
 }
 
 function optionalDisplayText(text: string | null): string | null {
@@ -175,6 +176,7 @@ export function toWaitingItems(
             kind: request.kind,
             summary: summariseRequest(request.tool, request.arguments),
             detail: describeRequest(request.tool, request.arguments),
+            requestContent: JSON.stringify([request.kind, request.tool, request.arguments]),
             agentNote: optionalDisplayText(stringField(parseArguments(request.arguments), 'description')),
             createdAt: request.createdAt,
             disabledReason,

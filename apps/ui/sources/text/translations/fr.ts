@@ -10965,6 +10965,11 @@ settingsSession: {
         openSession: 'Open session',
         agentSays: ({ name }: { name: string }) => `${name} says:`,
         waiting: {
+            heading: 'Waiting on you',
+            requestChanged: 'Request changed. Open the details again before answering.',
+            workerUnknown: 'Worker status unknown. Open the session to check before answering.',
+            showDetails: ({ name, issue, summary }: { name: string; issue: string; summary: string }) => `Show request details. ${name}. ${issue}. ${summary}`,
+            hideDetails: ({ name, issue, summary }: { name: string; issue: string; summary: string }) => `Hide request details. ${name}. ${issue}. ${summary}`,
             answered: 'Answered',
             allowed: 'Allowed',
             denied: 'Denied',
