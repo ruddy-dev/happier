@@ -35,6 +35,16 @@ describe('hold Space gesture', () => {
     ])('passes idle Space repeats through with guard %j', (guard) => {
         expect(reduceHoldSpace(idle, { ...down, repeat: true, ...guard })).toEqual(untouched);
     });
+    it('ends suppression on a fresh Space press after a lost keyup and handles it as a new press', () => {
+        const suppressing = { phase: 'suppressing' } as const;
+        // A new physical press elsewhere types normally.
+        expect(reduceHoldSpace(suppressing, { ...down, isSessionInput: false })).toEqual(untouched);
+        // A new physical press in the empty coordinator box starts a new hold.
+        expect(reduceHoldSpace(suppressing, down)).toEqual({ next: holding, action: 'start', preventDefault: true });
+        // Repeats of the interrupted press are still swallowed.
+        expect(reduceHoldSpace(suppressing, { ...down, repeat: true, isSessionInput: false }))
+            .toEqual({ next: suppressing, action: null, preventDefault: true });
+    });
     it('releases on keyup even if focus, contents or modifiers changed', () => {
         expect(reduceHoldSpace(holding, { ...down, type: 'keyup', shiftKey: true, isSessionInput: false, isInputEmpty: false }))
             .toEqual({ next: idle, action: 'release', preventDefault: true });
