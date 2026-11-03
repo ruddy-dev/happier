@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeRequest, summariseRequest, toWaitingItems } from './waitingItems';
+import { describeRequest, summariseRequest, toWaitingItems, waitingItemGenerationKey } from './waitingItems';
+import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 
 describe('summariseRequest', () => {
     it('shows the command for Bash and the file for edits', () => {
@@ -186,6 +187,93 @@ describe('describeRequest: text that would read differently from what runs', () 
 });
 
 describe('toWaitingItems', () => {
+    const question = {
+        header: 'Review', question: 'Which surface?', multiSelect: false,
+        options: [{ label: 'Terminal', description: 'Check the terminal desk' }, { label: 'Slip' }],
+    };
+    const questionItem = (args: unknown, request: Partial<SessionPendingRequest> = {}, sessionId = 'worker') => toWaitingItems([{
+        sessionId, sessionTitle: 'Builder', disabledReason: null,
+        requests: [{ id: 'shared', kind: 'user_action', tool: 'AskUserQuestion', arguments: args, createdAt: 1, ...request }],
+    }])[0]!;
+
+    it('summarises a producer-shaped single question without changing its full payload or details', () => {
+        const args = { questions: [question], description: 'Agent note' };
+        const item = questionItem(args);
+        expect(item.summary).toBe('Which surface?');
+        expect(item).toMatchObject({
+            tool: 'AskUserQuestion', kind: 'user_action', requestId: 'shared', createdAt: 1,
+            requestContent: JSON.stringify(['user_action', 'AskUserQuestion', args]), agentNote: 'Agent note', disabledReason: null,
+            detail: `AskUserQuestion ${JSON.stringify(args, null, 2)}`,
+        });
+        // Other consumers, including recorded permission summaries, retain their existing contract.
+        expect(summariseRequest('AskUserQuestion', args)).toBe('AskUserQuestion');
+        expect(questionItem(args, { kind: 'permission' }).summary).toBe('AskUserQuestion');
+    });
+
+    it.each([undefined, ' \t '])('uses the first question header when its wording is %j, without borrowing a later question', wording => {
+        const args = { questions: [
+            { id: 'review', header: 'Review target', question: wording, options: ['Terminal', 'Slip'] },
+            { id: 'note', header: 'Note', question: 'What should I check?', freeform: { initialValue: 'Check the focused row.' } },
+        ] };
+        expect(questionItem(args).summary).toBe('Review target');
+    });
+
+    it('shows the first wording in a multi-question request, keeping choices and later answers out of the listing', () => {
+        const args = { questions: [question, {
+            header: 'Note', question: 'What should I check?', freeform: { initialValue: 'Check the focused row.' },
+        }] };
+        expect(questionItem(args).summary).toBe('Which surface?');
+        expect(questionItem(args).detail).toContain('Check the focused row.');
+    });
+
+    it.each([
+        null,
+        JSON.stringify({ questions: [question] }),
+        { questions: [] },
+        { questions: [null] },
+        { questions: [{ question: 42, header: 'Review' }] },
+        { questions: [{ question: ' ', header: '\t' }] },
+        { questions: [{ ...question, options: [null] }] },
+        { questions: [question, null] },
+        { questions: [question, question] },
+        { questions: [question], happierDialog: {} },
+    ])('falls back safely for unsupported or malformed question input %j', args => {
+        expect(questionItem(args).summary).toBe('AskUserQuestion');
+    });
+
+    it('does not reinterpret other user-action tools or permission command/file rows as questions', () => {
+        expect(questionItem({ questions: [question] }, { tool: 'ExitPlanMode' }).summary).toBe('ExitPlanMode');
+        expect(questionItem({ questions: [question], command: 'echo ready' }, { kind: 'permission', tool: 'Bash' }).summary).toBe('echo ready');
+        expect(questionItem({ questions: [question], file_path: 'src/a.ts' }, { kind: 'permission', tool: 'Edit' }).summary).toBe('src/a.ts');
+    });
+
+    it('uses the existing safe one-line display for wording and header-only questions', () => {
+        for (const field of ['question', 'header'] as const) {
+            const item = questionItem({ questions: [{ [field]: 'Review\n<target>\u202E\u200B\r', freeform: {} }] });
+            expect(item.summary).toBe('Review ↵ <target>⟨U+202E⟩⟨U+200B⟩⟨U+000D⟩');
+        }
+        const raw = questionItem({ questions: [{ question: 'Review\u202E' }] });
+        const escaped = questionItem({ questions: [{ question: 'Review⟨U+202E⟩' }] });
+        expect(raw.summary).toBe(escaped.summary);
+        expect(raw.key).toBe(escaped.key);
+        expect(waitingItemGenerationKey(raw)).not.toBe(waitingItemGenerationKey(escaped));
+    });
+
+    it('bounds question summaries at 140 characters while retaining distinct equal-ID occurrences', () => {
+        const make = (suffix: string, sessionId = 'worker') => questionItem({ questions: [{
+            question: 'x'.repeat(150) + suffix,
+        }] }, {}, sessionId);
+        const first = make('First'); const replaced = make('Second'); const otherSession = make('Second', 'other-worker');
+        expect(first.summary).toBe('x'.repeat(139) + '…');
+        expect(first.summary).toBe(replaced.summary);
+        expect(first.key).toBe(replaced.key);
+        expect(first.key).not.toBe(otherSession.key);
+        expect(first.detail).toContain('First');
+        expect(replaced.detail).toContain('Second');
+        expect(waitingItemGenerationKey(first)).not.toBe(waitingItemGenerationKey(replaced));
+        expect(questionItem({ questions: [{ question: 'x'.repeat(140) }] }).summary).toBe('x'.repeat(140));
+    });
+
     it.each([null, { command: 'echo ready', cwd: '/work/review' }])('escapes tool display while retaining raw permission identity with arguments %j', args => {
         const make = (tool: string) => toWaitingItems([{
             sessionId: 'worker', sessionTitle: 'Builder', disabledReason: null,

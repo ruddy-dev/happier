@@ -179,3 +179,65 @@ it.each([false, true])('keeps ambiguous matching occurrences visible for inspect
     ]);
     expect(listPendingSessionRequests(storage.getState().sessions[id])[0]).not.toHaveProperty('requiresInspection');
 });
+
+
+it.each(['echo B', 'echo A'])('preserves executed main occurrence and result when r reopens as %s', command => {
+    const id = 'executed-main';
+    const original = request('echo B', 200);
+    const completed = { ...original, completedAt: 400, status: 'approved' as const };
+    storage.getState().applySessions([createSessionFixture({ id, active: true, agentState: { requests: { r: original } } })]);
+    storage.getState().applyMessages(id, []);
+    snapshot(id, { requests: {}, completedRequests: { r: completed } });
+    const execution = call('r', 'Bash', original.arguments, 300);
+    const result: NormalizedMessage = { id: 'main-result', localId: null, createdAt: 450, role: 'agent', isSidechain: false,
+        content: [{ type: 'tool-result', tool_use_id: 'r', content: 'original B output', is_error: false,
+            permissions: { result: 'approved', date: 400 }, uuid: 'main-result', parentUUID: null }] };
+    storage.getState().applyMessages(id, [execution, result]);
+    storage.getState().applyMessagesLoaded(id);
+    const entry = storage.getState().sessionMessages[id];
+    const originalId = entry.reducerState.toolIdToMessageId.get('r')!;
+    const executed = entry.messagesById[originalId];
+    expect(executed).toMatchObject({ tool: { startedAt: 300, completedAt: 450, state: 'completed', result: 'original B output', permission: { status: 'approved' } } });
+
+    snapshot(id, { requests: { r: request(command, 500) }, completedRequests: { r: completed } });
+    const reopened = storage.getState().sessionMessages[id];
+    expect(reopened.messagesById[originalId]).toEqual(executed);
+    const currentId = reopened.reducerState.toolIdToMessageId.get('r')!;
+    expect(currentId).not.toBe(originalId);
+    expect(reopened.reducerState.messageIds.get(execution.id)).toBe(originalId);
+    expect(reopened.reducerState.permissions.get('r')).toMatchObject({ status: 'pending', createdAt: 500 });
+    expect(reopened.messagesById[currentId]).toMatchObject({ tool: { createdAt: 500, startedAt: null, state: 'running', permission: { status: 'pending' }, result: undefined } });
+    assertReaders(id, [command]);
+    // Refresh/replay must not apply the old execution or result to the new mirror.
+    storage.getState().applyMessages(id, [execution, result]);
+    expect(storage.getState().sessionMessages[id].messagesById[originalId]).toEqual(executed);
+    expect(storage.getState().sessionMessages[id].messagesById[currentId]).toMatchObject({ tool: { state: 'running', result: undefined, permission: { status: 'pending' } } });
+    assertReaders(id, [command]);
+    // Retracting a soft interruption on the newer mirror must retain the older
+    // execution's hard outcome in the maintained index, just as a full fold does.
+    snapshot(id, { requests: {}, completedRequests: { r: { ...request(command, 500), completedAt: 600, status: 'canceled', reason: 'Request interrupted' } } });
+    snapshot(id, { requests: { r: request(command, 500) }, completedRequests: {} });
+    const reconciled = storage.getState().sessionMessages[id];
+    const full = buildTranscriptRenderableAggregate({ messages: roots(id), completedRequests: null });
+    expect(reconciled.renderableAggregate?.requestStates.get('r')).toEqual(full.requestStates.get('r'));
+    expect(reconciled.renderableAggregate?.requestStates.get('r')).toMatchObject({ status: 'pending', hardTerminalCreatedAt: 200 });
+    expect(reconciled.messagesById[originalId]).toEqual(executed);
+    snapshot(id, { requests: {}, completedRequests: { r: { ...request(command, 500), completedAt: 700, status: 'approved' } } });
+    assertReaders(id, []);
+    expect(storage.getState().sessionMessages[id].messagesById[originalId]).toEqual(executed);
+    const nextExecution = call('r', 'Bash', { command }, 720);
+    storage.getState().applyMessages(id, [nextExecution, { ...result, id: 'next-result', createdAt: 750,
+        content: [{ type: 'tool-result', tool_use_id: 'r', content: 'new output', is_error: false,
+            permissions: { result: 'approved', date: 700 }, uuid: 'next-result', parentUUID: null }] }]);
+    const finished = storage.getState().sessionMessages[id];
+    expect(finished.reducerState.messageIds.get(nextExecution.id)).toBe(currentId);
+    expect(finished.reducerState.messageIds.get(execution.id)).toBe(originalId);
+    expect(finished.messagesById[originalId]).toEqual(executed);
+    expect(finished.messagesById[currentId]).toMatchObject({ tool: { startedAt: 720, completedAt: 750, state: 'completed', result: 'new output' } });
+    assertReaders(id, []);
+    storage.getState().evictSessionMessages(id);
+    expect(storage.getState().sessionMessages[id]).toBeUndefined();
+    storage.getState().applyMessages(id, []);
+    expect(storage.getState().sessionMessages[id].reducerState.messageIds.has(execution.id)).toBe(false);
+    expect(roots(id).some(message => message.id === originalId)).toBe(false);
+});

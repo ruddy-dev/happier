@@ -4,6 +4,9 @@ import type { Message } from '@/sync/domains/messages/messageTypes';
 import {
     buildPendingSessionRequestsSourceSignature,
     collectTranscriptRequestStates,
+    isPendingSessionRequestActionable,
+    observePendingSessionRequest,
+    type SessionPendingRequest,
     deriveLatestPendingRequestObservedAtFromSession,
     derivePendingRequestFlagsFromSession,
     listPendingSessionRequests,
@@ -490,5 +493,30 @@ describe('transcript request states cache', () => {
         expect(cached.hasPendingPermissionRequests).toBe(true);
         expect(listPendingSessionRequests(session, messages)).toEqual([]);
         expect(listPendingSessionRequests(session, undefined, { states })).toEqual([]);
+    });
+});
+
+
+describe('publication action identity', () => {
+    const displayed: SessionPendingRequest = { id: 'r', kind: 'permission', tool: 'Bash', arguments: { command: 'echo B' }, createdAt: 200 };
+    it.each([
+        [200, 500, false], [200, 200, true], [null, 500, true], [200, null, true], [null, null, true],
+    ] as const)('compares known times but preserves missing-time producers: %s / %s', (before, after, expected) => {
+        expect(isPendingSessionRequestActionable({ ...displayed, createdAt: before }, { ...displayed, createdAt: after })).toBe(expected);
+        expect(isPendingSessionRequestActionable({ ...displayed, createdAt: before }, { ...displayed, createdAt: after, arguments: { command: 'echo A' } })).toBe(false);
+    });
+    it('keeps tool publication time distinct from transcript ordering/completion evidence', () => {
+        const states = new Map<string, TranscriptRequestState>();
+        const message: Message = { kind: 'tool-call', id: 'raw', localId: null, createdAt: 300, children: [],
+            tool: { id: 'r', name: 'Bash', input: displayed.arguments, createdAt: 200, startedAt: null, completedAt: null,
+                state: 'running', description: null, permission: { id: 'r', status: 'pending' } } };
+        collectTranscriptRequestStates([message], states);
+        expect(states.get('r')).toMatchObject({ status: 'pending', createdAt: 300, request: { createdAt: 200 } });
+        const session = createSessionFixture({ active: true, agentState: { requests: { r: { tool: 'Bash', arguments: displayed.arguments, createdAt: 150 } } } });
+        // Producer time 150, tool time 200, transcript time 300 refer to the same payload.
+        expect(observePendingSessionRequest(session, 'r', states.get('r'))).toMatchObject({ status: 'pending' });
+        collectTranscriptRequestStates([{ ...message, tool: { ...message.tool, permission: { id: 'r', status: 'approved' } } }], states);
+        // Terminal matching remains payload-based across those clocks.
+        expect(observePendingSessionRequest(session, 'r', states.get('r'))).toEqual({ status: 'terminal' });
     });
 });

@@ -321,7 +321,7 @@ describe('session snapshots: transcript aggregates', () => {
         expect(waits.unloaded).toMatchObject([{ sessionId, reason: 'notLoaded' }]);
     });
 
-    it('keeps a current different-payload request pending after main-thread ID coalescing', () => {
+    it('keeps a current different-payload request pending without replacing its transcript execution', () => {
         storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true, agentState: null })]);
         const first = pendingMessage('Bash', 'r', 200);
         if (first.role !== 'agent' || first.content[0].type !== 'tool-call') throw new Error('Expected tool call');
@@ -335,15 +335,21 @@ describe('session snapshots: transcript aggregates', () => {
         if (later.role !== 'agent' || later.content[0].type !== 'tool-call') throw new Error('Expected tool call');
         later.content[0].input = { permissionId: 'r', status: 'pending', command: 'echo B' };
         storage.getState().applyMessages(sessionId, [later]);
+        const beforeSnapshot = storage.getState().sessionMessages[sessionId];
+        const executedId = beforeSnapshot.reducerState.toolIdToMessageId.get('r')!;
+        const executed = beforeSnapshot.messagesById[executedId];
         const current = storage.getState().sessions[sessionId];
         storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 1,
             agentState: { requests: { r: { tool: 'Bash', arguments: { command: 'echo A' }, createdAt: 100 } },
                 completedRequests: { r: { tool: 'Bash', arguments: later.content[0].input,
                     createdAt: 300, completedAt: 400, status: 'approved' } } } }]);
         const entry = storage.getState().sessionMessages[sessionId];
-        expect(entry.messageIdsOldestFirst).toHaveLength(1);
-        expect(entry.messagesById[entry.messageIdsOldestFirst[0]].createdAt).toBe(200);
-        expect(entry.renderableAggregate?.requestStates.get('r')).toMatchObject({ status: 'pending', createdAt: 200 });
+        expect(entry.messageIdsOldestFirst).toHaveLength(2);
+        expect(entry.messagesById[executedId]).toEqual(executed);
+        const pendingId = entry.reducerState.toolIdToMessageId.get('r')!;
+        expect(pendingId).not.toBe(executedId);
+        expect(entry.messagesById[pendingId]).toMatchObject({ createdAt: 100, tool: { input: { command: 'echo A' }, permission: { status: 'pending' } } });
+        expect(entry.renderableAggregate?.requestStates.get('r')).toMatchObject({ status: 'terminal', createdAt: 200 });
         const session = storage.getState().sessions[sessionId];
         expect(listPendingSessionRequests(session)).toMatchObject([{ arguments: { command: 'echo A' }, createdAt: 100 }]);
         expect(observePendingSessionRequest(session, 'r', entry.renderableAggregate?.requestStates.get('r')).status).toBe('pending');
