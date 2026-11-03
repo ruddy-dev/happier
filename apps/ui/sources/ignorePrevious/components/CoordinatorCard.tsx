@@ -21,12 +21,10 @@ export function CoordinatorCard({ sessionId, form, onOpen }: {
 }) {
     const session = useSession(sessionId);
     const now = useDeskNow();
-    const waits = useDeskWaitsSummary();
     const ownWaits = useDeskWaitsSummary({ onlySessionId: sessionId });
     const waitingCount = ownWaits.ready ? ownWaits.count : null;
     const status = session ? getSessionStatus(session, now, { workingTextMode: 'static' }) : null;
-    // Item 1.8's state line remains desk-wide; the separate question count is coordinator-only.
-    const state = coordinatorStateLine(status, waits.ready ? waits.count : null);
+    const state = coordinatorStateLine(status, waitingCount);
     const stateText = !state ? null : state.kind === 'waiting'
         ? t('ignorePrevious.coordinatorHeader.waiting', { count: state.count })
         : t(`ignorePrevious.coordinatorHeader.${state.kind}`);

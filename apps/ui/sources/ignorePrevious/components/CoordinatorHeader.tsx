@@ -38,7 +38,7 @@ export function CoordinatorHeader({ session, onOpenShog, shogOpen = false, shogO
     const maskLeft = narrow ? 10 : 22;
     const now = useDeskNow();
     const status = session ? getSessionStatus(session, now, { workingTextMode: 'static' }) : null;
-    const waits = useDeskWaitsActivity();
+    const waits = useDeskWaitsActivity({ onlySessionId: session?.id ?? '' });
     const state = coordinatorStateLine(status, waits.count);
     const mode = useCreatureMode({
         coordinator: state?.kind === 'offline' ? 'offline' : status?.state === 'resuming' ? 'resuming'
@@ -69,7 +69,7 @@ export function CoordinatorHeader({ session, onOpenShog, shogOpen = false, shogO
             {creatureEnabled ? <Pressable ref={shogCreatureOpenerRef} accessible={false} focusable={false}
                 {...(Platform.OS === 'web' ? { tabIndex: -1 as const } : {})} onPress={onOpenShog}
                 style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
-                <DeskCreature style={terminal ? 'terminal' : 'slips'} redEyes={waits.count ?? 0} mode={mode}
+                <DeskCreature style={terminal ? 'terminal' : 'slips'} redEyes={Math.min(waits.count ?? 0, 8)} mode={mode}
                     playback={shogOpen ? 'paused' : undefined} height={height} anchor={anchor} scale={scale} />
             </Pressable> : null}
             <Pressable ref={shogOpenerRef} testID="ip-shog-open" aria-expanded={shogOpen} accessibilityState={{ expanded: shogOpen }} accessibilityRole="button" accessibilityLabel={t(shogOpen ? 'ignorePrevious.shogPanel.close' : 'ignorePrevious.openShog')}

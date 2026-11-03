@@ -168,21 +168,26 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
 function selectProjection(state: State, scope?: DeskWaitsSummaryScope): { snapshot: WaitSnapshot; projection: Projection } {
     const current = selectWaitSnapshot(state);
     const onlySessionId = typeof scope === 'object' ? scope.onlySessionId : undefined;
+    const selected = onlySessionId === undefined ? undefined : sessionCache.get(onlySessionId)?.value;
+    // Global waits retain their placeholder counts. A session-only count is exact only once
+    // that session and its request sources are loaded and no unreadable wait remains.
+    const ready = current.ready && (onlySessionId === undefined
+        || (selected !== undefined && !selected.stillLoading && selected.unloaded === null));
     const key = typeof scope === 'string' ? `exclude:${scope}` : scope ? `only:${scope.onlySessionId}` : undefined;
     let projection = current.projections.get(key);
     if (projection?.sourceInputs === current.inputs && projection.sourceUnloaded === current.unloaded
         && projection.sourceLoading === current.loadingSessionIds
-        && projection.summary.ready === current.ready) return { snapshot: current, projection };
+        && projection.summary.ready === ready) return { snapshot: current, projection };
     const inScope = (id: string) => onlySessionId === undefined ? id !== scope : id === onlySessionId;
     const inputs = current.inputs.filter((input) => inScope(input.row.id));
     const unloaded = current.unloaded.filter((item) => inScope(item.row.id));
     const loadingSessionIds = current.loadingSessionIds.filter((id) => inScope(id));
-    if (!projection || projection.summary.ready !== current.ready
+    if (!projection || projection.summary.ready !== ready
         || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)
         || !shallow(projection.loadingSessionIds, loadingSessionIds)) {
         const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
-        const summary = projection?.summary.count === count && projection.summary.ready === current.ready
-            ? projection.summary : { count, ready: current.ready };
+        const summary = projection?.summary.count === count && projection.summary.ready === ready
+            ? projection.summary : { count, ready };
         projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
             inputs, unloaded, loadingSessionIds, previousDetails: projection?.details ?? projection?.previousDetails,
             previousActivity: projection?.activity ?? projection?.previousActivity };
@@ -279,8 +284,8 @@ export type DeskWaitsActivity = Readonly<{
     unloadedSessionIds: readonly string[];
 }>;
 /** Request identities for the header's event animation, without drawer labels or action models. */
-function selectActivity(state: State): DeskWaitsActivity {
-    const { projection } = selectProjection(state);
+function selectActivity(state: State, scope?: DeskWaitsSummaryScope): DeskWaitsActivity {
+    const { projection } = selectProjection(state, scope);
     if (!projection.activity) {
         const count = projection.summary.ready ? projection.summary.count : null;
         const requests = projection.inputs.flatMap(({ row, requests }) => requests.map(request => ({
@@ -298,6 +303,9 @@ function selectActivity(state: State): DeskWaitsActivity {
     return projection.activity;
 }
 
-export function useDeskWaitsActivity(): DeskWaitsActivity {
-    return storage(selectActivity);
+export function useDeskWaitsActivity(scope?: DeskWaitsSummaryScope): DeskWaitsActivity {
+    const excludeSessionId = typeof scope === 'string' ? scope : undefined;
+    const onlySessionId = typeof scope === 'object' ? scope.onlySessionId : undefined;
+    return storage(React.useCallback((state: State) => selectActivity(state,
+        onlySessionId === undefined ? excludeSessionId : { onlySessionId }), [excludeSessionId, onlySessionId]));
 }
