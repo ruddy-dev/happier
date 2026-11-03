@@ -23,6 +23,8 @@ const keys = {
     workCollapsed: { storageKey: 'ignorePrevious.deskMinimised', defaultValue: false as boolean },
     approvalsOpen: { storageKey: 'ignorePrevious.approvalsOpen', defaultValue: false as boolean },
     creatureEnabled: { storageKey: 'ignorePrevious.creatureEnabled', defaultValue: true as boolean },
+    deskNotify: { storageKey: 'ignorePrevious.deskNotify', defaultValue: 'blocked' as 'every' | 'blocked', allowedValues: ['every', 'blocked'] as readonly string[] },
+    deskHoldSpace: { storageKey: 'ignorePrevious.deskHoldSpace', defaultValue: true as boolean },
 };
 
 export type DeskPrefKey = keyof typeof keys;

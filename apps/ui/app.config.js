@@ -453,7 +453,8 @@ const baseExpoConfig = {
         updates: updatesConfig,
         ...(devClientSilentLaunch === true && !iosMemoryProfilingRuntime ? { developmentClient: { silentLaunch: true } } : {}),
         experiments: {
-            typedRoutes: true
+            typedRoutes: true,
+            ...(process.env.EXPO_BASE_URL ? { baseUrl: process.env.EXPO_BASE_URL } : {})
         },
         extra: {
             router: {
