@@ -687,6 +687,94 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         }
     });
 
+    it.each([
+        ['view', 'permission'], ['edit', 'permission'], ['view', 'user_action'],
+    ] as const)('R10: mixed %s rights for %s stay truthful through list, record and grant changes', async (accessLevel, kind) => {
+        const now = Date.now();
+        const pending = (id: string, path: string, rights: Partial<Session>) => session(id, path, {
+            active: true, activeAt: now, updatedAt: now,
+            pendingPermissionRequestCount: kind === 'permission' ? 1 : 0,
+            pendingUserActionRequestCount: kind === 'user_action' ? 1 : 0,
+            pendingRequestObservedAt: now,
+            agentState: { requests: { [id]: { tool: 'Bash', kind, arguments: { command: `echo ${id}` }, createdAt: now } } },
+            ...rights,
+        });
+        const restricted = pending('restricted', '/fixture/atr-18', { accessLevel, canApprovePermissions: false });
+        const approvable = pending('approvable', '/fixture/atr-19', { accessLevel: 'edit', canApprovePermissions: true });
+        act(() => storage.getState().deleteSessions(['worker']));
+        seedListOnly([restricted, approvable]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        const assertCounts = (turn: number, waiting: number) => {
+            expect(screen.findByTestId('ip-count-all')?.props.children).toBe(2);
+            expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(turn);
+            expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(waiting);
+        };
+        const label = (key: string) => screen.findByTestId(`ip-issue-${key}`)!.findByType('Pressable').props.accessibilityLabel;
+        const disabledText = t(accessLevel === 'view'
+            ? 'session.sharing.permissionApprovalsDisabledReadOnly'
+            : 'session.sharing.permissionApprovalsDisabledNotGranted');
+        assertCounts(1, 1);
+        // Issue attribution waits for full metadata. Both workers remain reachable meanwhile.
+        const unloadedCard = screen.findByTestId('ip-issue-none')!.findByType('Pressable');
+        await pressTestInstanceAsync(unloadedCard);
+        expect(screen.findByTestId('ip-open-worker-restricted')).not.toBeNull();
+        expect(screen.getTextContent()).toContain(disabledText);
+        await pressTestInstanceAsync(unloadedCard);
+        // Full records add request detail, not another decision about whose turn it is.
+        seed([restricted, approvable]);
+        await flushHookEffects();
+        assertCounts(1, 1);
+        expect(label('ATR-18')).toContain(disabledText);
+        expect(label('ATR-18')).not.toContain(t('ignorePrevious.countTurn'));
+        expect(label('ATR-18')).not.toContain('Approval needed');
+        expect(label('ATR-19')).toContain(kind === 'permission' ? 'echo approvable' : t('ignorePrevious.question'));
+        // The Sessions sheet uses the same four-argument row projection.
+        const { selectDeskSessions } = await import('../useDeskSessions');
+        const { toWorkerRows } = await import('./WorkColumn');
+        const desk = selectDeskSessions(storage.getState());
+        const rows = toWorkerRows(desk.list.filter(row => row.id !== 'coord'), desk.lookup, new Map(), now);
+        expect(rows.find(row => row.sessionId === 'restricted')?.bulb).toBe('waiting');
+        expect(rows.find(row => row.sessionId === 'approvable')?.bulb).toBe('turn');
+        // An old request is not settled by age. Live pending requests retain their rights and stale note.
+        const staleRows = toWorkerRows(desk.list.filter(row => row.id !== 'coord'), desk.lookup, new Map(), now + STALE + DESK_TICK_MS);
+        expect(staleRows.find(row => row.sessionId === 'restricted')).toMatchObject({ bulb: 'waiting', unheardMinutes: 2 });
+        expect(staleRows.find(row => row.sessionId === 'approvable')).toMatchObject({ bulb: 'turn', unheardMinutes: 2 });
+        // A list refresh must update the count even while the old full record is retained.
+        seedListOnly([{ ...restricted, accessLevel: 'edit', canApprovePermissions: true }]);
+        assertCounts(2, 0);
+        expect(label('ATR-18')).not.toContain(disabledText);
+        seedListOnly([restricted]);
+        assertCounts(1, 1);
+        expect(label('ATR-18')).toContain(disabledText);
+        seed([{ ...restricted, accessLevel: 'edit', canApprovePermissions: true }]);
+        assertCounts(2, 0);
+        seed([restricted]);
+        assertCounts(1, 1);
+        await screen.unmount();
+    });
+
+    it('R10: an approvable sibling owns a mixed issue, with read-only attention retained on expansion', async () => {
+        const now = Date.now();
+        seed([
+            session('worker', '/fixture/atr-18', { active: true, activeAt: now, accessLevel: 'view', canApprovePermissions: false,
+                agentState: { requests: { watched: { tool: 'Bash', arguments: { command: 'echo watched' }, createdAt: now } } } }),
+            session('approvable', '/fixture/atr-18', { active: true, activeAt: now, accessLevel: 'edit', canApprovePermissions: true,
+                agentState: { requests: { answer: { tool: 'AskUserQuestion', kind: 'user_action', arguments: {}, createdAt: now } } } }),
+        ]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(1);
+        const card = screen.findByTestId('ip-issue-ATR-18')!;
+        expect(card.findByType('Pressable').props.accessibilityLabel).toContain(t('ignorePrevious.question'));
+        await pressTestInstanceAsync(card.findByType('Pressable'));
+        expect(screen.findByTestId('ip-open-worker-worker')).not.toBeNull();
+        expect(screen.findByTestId('ip-open-worker-approvable')).not.toBeNull();
+        expect(screen.getTextContent()).toContain(t('session.sharing.permissionApprovalsDisabledReadOnly'));
+        await screen.unmount();
+    });
+
     it('R42: a fresh waiting state owner never borrows a stale idle sibling warning', async () => {
         vi.useFakeTimers({ now: Date.now() });
         const now = Date.now();
@@ -713,7 +801,8 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         ['mask', 2], ['mask', 3], ['mask', 24],
     ] as const)('R42: %s, %i limited workers stay in one folded row and retain attributable expanded details', async (style, count) => {
         act(() => deskPrefs.set('chatStyle', style));
-        vi.useFakeTimers({ now: Date.now() });
+        // These assertions cover same-day resets, regardless of when the suite runs.
+        vi.useFakeTimers({ now: new Date(2026, 0, 15, 12).getTime() });
         const now = Date.now();
         const resetAt = now + 60_000;
         const laterResetAt = now + 3_600_000;
