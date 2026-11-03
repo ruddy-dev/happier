@@ -16,7 +16,7 @@ import { DESK_TICK_MS } from '../model/useDeskNow';
 import { resetWorkCardCacheForTests } from '../model/useWorkCardData';
 import type { SessionReadFileResponse } from '@/sync/ops/sessionFileSystem/fileReadWrite';
 import { encodeBase64 } from '@/encryption/base64';
-import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
+import { deskPrefs, getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
 import { armedUsageLimitRecovery, usageLimitIssue } from '../testkit/usageLimitFixtures';
 import { apiSocket } from '@/sync/api/session/apiSocket';
 import { upsertAndActivateServer } from '@/sync/domains/server/serverRuntime';
@@ -640,6 +640,70 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         expect(screen.getTextContent()).not.toContain('Private body');
         expect(screen.getTextContent()).not.toContain('/fixture/a');
         expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+    });
+
+    it.each(['terminal', 'mask'] as const)('R42/N1/L1: %s leads with the issue title and the urgent worker request, above quiet context', async style => {
+        const previousStyle = deskPrefs.get('chatStyle');
+        deskPrefs.set('chatStyle', style);
+        try {
+            const now = Date.now();
+            seed([
+                session('worker', '/fixture/atr-18', { active: true, activeAt: now, updatedAt: now - 1000,
+                    agentState: { requests: { approval: { tool: 'Bash', arguments: { command: 'npm test' }, createdAt: now } } } }),
+                session('newer-idle', '/fixture/atr-18', { active: true, activeAt: now, updatedAt: now }),
+                session('unassigned', '/fixture/scratch'),
+            ]);
+            const screen = await renderColumn();
+            await flushHookEffects();
+            const text = screen.getTextContent();
+            expect(text.indexOf('Demo card title')).toBeLessThan(text.indexOf('ATR-18'));
+            expect(text).toContain('npm test');
+            const label = screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable').props.accessibilityLabel;
+            expect(label.indexOf('Demo card title')).toBeLessThan(label.indexOf('ATR-18'));
+            expect(label).toContain('npm test');
+            expect(label).toContain('Desk Demo');
+            expect(screen.findByTestId('ip-work-context-ATR-18')?.props.children).toContain('Desk Demo');
+            expect(screen.findByTestId('ip-issue-none')).not.toBeNull();
+            expect(screen.findByTestId('ip-issue-none')!.findByType('Pressable').props.accessibilityState).toEqual({ expanded: false });
+            expect(screen.findByTestId('ip-count-all')?.props.children).toBe(3);
+            expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(1);
+            expect(screen.findByTestId('ip-issue-coord')).toBeNull();
+            const counts = screen.findByTestId('ip-work-counts');
+            expect(counts?.props.horizontal).toBe(true);
+            expect(counts?.props.accessibilityLabel).toBeTruthy();
+            expect(screen.tree.root.findAll(node => node.type === 'ScrollView' && node.props.testID === 'ip-work-counts')).toHaveLength(1);
+            await pressTestInstanceAsync(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable'));
+            expect(screen.findByTestId('ip-open-worker-worker')).not.toBeNull();
+            expect(screen.findByTestId('ip-work-worker-count-ATR-18')).not.toBeNull();
+        } finally {
+            act(() => deskPrefs.set('chatStyle', previousStyle));
+        }
+    });
+
+    it('R42: a folded limited issue shows its real reset deadline and never invents one', async () => {
+        const now = Date.now();
+        const resetAt = now + 60_000;
+        const limited = session('worker', '/fixture/atr-18', { active: false, latestTurnStatus: 'failed',
+            latestTurnStatusObservedAt: now, lastRuntimeIssue: usageLimitIssue(now, resetAt) });
+        seed([limited]);
+        const screen = await renderColumn();
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.children).toContain(new Date(resetAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+        seed([{ ...limited, seq: limited.seq + 1, lastRuntimeIssue: usageLimitIssue(now, null) }]);
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.children).toBe('Usage limit: waits for reset');
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(1);
+    });
+
+    it('R42: a failed turn gives the folded row a reason without inventing an error detail', async () => {
+        const now = Date.now();
+        seed([session('worker', '/fixture/atr-18', { active: true, activeAt: now,
+            latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: { v: 1, scope: 'primary_session', status: 'failed', code: 'provider_exit', source: 'provider_process_exit', occurredAt: now } })]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.findByTestId('ip-count-stuck')?.props.children).toBe(1);
+        expect(screen.getTextContent()).toContain('Last turn failed');
+        expect(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable').props.accessibilityLabel)
+            .toContain('Last turn failed');
     });
 
     it('F4 leaves the existing card intact until the reads resolve', async () => {

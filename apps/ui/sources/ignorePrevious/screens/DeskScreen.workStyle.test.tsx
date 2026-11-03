@@ -76,12 +76,15 @@ describe('Work presentation (N1, S1, W-series)', () => {
         useUnistyles().theme.dark = false;
     });
 
-    it.each([390, 1100, 1440])('N1: Work and collapsed rail ScrollView direction is vertical at %i (overflow needs live QA)', async (width) => {
+    it.each([390, 1100, 1440])('R42/N1: only the quiet count line scrolls horizontally at %i (overflow needs live QA)', async (width) => {
         viewport.width = width;
         scenario = await startDeskScenario({ script });
         if (width <= 820) await scenario.screen.pressByTestIdAsync('ip-tab-work');
         const scrolls = () => scenario!.screen.tree.root.findAll(node => typeof node.type === 'string' && String(node.type) === 'ScrollView');
-        expect(scrolls().some(node => node.props.horizontal === true)).toBe(false);
+        expect(scrolls().filter(node => node.props.horizontal === true).map(node => node.props.testID)).toEqual(['ip-work-counts']);
+        const counts = scenario.screen.findByTestId('ip-work-counts')!;
+        expect(counts.props.accessibilityLabel).toBeTruthy();
+        expect(counts.props.focusable).toBe(true);
         if (width > 820) {
             await scenario.screen.pressByTestIdAsync('ip-work-collapse');
             expect(scrolls().some(node => node.props.horizontal === true)).toBe(false);
@@ -95,10 +98,8 @@ describe('Work presentation (N1, S1, W-series)', () => {
         const toggle = card.findByType('Pressable');
         expect(toggle.props.accessibilityLabel).toContain(key);
         expect(toggle.props.accessibilityLabel).toContain(summary);
-        expect(scenario.textOf(`ip-work-worker-count-${key}`)).toBe(t('ignorePrevious.workList.workerCount', { count: 2 }));
-        const labels = card.findAll(node => typeof node.type === 'string' && String(node.type) === 'Text' && [key, summary].includes(node.props.children));
-        expect(labels).toHaveLength(2);
-        for (const label of labels) expect(label.props.numberOfLines).toBe(1);
+        expect(scenario.screen.findByTestId(`ip-work-worker-count-${key}`)).toBeNull();
+        expect(toggle.props.accessibilityLabel).toContain(t('ignorePrevious.workList.workerCount', { count: 2 }));
         await scenario.screen.pressByTestIdAsync('ip-work-collapse');
         const rail = scenario.screen.findByTestId(`ip-rail-issue-${key}`)!;
         expect(rail.props.accessibilityLabel).toContain(key);
@@ -114,7 +115,8 @@ describe('Work presentation (N1, S1, W-series)', () => {
         expect(scenario.textOf('ip-count-all')).toBe('55');
         const ids = (prefix: string) => scenario!.screen.tree.root.findAll(node =>
             typeof node.type === 'string' && typeof node.props.testID === 'string' && node.props.testID.startsWith(prefix));
-        expect(ids('ip-work-worker-count-')).toHaveLength(55);
+        expect(ids('ip-issue-')).toHaveLength(55);
+        expect(ids('ip-work-worker-count-')).toHaveLength(0);
         await scenario.screen.pressByTestIdAsync('ip-work-collapse');
         expect(ids('ip-rail-issue-')).toHaveLength(55);
     });
