@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useStore } from 'zustand';
 import { Platform, Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { createPermissionActionDispatchGuard } from '@/components/tools/shell/permissions/permissionActionDispatchGuard';
@@ -17,6 +18,7 @@ import { workerLastSignalAt, workerUnheardMinutes } from '../model/workerFreshne
 import { waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
 import { readDeskWaits } from '../model/useDeskWaits';
 import { useDeskPref } from '../deskPrefs';
+import { forgetWaitingAction, idleWaitingAction, setWaitingAction, type WaitingHistory } from '../model/waitingHistory';
 
 function StaleRequestNote({ sessionId, requestId }: { sessionId: string; requestId: string }) {
     const session = useSessionListRenderable(sessionId);
@@ -69,15 +71,12 @@ export function OpenSessionButton({ sessionId, onOpen }: { sessionId: string; on
  * other send failures permit retry. The desk holds the shared guard only while sending:
  * if the agent never drops the request, the session's footer can still answer it.
  */
-export type WaitingOutcome = 'allowed' | 'denied' | 'unavailable';
-
-export function WaitingCard({ item, issueKey, onOpen, onSettled, settledOutcome, onDirtyChange, onFocusedRemoval, refreshing = false, isCoordinator = false }: {
+export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, onFocusedRemoval, refreshing = false, isCoordinator = false }: {
     item: WaitingItem;
     isCoordinator?: boolean;
     issueKey: string | null;
     onOpen: (sessionId: string) => void;
-    onSettled: (outcome: WaitingOutcome) => void;
-    settledOutcome?: WaitingOutcome;
+    actions: WaitingHistory;
     /** 3.3 reports an unsent pick/text here and clears it on send or discard. */
     onDirtyChange?: (dirty: boolean) => void;
     onFocusedRemoval?: () => void;
@@ -156,7 +155,7 @@ export function WaitingCard({ item, issueKey, onOpen, onSettled, settledOutcome,
             )}
             {item.kind === 'user_action' ? null : <StaleRequestNote sessionId={item.sessionId} requestId={item.requestId} />}
             <WaitingAnswers key={waitingItemGenerationKey(item)} item={item} expanded={expanded} refreshing={refreshing}
-                settledOutcome={settledOutcome} onSettled={onSettled} isCoordinator={isCoordinator}
+                actions={actions} isCoordinator={isCoordinator}
                 onOpen={onOpen} onDirtyChange={onDirtyChange} onRequestChanged={() => {
                     setBlockedByChange(true);
                     setDisclosure('closed');
@@ -167,12 +166,11 @@ export function WaitingCard({ item, issueKey, onOpen, onSettled, settledOutcome,
 }
 
 /** Answer state belongs to the exact raw content. Disclosure and focus stay with the inbox row. */
-function WaitingAnswers({ item, expanded, refreshing, settledOutcome, onSettled, isCoordinator, onOpen, onDirtyChange, onRequestChanged }: {
+function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, onOpen, onDirtyChange, onRequestChanged }: {
     item: WaitingItem;
     expanded: boolean;
     refreshing: boolean;
-    settledOutcome?: WaitingOutcome;
-    onSettled: (outcome: WaitingOutcome) => void;
+    actions: WaitingHistory;
     isCoordinator: boolean;
     onOpen: (sessionId: string) => void;
     onDirtyChange?: (dirty: boolean) => void;
@@ -196,25 +194,22 @@ function WaitingAnswers({ item, expanded, refreshing, settledOutcome, onSettled,
     }
     const guard = guardRef.current;
 
-    const [phase, setPhase] = React.useState<'idle' | 'sending' | 'sent' | 'unavailable'>(
-        settledOutcome === 'unavailable' ? 'unavailable' : settledOutcome ? 'sent' : 'idle');
+    const generation = waitingItemGenerationKey(item);
+    const action = useStore(actions, state => state.actions.get(generation) ?? idleWaitingAction);
+    const { phase } = action;
     const busy = phase === 'sending';
     const { status } = useSocketStatus();
     const disconnected = status !== 'connected';
     const disabled = disconnected || refreshing || phase !== 'idle' || !expanded;
-    // Whether this card holds the request (its own answer is in flight or sent). Read in the press
-    // handler, where a second press in the same commit can't see the state update yet.
-    const holdsRef = React.useRef(settledOutcome !== undefined);
-    const [elsewhere, setElsewhere] = React.useState(false);
-    const [questionError, setQuestionError] = React.useState<string | null>(null);
     const request = storage(state => state.sessions[item.sessionId]?.agentState?.requests?.[item.requestId]);
     const questions = React.useMemo(() => {
-        if (isCoordinator || item.disabledReason || item.kind !== 'user_action') return null;
+        if (isCoordinator || item.kind !== 'user_action') return null;
         return resolveWaitingQuestions(request);
-    }, [request, item.disabledReason, item.kind, isCoordinator]);
+    }, [request, item.kind, isCoordinator]);
 
     const send = async (kind: 'allow' | 'deny', call: () => Promise<SessionPermissionResult | void>) => {
-        if (!mounted.current || disabled || holdsRef.current || storage.getState().socketStatus !== 'connected' || !storage.getState().isDataReady) return;
+        if (!mounted.current || disabled || (actions.getState().actions.get(generation) ?? idleWaitingAction).phase !== 'idle'
+            || storage.getState().socketStatus !== 'connected' || !storage.getState().isDataReady) return;
         // A request can change between the displayed detail and this press, before React commits.
         const current = readDeskWaits().items.find(current => current.key === item.key);
         if (!current || current.disabledReason) return;
@@ -222,34 +217,37 @@ function WaitingAnswers({ item, expanded, refreshing, settledOutcome, onSettled,
             onRequestChanged();
             return;
         }
+        const sending = { phase: 'sending' } as const;
         try {
             // The guard runs the action only when this press wins the request. A press refused
             // while this card is answering changes nothing; one refused because another screen
             // holds the request says so, and the buttons stay on for when that screen lets go.
             const sent = await guard.dispatch(requestKey, async () => {
-                holdsRef.current = true;
-                setElsewhere(false);
-                setQuestionError(null);
-                setPhase('sending');
+                setWaitingAction(actions, generation, sending);
                 const result = await call();
                 if (result && !result.ok) throw result;
             });
-            if (sent) { onSettled(kind === 'allow' ? 'allowed' : 'denied'); setPhase('sent'); }
-            else if (!holdsRef.current) setElsewhere(true);
+            if (sent && actions.getState().actions.get(generation) === sending) {
+                const outcome = kind === 'allow' ? 'allowed' : 'denied';
+                setWaitingAction(actions, generation, { phase: 'sent', outcome });
+            } else if (!sent && (actions.getState().actions.get(generation) ?? idleWaitingAction).phase === 'idle') {
+                setWaitingAction(actions, generation, { phase: 'idle', elsewhere: true });
+            }
         } catch (error) {
             // This completion belongs to the reviewed version, even if the row now shows another.
-            if (readDeskWaits().items.find(current => current.key === item.key)?.requestContent !== content) return;
-            holdsRef.current = false;
-            setPhase('idle');
+            if (actions.getState().actions.get(generation) !== sending) return;
+            if (readDeskWaits().items.find(current => current.key === item.key)?.requestContent !== content) {
+                forgetWaitingAction(actions, generation);
+                return;
+            }
             const code = typeof error === 'object' && error !== null && 'errorCode' in error ? error.errorCode : null;
             if (code === 'permission_request_not_found' || code === 'permission_request_expired') {
-                holdsRef.current = true;
-                setPhase('unavailable');
-                onSettled('unavailable');
+                setWaitingAction(actions, generation, { phase: 'unavailable', outcome: 'unavailable' });
                 Modal.alert(t('ignorePrevious.waiting.alreadyAnsweredTitle'), t('ignorePrevious.waiting.alreadyAnswered'));
             } else if (questions) {
-                setQuestionError(t('ignorePrevious.waiting.answerFailed'));
+                setWaitingAction(actions, generation, { phase: 'idle', error: true });
             } else {
+                setWaitingAction(actions, generation, { phase: 'idle' });
                 Modal.alert(t('ignorePrevious.waiting.answerFailedTitle'), t('ignorePrevious.waiting.answerFailed'));
             }
         }
@@ -261,6 +259,7 @@ function WaitingAnswers({ item, expanded, refreshing, settledOutcome, onSettled,
             accessibilityRole="button"
             accessibilityLabel={label}
             accessibilityState={{ disabled, busy }}
+            aria-busy={busy}
             accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
             disabled={disabled}
             style={[styles.button, disabled ? { opacity: 0.5 } : null]}
@@ -273,20 +272,20 @@ function WaitingAnswers({ item, expanded, refreshing, settledOutcome, onSettled,
 
     return <>
             {phase === 'unavailable' ? <Text style={styles.secondary}>{t('ignorePrevious.waiting.alreadyAnswered')}</Text> : null}
-            {item.kind !== 'user_action' && item.disabledReason ? (
+            {item.disabledReason ? (
                 <Text style={styles.secondary}>
                     {item.disabledReason === 'readOnly'
                         ? t('session.sharing.permissionApprovalsDisabledReadOnly')
                         : t('session.sharing.permissionApprovalsDisabledNotGranted')}
                 </Text>
             ) : null}
-            {elsewhere ? (
+            {action.phase === 'idle' && action.elsewhere ? (
                 <Text testID={`ip-waiting-elsewhere-${item.requestId}`} style={styles.secondary}>
                     {t('ignorePrevious.waiting.answeringElsewhere')}
                 </Text>
             ) : null}
-            {questions ? <WaitingQuestion key={JSON.stringify(questions)} sessionId={item.sessionId} requestId={item.requestId} questions={questions}
-                disabled={disabled} busy={busy} sent={phase === 'sent'} error={questionError}
+            {questions ? <WaitingQuestion key={JSON.stringify([questions, item.disabledReason])} sessionId={item.sessionId} requestId={item.requestId} questions={questions}
+                readOnly={Boolean(item.disabledReason)} disabled={disabled} busy={busy} sent={phase === 'sent'} error={action.phase === 'idle' && action.error ? t('ignorePrevious.waiting.answerFailed') : null}
                 onDirtyChange={onDirtyChange} onSend={call => void send('allow', call)} /> : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {item.kind === 'user_action' || item.disabledReason ? null : (
