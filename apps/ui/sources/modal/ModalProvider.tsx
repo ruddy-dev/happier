@@ -20,6 +20,7 @@ type ModalProviderProps = Readonly<{
 type ModalHostEntry = ModalConfig & Readonly<{
     visible: boolean;
     focusReturnTarget: FocusReturnTarget;
+    contentWrapper: React.ComponentType<React.PropsWithChildren>;
 }>;
 
 type ModalHostState = Readonly<{
@@ -38,11 +39,13 @@ export function useOptionalModal() {
     return useContext(ModalContext);
 }
 
-export function ModalProvider({ active = true, children, modalContentWrapper: ModalContentWrapper = React.Fragment }: ModalProviderProps) {
+export function ModalProvider({ active = true, children, modalContentWrapper = React.Fragment }: ModalProviderProps) {
     const [state, setState] = useState<ModalHostState>({
         modals: []
     });
     const stateRef = React.useRef<ModalHostState>(state);
+    const contentWrapperRef = React.useRef(modalContentWrapper);
+    contentWrapperRef.current = modalContentWrapper;
     const removalTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
     const pendingFocusReturnTargetsRef = React.useRef<FocusReturnTarget[]>([]);
 
@@ -96,7 +99,7 @@ export function ModalProvider({ active = true, children, modalContentWrapper: Mo
         const focusReturnTarget = typeof document !== 'undefined'
             ? document.activeElement as FocusReturnTarget
             : null;
-        const modalConfig = { ...config, id, visible: true, focusReturnTarget } as ModalHostEntry;
+        const modalConfig = { ...config, id, visible: true, focusReturnTarget, contentWrapper: contentWrapperRef.current } as ModalHostEntry;
         clearRemovalTimer(id);
         
         setState(prev => {
@@ -231,6 +234,7 @@ export function ModalProvider({ active = true, children, modalContentWrapper: Mo
                 {children}
                 <OverlayPortalHost zIndex={screenOverlayPortalZIndex} />
                 {state.modals.map((modal, index) => {
+                    const ModalContentWrapper = modal.contentWrapper;
                     const showBackdrop = index === topVisibleIndex;
                     const modalZIndexBase = zIndexBase + index * zIndexStep;
 
