@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act, type ReactTestInstance } from 'react-test-renderer';
 import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred, findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
@@ -16,7 +16,7 @@ import { DESK_TICK_MS } from '../model/useDeskNow';
 import { resetWorkCardCacheForTests } from '../model/useWorkCardData';
 import type { SessionReadFileResponse } from '@/sync/ops/sessionFileSystem/fileReadWrite';
 import { encodeBase64 } from '@/encryption/base64';
-import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
+import { deskPrefs, getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
 import { armedUsageLimitRecovery, usageLimitIssue } from '../testkit/usageLimitFixtures';
 import { apiSocket } from '@/sync/api/session/apiSocket';
 import { upsertAndActivateServer } from '@/sync/domains/server/serverRuntime';
@@ -148,6 +148,66 @@ describe('WorkColumn', () => {
         vi.unstubAllGlobals();
         vi.unstubAllEnvs();
         resetServerFeaturesClientForTests();
+    });
+
+    it.each([undefined, 'column', 'row'] as const)('keeps the explicit Codex face on the %s Work view before and after model hydration', async compact => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const { WorkerSprite } = await import('./WorkerSprite');
+        const pixels = (node: ReactTestInstance) =>
+            node.findAllByType('Rect').map(({ props }) => ({ x: props.x, y: props.y, width: props.width, height: props.height, fill: props.fill }));
+        const size = compact ? 28 : 40;
+        const lab = await renderScreen(<WorkerSprite kind="cxlab" bulb="idle" size={size} calm preview />);
+        const expectedLab = pixels(lab.tree.root);
+        const loupe = await renderScreen(<WorkerSprite kind="cxloupe" bulb="idle" size={size} calm preview />);
+        const expectedLoupe = pixels(loupe.tree.root);
+        const droid = await renderScreen(<WorkerSprite kind="ipdroid" bulb="idle" size={size} calm preview />);
+        const expectedDroid = pixels(droid.tree.root);
+        await act(async () => {
+            deskPrefs.set('codexRobot', 'lab');
+            deskPrefs.set('noWorkerRobot', 'ipb');
+        });
+        const worker = session('codex-face', '/work/atr-9-sprites', {
+            metadata: { ...createSessionFixture().metadata!, path: '/work/atr-9-sprites', flavor: 'codex' },
+            modelMode: null,
+        });
+        seedListOnly([worker]);
+        const screen = await renderScreen(<WorkColumn compact={compact} calm />);
+        const face = (issue: string) => screen.findByTestId(`${compact ? 'ip-rail-face' : 'ip-work-card-face'}-${issue}`)!;
+        const hydrateModel = (modelId: string, version: number) => seed([{
+            ...worker, seq: worker.seq + version,
+            metadata: { ...worker.metadata!, sessionAppliedModelV1: { v: 1, provider: 'codex', modelId, updatedAt: version } },
+        }]);
+        expect(pixels(face('none'))).toEqual(expectedLab);
+        hydrateModel('future-model', 1);
+        expect(pixels(face('ATR-9'))).toEqual(expectedLab);
+        hydrateModel('gpt-6-sol', 2);
+        expect(pixels(face('ATR-9'))).toEqual(expectedLab);
+        if (!compact) {
+            await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+            const rowPreview = await renderScreen(<WorkerSprite kind="cxlab" bulb="idle" size={24} calm preview />);
+            expect(pixels(screen.findByTestId('ip-worker-face-codex-face')!)).toEqual(pixels(rowPreview.tree.root));
+        }
+        await act(async () => deskPrefs.set('codexRobot', 'model'));
+        expect(pixels(face('ATR-9'))).toEqual(expectedLoupe);
+        hydrateModel('future-model', 3);
+        expect(pixels(face('ATR-9'))).toEqual(expectedDroid);
+    });
+
+    it.each([undefined, 'column', 'row'] as const)('does not apply unassigned or Codex choices to an unresolved non-Codex worker in %s Work', async compact => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const worker = session('unresolved-face', '/work/atr-9-sprites');
+        seedListOnly([worker]);
+        const screen = await renderScreen(<WorkColumn compact={compact} calm />);
+        const face = (issue: string) => screen.findByTestId(`${compact ? 'ip-rail-face' : 'ip-work-card-face'}-${issue}`)!;
+        const fills = (issue: string) => face(issue).findAllByType('Rect').map(node => node.props.fill);
+        const before = fills('none');
+        await act(async () => {
+            deskPrefs.set('noWorkerRobot', 'ipb');
+            deskPrefs.set('codexRobot', 'lab');
+        });
+        expect(fills('none')).toEqual(before);
+        seed([worker]);
+        expect(fills('ATR-9')).toEqual(before);
     });
 
     it.each(['column', 'row'] as const)('updates an unloaded %s rail face to its full-record model at 28 px', async (compact) => {

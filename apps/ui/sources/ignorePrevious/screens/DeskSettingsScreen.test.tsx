@@ -224,6 +224,28 @@ describe('/desk/settings', () => {
         expect(readReactNativeMmkvStubEntries()).toEqual(before);
     });
 
+    it.each(['ios', 'android'] as const)('R48: preserves %s radio accessibility and independent press selection', async os => {
+        const previousPlatform = Platform.OS;
+        Platform.OS = os;
+        try {
+            const screen = await renderScreen(await settingsPage());
+            const droid = screen.findByTestId('ip-no-worker-droid')!;
+            expect(droid.props.accessibilityRole).toBe('radio');
+            expect(droid.props.accessibilityState).toEqual({ checked: true });
+            expect(droid.props['aria-checked']).toBeUndefined();
+            expect(droid.props.onKeyDown).toBeUndefined();
+            await screen.pressByTestIdAsync('ip-no-worker-ipb');
+            expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+            expect(screen.findByTestId('ip-no-worker-droid')!.props.accessibilityState).toEqual({ checked: false });
+            expect(screen.findByTestId('ip-codex-robot-model')!.props.accessibilityState).toEqual({ checked: true });
+            await screen.pressByTestIdAsync('ip-codex-robot-lab');
+            expect(screen.findByTestId('ip-codex-robot-lab')!.props.accessibilityState).toEqual({ checked: true });
+            expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+        } finally {
+            Platform.OS = previousPlatform;
+        }
+    });
+
     it('R48: selects each role with arrow, Home, End and Space keys at phone width', async () => {
         state.width = 390;
         const screen = await renderScreen(await settingsPage());
