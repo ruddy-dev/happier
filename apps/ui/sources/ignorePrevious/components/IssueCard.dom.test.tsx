@@ -56,6 +56,32 @@ afterEach(async () => {
 });
 
 describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible name', style => {
+    it('distinguishes duplicate worker Open buttons through the actual Work path', async () => {
+        deskPrefs.set('chatStyle', style);
+        const now = Date.now();
+        const workers = ['duplicate-a', 'duplicate-b'].map(id => createSessionFixture({
+            id, active: false, updatedAt: now,
+            metadata: { path: '/fixture/atr-18', host: 'fixture', summary: { text: 'Same title', updatedAt: now } },
+        }));
+        await act(async () => {
+            storage.getState().applySessions(workers);
+            storage.getState().applyReady();
+            root.render(<WorkColumn />);
+        });
+        const card = container.querySelector('[data-testid="ip-issue-ATR-18"]');
+        await act(async () => (card?.querySelector('[role="button"]') as HTMLElement).click());
+        for (const worker of workers) {
+            for (const id of [`ip-open-worker-${worker.id}`, `ip-open-${worker.id}`]) {
+                const button = card?.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+                expect(button).not.toBeNull();
+                expect(button.getAttribute('aria-label')).toContain('Same title');
+                expect(button.getAttribute('aria-label')).toContain(worker.id);
+                await act(async () => button.focus());
+                expect(document.activeElement).toBe(button);
+            }
+        }
+    });
+
     it('keeps a known project while the issue record is unavailable, then falls back without inventing one', async () => {
         deskPrefs.set('chatStyle', style);
         const [group] = groupWorkersByIssue([{

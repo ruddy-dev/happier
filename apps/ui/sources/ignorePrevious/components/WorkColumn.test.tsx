@@ -359,6 +359,45 @@ describe('WorkColumn', () => {
         expect(text.indexOf('ATR-6')).toBeLessThan(text.indexOf('No issue'));
     });
 
+    it('R42: offers paging only for measured overflow and preserves the full count descriptions', async () => {
+        seed([session('worker', '/fixture/scratch')]);
+        const { WorkColumn } = await import('./WorkColumn');
+        const scrollTo = vi.fn();
+        const screen = await renderScreen(<WorkColumn />, {
+            createNodeMock: element => element.type === 'ScrollView' ? { scrollTo } : null,
+        });
+        const frame = () => screen.findByTestId('ip-work-counts-frame')!;
+        const line = () => screen.findByTestId('ip-work-counts')!;
+        expect(frame()).not.toBeNull();
+        act(() => {
+            frame().props.onLayout({ nativeEvent: { layout: { width: 336, height: 20 } } });
+            line().props.onLayout({ nativeEvent: { layout: { width: 336, height: 20 } } });
+            line().props.onContentSizeChange(322, 20);
+        });
+        expect(screen.findByTestId('ip-work-counts-next')).toBeNull();
+        expect(line().props.accessibilityLabel).toContain(`${t('ignorePrevious.countAll')}: 1`);
+        expect(line().props.accessibilityLabel).toContain(`${t('ignorePrevious.countIdle')}: 1`);
+        // Constrained width, larger numbers, translations or font scaling are measured, not guessed.
+        act(() => {
+            line().props.onContentSizeChange(900, 40);
+            line().props.onLayout({ nativeEvent: { layout: { width: 240, height: 48 } } });
+        });
+        expect(screen.findByTestId('ip-work-counts-previous')?.props.accessibilityState.disabled).toBe(true);
+        await screen.pressByTestIdAsync('ip-work-counts-next');
+        expect(scrollTo).toHaveBeenLastCalledWith({ x: 240, animated: false });
+        act(() => line().props.onScroll({ nativeEvent: {
+            contentOffset: { x: 660, y: 0 }, layoutMeasurement: { width: 240, height: 48 }, contentSize: { width: 900, height: 40 },
+        } }));
+        expect(screen.findByTestId('ip-work-counts-next')?.props.accessibilityState.disabled).toBe(true);
+        await screen.pressByTestIdAsync('ip-work-counts-previous');
+        expect(scrollTo).toHaveBeenLastCalledWith({ x: 420, animated: false });
+        act(() => {
+            frame().props.onLayout({ nativeEvent: { layout: { width: 1000, height: 48 } } });
+            line().props.onLayout({ nativeEvent: { layout: { width: 1000, height: 48 } } });
+        });
+        expect(screen.findByTestId('ip-work-counts-next')).toBeNull();
+    });
+
     it('counts agents by state in numbers', async () => {
         seed([
             session('s1', '/home/u/dev/wt/atr-6-a', { active: true, thinking: true, thinkingAt: Date.now() }),
@@ -860,18 +899,29 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         await screen.unmount();
     });
 
-    it('R42: duplicate expanded worker titles retain distinct session identities and reset deadlines', async () => {
-        const now = Date.now();
-        const workers = ['shared-session-a', 'shared-session-b'].map((id, i) => session(id, '/fixture/atr-18', {
-            active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
-            lastRuntimeIssue: usageLimitIssue(now, now + (i + 1) * 60_000),
-            metadata: { ...createSessionFixture().metadata!, path: '/fixture/atr-18', summary: { text: 'Same title', updatedAt: now } },
-        }));
-        seed(workers);
-        const screen = await renderColumn();
-        await pressTestInstanceAsync(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable'));
-        for (const worker of workers) {
-            expect(screen.findByTestId(`ip-worker-session-${worker.id}`)?.props.children).toBe(`Session ${worker.id}`);
+    it.each(['ios', 'android'] as const)('R42: duplicate expanded workers have distinct actionable names on %s', async platform => {
+        const original = Object.getOwnPropertyDescriptor(Platform, 'OS')!;
+        Object.defineProperty(Platform, 'OS', { configurable: true, value: platform });
+        try {
+            const now = Date.now();
+            const workers = ['shared-session-a', 'shared-session-b'].map((id, i) => session(id, '/fixture/atr-18', {
+                active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+                lastRuntimeIssue: usageLimitIssue(now, now + (i + 1) * 60_000),
+                metadata: { ...createSessionFixture().metadata!, path: '/fixture/atr-18', summary: { text: 'Same title', updatedAt: now } },
+            }));
+            seed(workers);
+            const screen = await renderColumn();
+            await pressTestInstanceAsync(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable'));
+            for (const worker of workers) {
+                expect(screen.findByTestId(`ip-worker-session-${worker.id}`)?.props.children).toBe(`Session ${worker.id}`);
+                for (const id of [`ip-open-worker-${worker.id}`, `ip-open-${worker.id}`]) {
+                    const name = screen.findByTestId(id)?.props.accessibilityLabel;
+                    expect(name).toContain('Same title');
+                    expect(name).toContain(worker.id);
+                }
+            }
+        } finally {
+            Object.defineProperty(Platform, 'OS', original);
         }
     });
 
