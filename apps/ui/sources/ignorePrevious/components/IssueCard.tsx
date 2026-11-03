@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 
 import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
+import { waitingRestrictionLabel } from './waitingRestrictionLabel';
 import { t } from '@/text';
 
 import { DeskText as Text } from '../typography/DeskText';
@@ -163,9 +164,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                           </View>
                           {worker.approvalDisabledReason ? (
                               <Text style={secondary}>
-                                  {t(worker.approvalDisabledReason === 'readOnly'
-                                      ? 'session.sharing.permissionApprovalsDisabledReadOnly'
-                                      : 'session.sharing.permissionApprovalsDisabledNotGranted')}
+                                  {waitingRestrictionLabel(worker.approvalDisabledReason)}
                               </Text>
                           ) : null}
                           {worker.usageLimit ? <WorkerUsageLimitLine status={worker.usageLimit} sessionId={worker.sessionId} /> : null}

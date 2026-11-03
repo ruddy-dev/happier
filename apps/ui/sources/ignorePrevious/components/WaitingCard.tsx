@@ -7,6 +7,7 @@ import { resolveWaitingQuestions } from '../model/waitingQuestions';
 import { WaitingQuestion } from './WaitingQuestion';
 import { DeskText as Text } from '../typography/DeskText';
 import { Typography } from '@/constants/Typography';
+import { waitingRestrictionLabel } from './waitingRestrictionLabel';
 import { useWaitingAppearance } from './waitingAppearance';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { Modal } from '@/modal';
@@ -67,6 +68,7 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
     const { terminal, paint, ink, rule, styles } = useWaitingAppearance();
     const [disclosure, setDisclosure] = React.useState<'unopened' | 'open' | 'closed'>('unopened');
     const content = item.requestContent;
+    const restriction = waitingRestrictionLabel(item.disabledReason);
     const [reviewedContent, setReviewedContent] = React.useState<string | null>(null);
     const [blockedByChange, setBlockedByChange] = React.useState(false);
     const changed = blockedByChange || (reviewedContent !== null && reviewedContent !== content);
@@ -91,9 +93,9 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
         <View ref={rowRef} testID={`ip-waiting-card-${item.requestId}`}
             style={{ borderBottomWidth: 1, borderBottomColor: rule }}>
             <Pressable ref={toggleRef} testID={`ip-waiting-toggle-${item.requestId}`} accessibilityRole="button"
-                accessibilityLabel={t(expanded ? 'ignorePrevious.waiting.hideDetails' : 'ignorePrevious.waiting.showDetails', {
+                accessibilityLabel={[t(expanded ? 'ignorePrevious.waiting.hideDetails' : 'ignorePrevious.waiting.showDetails', {
                     name: item.sessionTitle, issue: issueKey ?? t('ignorePrevious.noIssue'), summary: item.summary,
-                })}
+                }), restriction].filter(Boolean).join('. ')}
                 accessibilityState={{ expanded }} aria-expanded={expanded}
                 onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                 onPress={() => {
@@ -106,7 +108,10 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
                     borderWidth: 1, borderColor: focused ? (terminal ? ink : theme.colors.border.strong) : 'transparent' }}>
                 <Text testID={`ip-waiting-cursor-${item.requestId}`} accessible={false}
                     style={{ color: ink, width: 12 }}>{terminal && focused ? '›' : expanded ? '−' : '+'}</Text>
-                <Text numberOfLines={1} style={{ color: ink, fontSize: 13, flex: 1, minWidth: 0 }}>{item.summary}</Text>
+                <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                    <Text numberOfLines={1} style={{ color: ink, fontSize: 13 }}>{item.summary}</Text>
+                    {restriction ? <Text style={{ ...styles.secondary, fontSize: 12 }}>{restriction}</Text> : null}
+                </View>
                 <Text testID={`ip-waiting-issue-${item.requestId}`} numberOfLines={1}
                     style={{ ...styles.secondary, fontSize: 11, maxWidth: '30%' }}>{issueKey ?? t('ignorePrevious.noIssue')}</Text>
             </Pressable>
@@ -281,13 +286,6 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
             </Text> : null}
             {item.requiresInspection ? <Text testID={`ip-waiting-inspect-${item.requestId}`} style={styles.secondary}>{t('ignorePrevious.waiting.inspectRequest')}</Text> : null}
             {phase === 'unavailable' ? <Text style={styles.secondary}>{t('ignorePrevious.waiting.alreadyAnswered')}</Text> : null}
-            {item.disabledReason ? (
-                <Text style={styles.secondary}>
-                    {item.disabledReason === 'readOnly'
-                        ? t('session.sharing.permissionApprovalsDisabledReadOnly')
-                        : t('session.sharing.permissionApprovalsDisabledNotGranted')}
-                </Text>
-            ) : null}
             {action.phase === 'idle' && action.elsewhere ? (
                 <Text testID={`ip-waiting-elsewhere-${item.requestId}`} style={styles.secondary}>
                     {t('ignorePrevious.waiting.answeringElsewhere')}

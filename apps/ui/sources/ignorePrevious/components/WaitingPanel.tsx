@@ -9,13 +9,14 @@ import { storage } from '@/sync/domains/state/storage';
 import { t } from '@/text';
 
 import { useCoordinatorId } from '../model/useCoordinatorId';
-import { useDeskWaits } from '../model/useDeskWaits';
+import { approvalDisabledReason, useDeskWaits } from '../model/useDeskWaits';
 import { createWaitingHistory, waitingActionOutcome, type WaitingHistory } from '../model/waitingHistory';
 import { observeWaitingActions } from '../model/observeWaitingActions';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { useDeskSessions } from '../useDeskSessions';
 import { unloadedWaitKey, waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
 import { WaitingCard, OpenSessionButton } from './WaitingCard';
+import { waitingRestrictionLabel } from './waitingRestrictionLabel';
 import { useWaitingAppearance } from './waitingAppearance';
 
 /**
@@ -153,17 +154,20 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange, onFocusFal
             {visibleItems.map((item) => (
                 <WaitingRow key={item.key} item={item} actions={currentHistory} refreshing={!ready} onFocusedRemoval={reportFocusedRemoval} isCoordinator={coordinatorId === item.sessionId} onDirtyChange={reportCardDirty} issueKey={issueKeys.get(item.sessionId) ?? null} onOpen={open} />
             ))}
-            {unloaded.map((wait) => (
-                <View key={unloadedWaitKey(wait.sessionId)} testID={`ip-waiting-unloaded-${wait.sessionId}`} style={styles.card}>
+            {unloaded.map((wait) => {
+                const row = desk.list.find(row => row.id === wait.sessionId) ?? desk.unreadable.find(row => row.id === wait.sessionId);
+                const restriction = row ? waitingRestrictionLabel(approvalDisabledReason(row)) : null;
+                return <View key={unloadedWaitKey(wait.sessionId)} testID={`ip-waiting-unloaded-${wait.sessionId}`} style={styles.card}>
                     <Text style={styles.title}>{wait.sessionTitle}</Text>
                     <Text style={styles.secondary}>
                         {wait.reason === 'unreadable' ? t('ignorePrevious.waiting.unreadable') : t('ignorePrevious.needsLook')}
                     </Text>
+                    {restriction ? <Text style={styles.secondary}>{restriction}</Text> : null}
                     <View style={{ flexDirection: 'row' }}>
                         <OpenSessionButton sessionId={wait.sessionId} onOpen={open} />
                     </View>
-                </View>
-            ))}
+                </View>;
+            })}
             {answered.length ? (
                 <View style={{ gap: 6 }}>
                     <Text accessibilityRole="header" style={styles.title}>{t('ignorePrevious.waiting.answered')}</Text>

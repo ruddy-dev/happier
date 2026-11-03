@@ -25,6 +25,7 @@ import { workerUsageLimit } from '../model/workerUsageLimit';
 import { buildWorkerArchivePrState, deriveIssueArchive } from '../model/issueArchive';
 import { useDeskNow } from '../model/useDeskNow';
 import { useWorkCardData } from '../model/useWorkCardData';
+import { waitingRestrictionLabel } from './waitingRestrictionLabel';
 import { approvalDisabledReason, useDeskWaits } from '../model/useDeskWaits';
 import { bulbColour, useDeskPaint } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
@@ -82,7 +83,7 @@ export function toWorkerRows(
 
 const COUNTED: readonly Bulb[] = ['turn', 'stuck', 'working', 'waiting', 'idle'];
 
-/** How many agents are in each state, as plain numbers, so nobody has to count bulbs. */
+/** How many workers are in each state, as plain numbers, so nobody has to count bulbs. */
 function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolean }) {
     const { text } = useDeskPaint();
     const scrollRef = React.useRef<ScrollView>(null);
@@ -95,8 +96,12 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
     const counts: Record<Bulb, number> = { turn: 0, stuck: 0, working: 0, waiting: 0, idle: 0 };
     for (const row of rows) counts[row.bulb] += 1;
 
-    const entries = [{ id: 'all', value: rows.length, label: t('ignorePrevious.countAll'), short: t('ignorePrevious.workList.counts.all') },
+    const entries = [{ id: 'all', value: rows.length, label: t('ignorePrevious.workList.counts.all'), short: t('ignorePrevious.workList.counts.all') },
         ...COUNTED.map(bulb => ({ id: bulb, value: counts[bulb], label: bulbWord(bulb), short: t(`ignorePrevious.workList.counts.${bulb}`) }))];
+
+    const countLabel = ({ id, value, label }: typeof entries[number]) => `${label}: ${ready
+        ? id === 'all' ? value : t('ignorePrevious.workList.workerCount', { count: value })
+        : t('ignorePrevious.connecting')}`;
 
     const page = (direction: -1 | 1) => scrollRef.current?.scrollTo({
         x: Math.max(0, viewport.current.x + direction * viewport.current.width), animated: false,
@@ -127,7 +132,7 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
                 testID="ip-work-counts"
                 horizontal
                 focusable
-                accessibilityLabel={entries.map(({ value, label }) => `${label}: ${ready ? value : '–'}`).join('. ')}
+                accessibilityLabel={entries.map(countLabel).join('. ')}
                 onLayout={event => {
                     viewport.current.width = event.nativeEvent.layout.width;
                     edges.onViewportLayout(event);
@@ -149,7 +154,7 @@ function WorkCounts({ rows, ready }: { rows: readonly WorkerRow[]; ready: boolea
                 contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingBottom: 4 }}
             >
                 {entries.map(({ id, value, label, short }) => (
-                    <Text key={id} accessibilityLabel={`${label}: ${ready ? value : '–'}`} numberOfLines={1} style={{ color: text.secondary, fontSize: 12, flexShrink: 0 }}>
+                    <Text key={id} accessibilityLabel={countLabel({ id, value, label, short })} numberOfLines={1} style={{ color: text.secondary, fontSize: 12, flexShrink: 0 }}>
                         {short}{' '}<Text testID={`ip-count-${id}`} style={{ fontWeight: '600' }}>{ready ? value : '–'}</Text>
                     </Text>
                 ))}
@@ -297,9 +302,7 @@ function WorkColumnContent({ compact, faceStyle, calm }: WorkColumnProps) {
                     const stuckStatus = group.bulb === 'stuck' && stateSession ? getSessionStatus(stateSession, nowMs) : null;
                     let attention: string | undefined;
                     if (group.stateWorker?.approvalDisabledReason) {
-                        attention = t(group.stateWorker.approvalDisabledReason === 'readOnly'
-                            ? 'session.sharing.permissionApprovalsDisabledReadOnly'
-                            : 'session.sharing.permissionApprovalsDisabledNotGranted');
+                        attention = waitingRestrictionLabel(group.stateWorker.approvalDisabledReason) ?? undefined;
                     } else if (group.bulb === 'turn') {
                         attention = attentionBySession.get(group.stateWorker?.sessionId ?? '') ?? t('ignorePrevious.needsLook');
                     } else if (stuckStatus) {
