@@ -1,5 +1,6 @@
 /** Per-device desk choices. Written only on a user action, never on mount. */
 import * as React from 'react';
+import { isIssueArchiveTarget } from './model/issueArchiveOperation';
 import { robotColourDefaults, robotPresets, terminalPalettes, type RobotPreset, type TerminalPalette } from './palette';
 import { MMKV } from 'react-native-mmkv';
 
@@ -51,6 +52,7 @@ function get<K extends DeskPrefKey>(key: K): DeskPrefValue<K> {
 }
 
 function set<K extends DeskPrefKey>(key: K, value: DeskPrefValue<K>): void {
+    if (key === 'coordinatorSessionId' && typeof value === 'string' && isIssueArchiveTarget(value)) return;
     if (key === 'coordinatorSessionId' && coordinatorOverride) {
         coordinatorOverride = { id: typeof value === 'string' ? value : null };
     } else {
@@ -85,6 +87,7 @@ export function useDeskPref<K extends DeskPrefKey>(key: K) {
 
 /** Null releases the fixture override and restores the stored pick. */
 export function setCoordinatorOverride(id: string | null): void {
+    if (id !== null && isIssueArchiveTarget(id)) return;
     coordinatorOverride = id === null ? null : { id };
     notify('coordinatorSessionId');
 }

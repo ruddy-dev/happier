@@ -87,7 +87,8 @@ export function useWorkCardData(coordinatorId: string | null, workers: DeskSessi
     const cache = matches(currentCache, coordinatorId, dir) ? currentCache : null;
     const knownProjectCodes = cache?.projects?.knownProjectCodes;
     const issueKeys = useIssueKeys(workers, knownProjectCodes);
-    const visibleKeys = React.useMemo(() => [...new Set([...issueKeys.values()].filter((key): key is string => key !== null))].sort(), [issueKeys]);
+    const visibleKeys = React.useMemo(() => [...new Set(workers.list.filter(row => !row.archivedAt)
+        .map(row => issueKeys.get(row.id)).filter((key): key is string => key != null))].sort(), [workers.list, issueKeys]);
     React.useEffect(() => {
         const cache = selectCache(coordinatorId, dir);
         let active = true;

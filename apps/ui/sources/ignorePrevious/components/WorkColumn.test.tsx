@@ -18,6 +18,10 @@ import type { SessionReadFileResponse } from '@/sync/ops/sessionFileSystem/fileR
 import { encodeBase64 } from '@/encryption/base64';
 import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
 import { armedUsageLimitRecovery, usageLimitIssue } from '../testkit/usageLimitFixtures';
+import { apiSocket } from '@/sync/api/session/apiSocket';
+import { upsertAndActivateServer } from '@/sync/domains/server/serverRuntime';
+import { projectManager } from '@/sync/runtime/orchestration/projectManager';
+import { prSnapshot } from '../testkit/prSnapshot';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -904,5 +908,334 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         } else if (label) {
             expect(screen.findByTestId('ip-work-stage-ATR-18')?.props.accessibilityLabel).toContain(label);
         } else expect(screen.findByTestId('ip-work-stage-ATR-18')).toBeNull();
+    });
+});
+
+describe('L4/N issue Archive on the real store', () => {
+    let previous: ReturnType<typeof storage.getState>;
+    let coordinator: string | null;
+    const archivedAt = 1_800_000_000_000;
+    const response = vi.fn<(path: string) => Promise<Response>>();
+
+    function merged(id: string, state: 'merged' | 'open' | 'unknown' | 'closed' = 'merged', age: 'fresh' | 'old' | 'missing' | 'invalid' = 'fresh') {
+        const snapshot = prSnapshot({ fetchedAt: age === 'old' ? Date.now() - 660_000 : age === 'invalid' ? NaN : Date.now() });
+        if (age === 'missing') Reflect.deleteProperty(snapshot, 'fetchedAt');
+        snapshot.pullRequest = { ...snapshot.pullRequest!, state };
+        act(() => {
+            // The real store ignores fetchedAt-only updates. Reset the snapshot to exercise
+            // incoming legacy/old evidence rather than accidentally retaining the fresh one.
+            storage.getState().updateSessionProjectScmSnapshot(id, null);
+            storage.getState().updateSessionProjectScmSnapshot(id, snapshot);
+        });
+    }
+
+    async function openIssue() {
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        return screen;
+    }
+
+    beforeEach(() => {
+        previous = storage.getState();
+        coordinator = getStoredCoordinatorId();
+        upsertAndActivateServer({ serverUrl: 'http://localhost:53289', scope: 'tab' });
+        projectManager.clear();
+        storage.setState(storage.getInitialState(), true);
+        setStoredCoordinatorId('coord');
+        vi.stubEnv('EXPO_PUBLIC_IP_WQ_DIR', '');
+        response.mockReset();
+        response.mockImplementation(async () => new Response(JSON.stringify({ success: true, archivedAt })));
+        // HTTP is the only archive boundary. The direct archive operation, pending guard and
+        // store patch all run unchanged, so this also catches accidental stop/RPC dispatch.
+        function request(path: string, init?: RequestInit): Promise<Response>;
+        function request<T>(path: string, init: RequestInit | undefined, consume: (result: Response) => Promise<T>): Promise<T>;
+        async function request<T>(path: string, _init?: RequestInit, consume?: (result: Response) => Promise<T>): Promise<Response | T> {
+            const result = await response(path);
+            return consume ? consume(result) : result;
+        }
+        vi.spyOn(apiSocket, 'request').mockImplementation(request);
+        vi.spyOn(apiSocket, 'sessionRPC').mockRejectedValue(new Error('Archive must never stop a worker'));
+    });
+
+    afterEach(() => {
+        act(() => {
+            storage.setState(previous, true);
+            setStoredCoordinatorId(coordinator);
+        });
+        vi.restoreAllMocks();
+        vi.unstubAllEnvs();
+        projectManager.clear();
+    });
+
+    it('Round 3: keeps the stopped carrier while a running worker remains, then retries without new evidence', async () => {
+        const running = session('running', '/fixture/atr-6-running', { active: true, activeAt: Date.now() });
+        seed([
+            session('coord', '/fixture/atr-6-coord'), running,
+            session('carrier', '/fixture/atr-6-carrier'), session('stopped', '/fixture/atr-6-stopped'),
+        ]);
+        merged('carrier');
+        const screen = await openIssue();
+        expect(response).not.toHaveBeenCalled();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/stopped/archive']);
+        expect(apiSocket.sessionRPC).not.toHaveBeenCalled();
+        expect(storage.getState().sessions.running.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.stopped.archivedAt).toBe(archivedAt);
+        expect(storage.getState().sessions.coord.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).toBeNull();
+        seed([{ ...running, seq: 2, updatedAt: Date.now(), active: false }]);
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual([
+            '/v2/sessions/stopped/archive', '/v2/sessions/running/archive', '/v2/sessions/carrier/archive',
+        ]);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+        expect(screen.findByTestId('ip-count-all')?.props.children).toBe(0);
+    });
+
+    it('Round 3: unchanged merged snapshot republished after ten minutes still shows Archive and dispatches', async () => {
+        seed([session('carrier', '/fixture/atr-6-carrier')]);
+        const snapshot = prSnapshot({ fetchedAt: Date.now() - 660_000 });
+        snapshot.pullRequest = { ...snapshot.pullRequest!, state: 'merged' };
+        act(() => storage.getState().updateSessionProjectScmSnapshot('carrier', snapshot));
+        const screen = await openIssue();
+        const refreshed = { ...snapshot, fetchedAt: Date.now() };
+        act(() => storage.getState().updateSessionProjectScmSnapshot('carrier', refreshed));
+        // Exercise the real store's timestamp-only suppression without clearing its snapshot.
+        expect(storage.getState().getSessionProjectScmSnapshot('carrier')?.fetchedAt).toBe(snapshot.fetchedAt);
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(storage.getState().sessions.carrier.archivedAt).toBe(archivedAt);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it.each(['stopped', 'idle-active', 'failed'] as const)('Round 3: %s worker joining mid-operation stops carrier dispatch', async kind => {
+        seed([session('carrier', '/fixture/atr-6-carrier'), session('first', '/fixture/atr-6-first')]);
+        merged('carrier');
+        const deferred = createDeferred<Response>();
+        response.mockReturnValueOnce(deferred.promise);
+        const screen = await openIssue();
+        let pending: Promise<unknown> = Promise.resolve();
+        await act(async () => { pending = screen.findByTestId('ip-issue-archive-ATR-6')!.props.onPress(); });
+        seed([session('joined', '/fixture/atr-6-joined', {
+            active: kind !== 'stopped', activeAt: Date.now(),
+            ...(kind === 'failed' ? { latestTurnStatus: 'failed', latestTurnStatusObservedAt: Date.now() } : {}),
+        })]);
+        await act(async () => {
+            deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
+            await pending;
+        });
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/first/archive']);
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.joined.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).toBeNull();
+        seed([{ ...storage.getState().sessions.joined, seq: 2, updatedAt: Date.now(), active: false }]);
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual([
+            '/v2/sessions/first/archive', '/v2/sessions/joined/archive', '/v2/sessions/carrier/archive',
+        ]);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it('Round 3: rechecks live membership again between two carrier dispatches', async () => {
+        seed([
+            session('first-carrier', '/fixture/atr-6-first', { updatedAt: 20 }),
+            session('last-carrier', '/fixture/atr-6-last'),
+        ]);
+        merged('first-carrier');
+        merged('last-carrier');
+        const deferred = createDeferred<Response>();
+        response.mockReturnValueOnce(deferred.promise);
+        const screen = await openIssue();
+        let pending: Promise<unknown> = Promise.resolve();
+        await act(async () => { pending = screen.findByTestId('ip-issue-archive-ATR-6')!.props.onPress(); });
+        seed([session('joined', '/fixture/atr-6-joined')]);
+        await act(async () => {
+            deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
+            await pending;
+        });
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/first-carrier/archive']);
+        expect(storage.getState().sessions['first-carrier'].archivedAt).toBe(archivedAt);
+        expect(storage.getState().sessions['last-carrier'].archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.joined.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual([
+            '/v2/sessions/first-carrier/archive', '/v2/sessions/joined/archive', '/v2/sessions/last-carrier/archive',
+        ]);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it('L4: partial failure names the failed worker, keeps Work and allows retry', async () => {
+        seed([session('good', '/fixture/atr-6-good'), session('failed', '/fixture/atr-6-failed')]);
+        merged('good');
+        response.mockImplementation(async path => new Response(JSON.stringify(path.includes('/failed/')
+            ? { error: 'unavailable' } : { success: true, archivedAt }), { status: path.includes('/failed/') ? 503 : 200 }));
+        const screen = await openIssue();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(storage.getState().sessions.good.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.failed.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).not.toBeNull();
+        expect(screen.getTextContent()).toContain('Title failed');
+        response.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, archivedAt })));
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it('L4: busy state disables repeated presses and rechecks inactivity before the next archive', async () => {
+        const first = session('first', '/fixture/atr-6-first', { updatedAt: 20 });
+        const second = session('second', '/fixture/atr-6-second');
+        seed([first, second]);
+        merged('second');
+        const deferred = createDeferred<Response>();
+        response.mockReturnValueOnce(deferred.promise);
+        const screen = await openIssue();
+        const archive = screen.findByTestId('ip-issue-archive-ATR-6')!;
+        let pending: Promise<unknown>;
+        await act(async () => { pending = archive.props.onPress(); });
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')?.props.accessibilityState).toMatchObject({ busy: true, disabled: true });
+        await act(async () => { await archive.props.onPress(); });
+        expect(response).toHaveBeenCalledTimes(1);
+        seed([{ ...second, seq: 2, updatedAt: Date.now(), active: true, activeAt: Date.now() }]);
+        await act(async () => {
+            deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
+            await pending!;
+        });
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/first/archive']);
+        expect(storage.getState().sessions.second.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+    });
+
+    it.each(['fresh', 'old', 'missing', 'invalid'] as const)('Round 3: %s merged evidence never expires for display or dispatch', async age => {
+        seed([session('carrier', '/fixture/atr-6')]);
+        merged('carrier');
+        const screen = await openIssue();
+        const archive = screen.findByTestId('ip-issue-archive-ATR-6')!;
+        expect(archive).not.toBeNull();
+        const archivePress = archive.props.onPress;
+        merged('carrier', 'merged', age);
+        expect(Boolean(screen.findByTestId('ip-issue-archive-ATR-6'))).toBe(true);
+        // A captured callback must also accept merged evidence regardless of its age.
+        await act(async () => { await archivePress(); });
+        expect(storage.getState().sessions.carrier.archivedAt).toBe(archivedAt);
+    });
+
+    it.each(['old', 'missing', 'invalid', 'open', 'unknown'] as const)('Round 2 dispatch recheck refuses changed PR evidence: %s', async kind => {
+        seed([session('carrier', '/fixture/atr-6-carrier'), session('sibling', '/fixture/atr-6-sibling')]);
+        merged('carrier');
+        const screen = await openIssue();
+        const archive = screen.findByTestId('ip-issue-archive-ATR-6')!;
+        const archivePress = archive.props.onPress;
+        if (kind === 'open' || kind === 'unknown') merged('sibling', kind);
+        else merged('sibling', 'closed', kind);
+        await act(async () => { await archivePress(); });
+        expect(response).not.toHaveBeenCalled();
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
+    });
+
+    it.each(['open', 'unknown', 'stale', 'undated', 'invalid', 'no-pr', 'no-pr-snapshot', 'merged', 'closed'] as const)('Round 2 mixed PRs: merged plus %s', async kind => {
+        seed([session('carrier', '/fixture/atr-6-carrier'), session('sibling', '/fixture/atr-6-sibling')]);
+        merged('carrier');
+        if (kind === 'no-pr-snapshot') {
+            act(() => storage.getState().updateSessionProjectScmSnapshot('sibling', prSnapshot({ fetchedAt: Date.now(), pullRequest: null })));
+        } else if (kind !== 'no-pr') {
+            merged('sibling', kind === 'stale' || kind === 'undated' || kind === 'invalid' ? 'closed' : kind,
+                kind === 'stale' ? 'old' : kind === 'undated' ? 'missing' : kind === 'invalid' ? 'invalid' : 'fresh');
+        }
+        const screen = await openIssue();
+        const allowed = kind === 'no-pr' || kind === 'no-pr-snapshot' || kind === 'merged' || kind === 'closed';
+        expect(Boolean(screen.findByTestId('ip-issue-archive-ATR-6'))).toBe(allowed);
+        if (allowed) {
+            await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+            expect(storage.getState().sessions.carrier.archivedAt).toBe(archivedAt);
+            expect(storage.getState().sessions.sibling.archivedAt).toBe(archivedAt);
+            expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+        } else expect(response).not.toHaveBeenCalled();
+    });
+
+    it.each(['old', 'open'] as const)('Round 2 rechecks PR evidence before the next dispatch: %s', async kind => {
+        seed([session('first', '/fixture/atr-6-first', { updatedAt: 20 }), session('carrier', '/fixture/atr-6-carrier'), session('sibling', '/fixture/atr-6-sibling')]);
+        merged('carrier');
+        const deferred = createDeferred<Response>();
+        response.mockReturnValueOnce(deferred.promise);
+        const screen = await openIssue();
+        let pending: Promise<unknown> = Promise.resolve();
+        await act(async () => { pending = screen.findByTestId('ip-issue-archive-ATR-6')!.props.onPress(); });
+        if (kind === 'old') merged('sibling', 'closed', 'old');
+        else merged('carrier', 'open');
+        await act(async () => {
+            deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
+            await pending;
+        });
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/first/archive']);
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).not.toBeNull();
+    });
+
+    it('Round 2 cold restart: failure stops before evidence carriers and reload without archived rows can retry', async () => {
+        seed([
+            session('carrier', '/fixture/atr-6-carrier', { updatedAt: 30 }),
+            session('done', '/fixture/atr-6-done', { updatedAt: 20 }),
+            session('failed', '/fixture/atr-6-failed'),
+        ]);
+        merged('carrier');
+        response.mockImplementation(async path => new Response(JSON.stringify(path.includes('/failed/')
+            ? { error: 'unavailable' } : { success: true, archivedAt }), { status: path.includes('/failed/') ? 503 : 200 }));
+        let screen = await openIssue();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/done/archive', '/v2/sessions/failed/archive']);
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.done.archivedAt).toBe(archivedAt);
+        const surviving = Object.values(storage.getState().sessions).filter(row => !row.archivedAt);
+        await screen.unmount();
+        act(() => storage.setState(storage.getInitialState(), true));
+        projectManager.clear();
+        seed(surviving);
+        screen = await openIssue();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).toBeNull();
+        // SCM is memory-only too: restore only a fresh snapshot on the surviving live carrier.
+        merged('carrier');
+        expect(storage.getState().sessions.done).toBeUndefined();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        response.mockReset();
+        response.mockImplementation(async () => new Response(JSON.stringify({ success: true, archivedAt })));
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/failed/archive', '/v2/sessions/carrier/archive']);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it('Round 2 missing archive timestamp is a failure and leaves the evidence carrier live', async () => {
+        seed([session('carrier', '/fixture/atr-6-carrier'), session('worker', '/fixture/atr-6-worker', { updatedAt: 20 })]);
+        merged('carrier');
+        response.mockImplementation(async () => new Response(JSON.stringify({ success: true })));
+        const screen = await openIssue();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/worker/archive']);
+        expect(storage.getState().sessions.carrier.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.worker.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).not.toBeNull();
+        expect(screen.getTextContent()).toContain('Title worker');
+    });
+
+    it.each(['working', 'request', 'unknown-pr'] as const)('N: hides Archive for %s and follows a new merged snapshot', async kind => {
+        const now = Date.now();
+        seed([session('stopped', '/fixture/atr-6'), session('other', '/fixture/atr-6', {
+            active: true, activeAt: now,
+            ...(kind === 'working' ? { thinking: true, thinkingAt: now } : {}),
+            ...(kind === 'request' ? { agentState: { requests: { req: { tool: 'Bash', arguments: {}, createdAt: now } } } } : {}),
+        })]);
+        if (kind !== 'unknown-pr') merged('stopped');
+        const screen = await openIssue();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).toBeNull();
+        expect(response).not.toHaveBeenCalled();
+        if (kind === 'unknown-pr') {
+            merged('stopped');
+            expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        }
     });
 });

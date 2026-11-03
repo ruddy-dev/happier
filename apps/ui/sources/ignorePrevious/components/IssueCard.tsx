@@ -15,6 +15,8 @@ import { WorkerSprite, type WorkerSpriteProps } from './WorkerSprite';
 import { spriteForModel } from '../sprites';
 import { wqStage, type WqItem } from '../model/wqCardData';
 import { WorkCardStage } from './WorkCardStage';
+import { IssueArchiveAction } from './IssueArchiveAction';
+import type { IssueArchiveState } from '../model/issueArchive';
 
 export type IssueCardProps = Readonly<{
     group: IssueGroup;
@@ -24,13 +26,15 @@ export type IssueCardProps = Readonly<{
     calm?: boolean;
     item?: WqItem | null;
     projectName?: string;
+    archive?: IssueArchiveState;
+    knownProjectCodes?: ReadonlySet<string>;
 }>;
 
 /**
  * One issue in the Work column. Folded, it shows the issue key, the most urgent worker's state as a
  * bulb dot and word, and the newest worker's title. Open, it lists every worker on that issue.
  */
-export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, faceStyle, calm, item, projectName }: IssueCardProps) {
+export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, faceStyle, calm, item, projectName, archive, knownProjectCodes }: IssueCardProps) {
     const { paint, borderWidth, colours } = useDeskPaint();
     const navigateToSession = useDeskSessionNavigation();
     const label = group.issueKey ?? t('ignorePrevious.noIssue');
@@ -138,6 +142,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                       </View>
                   ))
                 : null}
+            {open && group.issueKey && archive ? <IssueArchiveAction issueKey={group.issueKey} model={archive} workers={group.workers} knownProjectCodes={knownProjectCodes} /> : null}
         </View>
     );
 });

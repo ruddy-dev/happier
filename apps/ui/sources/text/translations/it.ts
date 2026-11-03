@@ -11695,6 +11695,12 @@ settingsSession: {
         question: 'Has a question for you',
         needsLook: 'Waiting on you. Open the session to see what.',
         work: 'Work',
+        archiveIssue: {
+            button: 'Archive',
+            label: ({ key }: { key: string }) => `Archive stopped sessions for ${key}`,
+            busy: 'Archiving…',
+            failed: ({ names }: { names: string }) => `Could not archive: ${names}. Try again.`,
+        },
         workCard: {
             plan: 'Plan',
             build: 'Build',
