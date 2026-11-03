@@ -4,6 +4,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { ToolViewProps } from '../core/_registry';
 import { resolvePermissionRequestId } from '../core/resolvePermissionRequestId';
 import { ToolSectionView } from '../../shell/presentation/ToolSectionView';
+import { usePendingRequestActionability, pendingRequestFromTool } from '@/components/tools/shell/permissions/usePendingRequestActionability';
 import { sessionAllow, sessionDeny } from '@/sync/ops';
 import { Modal } from '@/modal';
 import { t } from '@/text';
@@ -26,9 +27,10 @@ function asPreviewList(input: unknown): HistoryPreviewItem[] {
     });
 }
 
-export const AcpHistoryImportView = React.memo<ToolViewProps>(({ tool, sessionId, interaction }) => {
+export const AcpHistoryImportView = React.memo<ToolViewProps>(({ tool, permissionRequest, sessionId, interaction }) => {
   const { theme } = useUnistyles();
   const [loading, setLoading] = React.useState<'import' | 'skip' | null>(null);
+  const { actionable, isActionable } = usePendingRequestActionability(sessionId, permissionRequest ?? pendingRequestFromTool(tool));
 
   if (!sessionId) return null;
   const permissionId = resolvePermissionRequestId(tool);
@@ -56,7 +58,7 @@ export const AcpHistoryImportView = React.memo<ToolViewProps>(({ tool, sessionId
       || (tool.permission == null && tool.state === 'running');
 
   const onImport = async () => {
-    if (!isPending || loading || !canApprovePermissions) return;
+    if (!isPending || loading || !canApprovePermissions || !isActionable()) return;
     setLoading('import');
     try {
       await sessionAllow(sessionId, permissionId);
@@ -68,7 +70,7 @@ export const AcpHistoryImportView = React.memo<ToolViewProps>(({ tool, sessionId
   };
 
   const onSkip = async () => {
-    if (!isPending || loading || !canApprovePermissions) return;
+    if (!isPending || loading || !canApprovePermissions || !isActionable()) return;
     setLoading('skip');
     try {
       await sessionDeny(sessionId, permissionId, undefined, undefined, 'denied');
@@ -131,14 +133,14 @@ export const AcpHistoryImportView = React.memo<ToolViewProps>(({ tool, sessionId
         <View style={styles.actions}>
           <TouchableOpacity
             style={[styles.button, styles.primaryButton, !isPending && styles.disabled]}
-            disabled={!isPending || loading !== null || !canApprovePermissions}
+            disabled={!isPending || loading !== null || !canApprovePermissions || !actionable}
             onPress={onImport}
           >
             {loading === 'import' ? <ActivitySpinner color={theme.colors.button.primary.tint} /> : <Text style={styles.primaryText}>{t('tools.acpHistoryImport.actions.import')}</Text>}
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.button, styles.secondaryButton, !isPending && styles.disabled]}
-            disabled={!isPending || loading !== null || !canApprovePermissions}
+            disabled={!isPending || loading !== null || !canApprovePermissions || !actionable}
             onPress={onSkip}
           >
             {loading === 'skip' ? <ActivitySpinner color={theme.colors.text.primary} /> : <Text style={styles.secondaryText}>{t('tools.acpHistoryImport.actions.skip')}</Text>}

@@ -32,6 +32,7 @@ export type TranscriptTurnsBuildCache = Readonly<{
     messageGroupingKeysOldestFirst: readonly string[];
     groupToolCalls: boolean;
     toolCallsGroupStrategy: TranscriptTurnToolCallsGroupStrategy;
+    keepPendingPermissions?: boolean;
     forkBoundarySignature?: string;
     turns: TranscriptTurn[];
     coverage?: TranscriptTurnsBuildCoverage;
@@ -52,16 +53,16 @@ function isToolMessage(m: Message): m is ToolCallMessage {
     return m.kind === 'tool-call';
 }
 
-function isGroupableToolMessage(m: Message): m is ToolCallMessage {
+function isGroupableToolMessage(m: Message, keepPendingPermissions: boolean | undefined): m is ToolCallMessage {
     if (!isToolMessage(m)) return false;
-    return isToolCallMessageGroupableInTranscript(m);
+    return isToolCallMessageGroupableInTranscript(m, keepPendingPermissions);
 }
 
-function getMessageGroupingKey(message: Message | undefined): string {
+function getMessageGroupingKey(message: Message | undefined, keepPendingPermissions: boolean | undefined): string {
     if (!message) return 'missing';
     if (isUserMessage(message)) return 'user';
     if (isToolMessage(message)) {
-        return isToolCallMessageGroupableInTranscript(message) ? 'tool:groupable' : 'tool:standalone';
+        return isToolCallMessageGroupableInTranscript(message, keepPendingPermissions) ? 'tool:groupable' : 'tool:standalone';
     }
     return `message:${message.kind}`;
 }
@@ -92,6 +93,7 @@ function appendNonUserToTurn(params: Readonly<{
     message: Message;
     groupToolCalls: boolean;
     toolCallsGroupStrategy: TranscriptTurnToolCallsGroupStrategy;
+    keepPendingPermissions?: boolean;
 }>): { turn: TranscriptTurn; lastTurnState: TranscriptTurnsLastTurnState } {
     const turn = params.turn;
     const content = turn.content.slice();
@@ -102,7 +104,7 @@ function appendNonUserToTurn(params: Readonly<{
     }
 
     if (params.toolCallsGroupStrategy === 'all_tools_in_turn') {
-        if (isGroupableToolMessage(params.message)) {
+        if (isGroupableToolMessage(params.message, params.keepPendingPermissions)) {
             const state =
                 params.lastTurnState.kind === 'all_tools_in_turn'
                     ? params.lastTurnState
@@ -146,7 +148,7 @@ function appendNonUserToTurn(params: Readonly<{
             ? params.lastTurnState
             : ({ kind: 'consecutive_tools', openActivityIndex: null } as const);
 
-    if (isGroupableToolMessage(params.message)) {
+    if (isGroupableToolMessage(params.message, params.keepPendingPermissions)) {
         if (state.openActivityIndex != null) {
             const prev = content[state.openActivityIndex];
             if (prev?.kind === 'tool_calls') {
@@ -362,6 +364,7 @@ export function buildTranscriptTurnsCached(opts: {
     discardedMessages?: readonly DiscardedPendingMessage[] | null;
     groupToolCalls: boolean;
     toolCallsGroupStrategy: TranscriptTurnToolCallsGroupStrategy;
+    keepPendingPermissions?: boolean;
     forkBoundaryBeforeMessageIds?: ReadonlySet<string>;
     forkBoundarySignature?: string;
     forkMetadataByMessageId?: Readonly<Record<string, unknown>>;
@@ -390,12 +393,13 @@ export function buildTranscriptTurnsCached(opts: {
         }
         opts = { ...opts, forkBoundaryBeforeMessageIds: visibleBoundaries };
     }
-    const nextMessageGroupingKeysOldestFirst = visibleMessageIdsOldestFirst.map((id) => getMessageGroupingKey(opts.messagesById[id]));
+    const nextMessageGroupingKeysOldestFirst = visibleMessageIdsOldestFirst.map((id) => getMessageGroupingKey(opts.messagesById[id], opts.keepPendingPermissions));
     const cache = opts.cache;
     const cacheConfigMatches =
         cache != null &&
         cache.groupToolCalls === opts.groupToolCalls &&
         cache.toolCallsGroupStrategy === opts.toolCallsGroupStrategy &&
+        cache.keepPendingPermissions === opts.keepPendingPermissions &&
         cache.forkBoundarySignature === opts.forkBoundarySignature;
     const canReuse =
         cacheConfigMatches &&
@@ -462,6 +466,7 @@ export function buildTranscriptTurnsCached(opts: {
                 message,
                 groupToolCalls: opts.groupToolCalls,
                 toolCallsGroupStrategy: opts.toolCallsGroupStrategy,
+                keepPendingPermissions: opts.keepPendingPermissions,
             });
             replaceLastTurn(updated.turn, updated.lastTurnState);
         }
@@ -471,6 +476,7 @@ export function buildTranscriptTurnsCached(opts: {
             messageGroupingKeysOldestFirst: params.nextMessageGroupingKeysOldestFirst,
             groupToolCalls: opts.groupToolCalls,
             toolCallsGroupStrategy: opts.toolCallsGroupStrategy,
+            keepPendingPermissions: opts.keepPendingPermissions,
             forkBoundarySignature: opts.forkBoundarySignature,
             turns: nextTurns,
             coverage: params.coverage,
@@ -562,6 +568,7 @@ function buildTranscriptTurnsForVisibleIds(params: Readonly<{
         messagesById: Readonly<Record<string, Message>>;
         groupToolCalls: boolean;
         toolCallsGroupStrategy: TranscriptTurnToolCallsGroupStrategy;
+        keepPendingPermissions?: boolean;
         forkBoundaryBeforeMessageIds?: ReadonlySet<string>;
         forkBoundarySignature?: string;
     };
@@ -596,6 +603,7 @@ function buildTranscriptTurnsForVisibleIds(params: Readonly<{
             message,
             groupToolCalls: params.opts.groupToolCalls,
             toolCallsGroupStrategy: params.opts.toolCallsGroupStrategy,
+            keepPendingPermissions: params.opts.keepPendingPermissions,
         });
         turns[turns.length - 1] = updated.turn;
         lastTurnState = updated.lastTurnState;
@@ -610,6 +618,7 @@ function buildTranscriptTurnsForVisibleIds(params: Readonly<{
         messageGroupingKeysOldestFirst: params.messageGroupingKeysOldestFirst,
         groupToolCalls: params.opts.groupToolCalls,
         toolCallsGroupStrategy: params.opts.toolCallsGroupStrategy,
+        keepPendingPermissions: params.opts.keepPendingPermissions,
         forkBoundarySignature: params.opts.forkBoundarySignature,
         turns: stickyTurns,
         coverage: params.coverage,
@@ -624,6 +633,7 @@ export function buildTranscriptTurns(opts: {
     discardedMessages?: readonly DiscardedPendingMessage[] | null;
     groupToolCalls: boolean;
     toolCallsGroupStrategy: TranscriptTurnToolCallsGroupStrategy;
+    keepPendingPermissions?: boolean;
     forkBoundaryBeforeMessageIds?: ReadonlySet<string>;
     forkBoundarySignature?: string;
     forkMetadataByMessageId?: Readonly<Record<string, unknown>>;
@@ -636,6 +646,7 @@ export function buildTranscriptTurns(opts: {
         discardedMessages: opts.discardedMessages,
         groupToolCalls: opts.groupToolCalls,
         toolCallsGroupStrategy: opts.toolCallsGroupStrategy,
+        keepPendingPermissions: opts.keepPendingPermissions,
         forkBoundaryBeforeMessageIds: opts.forkBoundaryBeforeMessageIds,
         forkBoundarySignature: opts.forkBoundarySignature,
         forkMetadataByMessageId: opts.forkMetadataByMessageId,

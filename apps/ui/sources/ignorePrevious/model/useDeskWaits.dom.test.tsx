@@ -157,6 +157,34 @@ it('counts unloaded waits only for the selected session', () => {
     expect(container.textContent).toBe('1/1/0');
 });
 
+it('R10: lists view-only waits without counting them or lighting request activity, including unloaded sessions', () => {
+    let activity: ReturnType<typeof useDeskWaitsActivity>;
+    let waits: ReturnType<typeof useDeskWaits>;
+    function Inbox() {
+        activity = useDeskWaitsActivity();
+        waits = useDeskWaits();
+        const scoped = useDeskWaitsSummary({ onlySessionId: 'viewer' });
+        return <output>{`${waits.count}/${scoped.count}`}</output>;
+    }
+    act(() => {
+        storage.getState().applySessions([
+            createSessionFixture({ id: 'viewer', active: true, accessLevel: 'view', agentState: {} }),
+            ...['owner-unloaded', 'viewer-unloaded'].map(id => createSessionFixture({
+                id, active: true, agentState: {}, pendingUserActionRequestCount: 1,
+                ...(id === 'viewer-unloaded' ? { accessLevel: 'view' as const } : {}),
+            })),
+        ]);
+        storage.getState().applyMessagesLoaded('viewer');
+    });
+    write('waiting', 80, true);
+    write('viewer', 81, true);
+    act(() => root.render(<Inbox />));
+    expect(container.textContent).toBe('2/0');
+    expect(activity!).toMatchObject({ count: 2, requests: [{ sessionId: 'waiting', requestId: 'request-80' }], unloadedSessionIds: ['owner-unloaded'] });
+    expect(waits!.items.find(item => item.sessionId === 'viewer')?.disabledReason).toBe('readOnly');
+    expect(waits!.unloaded.map(session => session.sessionId)).toEqual(['owner-unloaded', 'viewer-unloaded']);
+});
+
 
 it('projects creature request identities without drawer work and retains equivalent activity', () => {
     const values: ReturnType<typeof useDeskWaitsActivity>[] = [];

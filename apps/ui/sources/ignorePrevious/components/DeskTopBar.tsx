@@ -11,7 +11,7 @@ export function DeskTopBar({ phone, sessionsRef, onSessions, waiting, settings }
     const { theme } = useUnistyles();
     return <View testID="ip-top-bar" style={{ minHeight: 52, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border.default }}>
         {phone && <View testID="ip-top-brand" style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 }}>
-            <MaskFace size={24} bulb="rest" sleepy={false} />
+            <MaskFace size={24} bulb="rest" />
             <DeskText numberOfLines={1} style={{ color: theme.colors.text.primary, fontSize: 16, fontWeight: '700', flexShrink: 1 }}>{t('ignorePrevious.screenTitle')}</DeskText>
         </View>}
         <Pressable ref={sessionsRef} testID="ip-top-sessions" accessibilityRole="button" accessibilityLabel={t('ignorePrevious.topBar.sessions')} onPress={onSessions} style={{ padding: 8 }}>{phone ? <Icon name="list" size={20} color={theme.colors.text.primary} /> : <DeskText style={{ color: theme.colors.text.primary }}>{t('ignorePrevious.topBar.sessions')}</DeskText>}</Pressable>

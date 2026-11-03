@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TranscriptToolCallsGroupingContext } from './TranscriptAppearanceContext';
 import { isRecoveredHistoryTranscriptObservationProvenance } from '@happier-dev/protocol';
 import {
     useSessionActionDrafts,
@@ -46,6 +47,7 @@ export function resolveLatestCommittedActivityKey(params: Readonly<{
 }
 
 export function useChatListRootState(props: ChatListProps) {
+    const collapseToolCallsPerTurn = React.useContext(TranscriptToolCallsGroupingContext) === 'collapsed-per-turn';
     const {
         fork,
         forkAwareMessageDescriptors,
@@ -85,12 +87,14 @@ export function useChatListRootState(props: ChatListProps) {
     );
     const stableSessionMetadata = useStableValueBySignature(props.session.metadata, sessionMetadataSignature);
 
-    const groupingMode = transcriptGroupingMode === 'turns' ? 'turns' : 'linear';
+    const groupingMode = collapseToolCallsPerTurn || transcriptGroupingMode === 'turns' ? 'turns' : 'linear';
     const groupToolCalls =
-        transcriptGroupToolCalls === true &&
-        toolViewTimelineChromeMode === 'activity_feed';
+        collapseToolCallsPerTurn || (
+            transcriptGroupToolCalls === true &&
+            toolViewTimelineChromeMode === 'activity_feed'
+        );
     const toolCallsGroupStrategy =
-        transcriptTurnToolCallsGroupStrategy === 'all_tools_in_turn' ? 'all_tools_in_turn' : 'consecutive_tools';
+        collapseToolCallsPerTurn || transcriptTurnToolCallsGroupStrategy === 'all_tools_in_turn' ? 'all_tools_in_turn' : 'consecutive_tools';
 
     const { groupedItems, transcriptMaxTurnEntriesPerListItem } = useTranscriptRootDerivedItems({
         actionDrafts,
@@ -99,6 +103,7 @@ export function useChatListRootState(props: ChatListProps) {
         forkAwareMessageDescriptors,
         forkedTranscriptEnabled,
         groupToolCalls,
+        keepPendingPermissions: collapseToolCallsPerTurn,
         groupingMode,
         messageIdsOldestFirst,
         messagesById,

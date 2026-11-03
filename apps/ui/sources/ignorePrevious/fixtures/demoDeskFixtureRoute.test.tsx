@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
+import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { storage } from '@/sync/domains/state/storage';
 
 import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
@@ -13,6 +14,11 @@ import demo from './demo/desk-demo.json';
 import { DEMO_STEP_MS, demoScript } from './demoConversation';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock('react-native-unistyles', async () => {
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    return createUnistylesMock();
+});
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -91,6 +97,15 @@ function Panes({ children }: { children?: React.ReactNode }) {
 describe('landing demo route', () => {
     const before = storage.getState();
     const storedBefore = getStoredCoordinatorId();
+    beforeAll(async () => {
+        await installAgentAssetLoader();
+        // Load the real lazy composer graph before the route's render assertions.
+        await act(async () => { await import('./CoordinatorBodyStub'); });
+    });
+    afterAll(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
     beforeEach(() => {
         storage.setState(before, true);
         setStoredCoordinatorId(null);
@@ -132,6 +147,8 @@ describe('landing demo route', () => {
         expect(route.alert).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('worker'));
         await screen.pressByTestIdAsync('ip-open-demo-weather-fix');
         await screen.pressByTestIdAsync('ip-approvals-open');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-search-r1');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-approval-r1');
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session')!);
         await screen.pressByTestIdAsync('ip-top-sessions');
         await screen.pressByTestIdAsync('ip-sessions-row-demo-weather-tests');
@@ -160,6 +177,8 @@ describe('landing demo route', () => {
         expect(text).toContain('RECIPE-8 Add ingredient search');
         expect(text).toContain('NOTES-3 Export notes as Markdown');
         await screen.pressByTestIdAsync('ip-approvals-open');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-search-r1');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-approval-r1');
         expect(screen.getTextContent()).toContain('How should ingredient search match recipes?');
         const option = screen.findByTestId('ip-waiting-option-demo-recipe-search-r1-0-0');
         expect(option).not.toBeNull();
@@ -224,6 +243,7 @@ describe('landing demo route', () => {
         await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * questionIndex); });
         expect(screen.getTextContent()).not.toContain('How should ingredient search match recipes?');
         await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS); });
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-search-r1');
         expect(screen.getTextContent()).toContain('How should ingredient search match recipes?');
         expect(screen.findByTestId('ip-waiting-send-demo-recipe-search-r1')?.props.disabled).toBe(true);
         await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * (demoScript.length - questionIndex - 1)); });

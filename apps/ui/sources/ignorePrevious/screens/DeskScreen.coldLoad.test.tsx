@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import raw from '../testkit/scripts/F4-cold-load.json';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -74,6 +75,7 @@ describe('DeskScreen cold load (F4)', () => {
         await scenario.ready();
         expect(scenario.textOf('ip-approvals-count')).toBe('1');
         expect(scenario.screen.findByTestId('ip-waiting')).toBeTruthy();
+        await revealWaitingDetails(scenario.screen);
         expect(scenario.textOf('ip-waiting')).toContain('Fix the login form');
     });
 

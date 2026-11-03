@@ -50,6 +50,12 @@ export function approvalDisabledReason(row: SessionListRenderableSession): Waiti
 type State = ReturnType<typeof storage.getState>;
 type WaitInput = Readonly<{ row: SessionListRenderableSession; requests: readonly SessionPendingRequest[] }>;
 type UnloadedInput = Readonly<{ row: SessionListRenderableSession; reason: UnloadedWait['reason'] }>;
+
+/** R10 excludes view-only waits from counts, activity and alerts, while details stay readable. */
+function isAggregateWait({ row }: WaitInput | UnloadedInput): boolean {
+    return approvalDisabledReason(row) !== 'readOnly';
+}
+
 type SessionWait = { input: WaitInput; unloaded: UnloadedInput | null; stillLoading: boolean };
 type CachedSessionWait = {
     row: SessionListRenderableSession;
@@ -185,7 +191,9 @@ function selectProjection(state: State, scope?: DeskWaitsSummaryScope): { snapsh
     if (!projection || projection.summary.ready !== ready
         || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)
         || !shallow(projection.loadingSessionIds, loadingSessionIds)) {
-        const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
+        // R10 keeps view-only requests readable without asking the viewer to answer them.
+        const count = inputs.reduce((sum, input) => sum + (isAggregateWait(input) ? input.requests.length : 0), 0)
+            + unloaded.filter(isAggregateWait).length;
         const summary = projection?.summary.count === count && projection.summary.ready === ready
             ? projection.summary : { count, ready };
         projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
@@ -250,14 +258,16 @@ export function selectDeskNotificationWaits(state: State): NotificationWaits {
     const { projection } = selectProjection(state);
     if (!projection.notificationWaits) {
         const waitSessionIds = Object.fromEntries([
-            ...projection.inputs.flatMap(({ row, requests }) => requests.map(request => [waitingItemKey(row.id, request.id), row.id] as const)),
-            ...projection.unloaded.map(({ row }) => [unloadedWaitKey(row.id), row.id] as const),
+            ...projection.inputs.filter(isAggregateWait).flatMap(({ row, requests }) => requests.map(request => [waitingItemKey(row.id, request.id), row.id] as const)),
+            ...projection.unloaded.filter(isAggregateWait).map(({ row }) => [unloadedWaitKey(row.id), row.id] as const),
         ]);
+        const waitSessions = new Set(Object.values(waitSessionIds));
         projection.notificationWaits = {
             ready: projection.summary.ready,
             waitIds: Object.keys(waitSessionIds).sort(),
             waitSessionIds,
-            loadingSessionIds: projection.loadingSessionIds,
+            // A view-only placeholder must not absorb the first alert after access changes.
+            loadingSessionIds: projection.loadingSessionIds.filter(id => waitSessions.has(id)),
         };
     }
     return projection.notificationWaits;
@@ -288,10 +298,10 @@ function selectActivity(state: State, scope?: DeskWaitsSummaryScope): DeskWaitsA
     const { projection } = selectProjection(state, scope);
     if (!projection.activity) {
         const count = projection.summary.ready ? projection.summary.count : null;
-        const requests = projection.inputs.flatMap(({ row, requests }) => requests.map(request => ({
+        const requests = projection.inputs.filter(isAggregateWait).flatMap(({ row, requests }) => requests.map(request => ({
             sessionId: row.id, requestId: request.id,
         })));
-        const unloadedSessionIds = projection.unloaded.map(({ row }) => row.id);
+        const unloadedSessionIds = projection.unloaded.filter(isAggregateWait).map(({ row }) => row.id);
         const previous = projection.previousActivity;
         projection.activity = previous && previous.count === count
             && shallow(previous.unloadedSessionIds, unloadedSessionIds)

@@ -11517,6 +11517,7 @@ settingsSession: {
     },
   },
     ignorePrevious: {
+        transcriptQuestionChrome: { title: 'Question for you', context: 'Mentions' },
         demo: {
             noteTitle: 'Demo desk',
             sampleNote: 'An interactive demo with made-up work. Nothing is connected or sent.',
@@ -11675,6 +11676,12 @@ settingsSession: {
         },
         composer: {
             placeholder: 'Talk to Shog',
+            prompt: 'you',
+            ready: 'Ready',
+            writing: 'Writing',
+            waiting: ({ count }: { count: number }) => `${count} waiting`,
+            waitingUnknown: '— waiting',
+            position: ({ line, column }: { line: number; column: number }) => `Ln ${line}, Col ${column}`,
             enterHint: 'Enter sends, Shift+Enter for a new line',
             briefFirst: 'Brief me first',
             briefPrompt: 'The six questions: aim, agreed, checked, happening, your turn, left.',
@@ -11698,6 +11705,15 @@ settingsSession: {
         openSession: 'Open session',
         agentSays: ({ name }: { name: string }) => `${name} says:`,
         waiting: {
+            earlierSending: 'An answer to earlier contents is still sending. Open the session before answering this version.',
+            earlierUnconfirmed: 'An answer to earlier contents was sent, but its target cannot be confirmed here. Open the session to check.',
+            earlierFailed: 'The answer to earlier contents failed or could not be confirmed. Open the session to check.',
+            inspectRequest: 'This ID has conflicting request history. Open the session to check which request still needs an answer.',
+            heading: 'Waiting on you',
+            requestChanged: 'Request changed. Open the details again before answering.',
+            workerUnknown: 'Worker status unknown. Open the session to check before answering.',
+            showDetails: ({ name, issue, summary }: { name: string; issue: string; summary: string }) => `Show request details. ${name}. ${issue}. ${summary}`,
+            hideDetails: ({ name, issue, summary }: { name: string; issue: string; summary: string }) => `Hide request details. ${name}. ${issue}. ${summary}`,
             answered: 'Answered',
             allowed: 'Allowed',
             denied: 'Denied',
@@ -11710,7 +11726,7 @@ settingsSession: {
             unreadable: "The desk can't read this session's request. Open the session to look.",
             blankLines: ({ count }: { count: number }) => `${count} blank lines`,
             blankCharacters: ({ count }: { count: number }) => `${count} blank characters`,
-            answeringElsewhere: 'This press was blocked by the session screen. Open the session to answer there.',
+            answeringElsewhere: 'An answer is already in progress or has been sent. Open the session to check.',
         },
         questionCard: {
             send: 'Send',

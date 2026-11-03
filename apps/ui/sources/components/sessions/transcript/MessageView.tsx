@@ -1,7 +1,7 @@
 import { TranscriptAppearanceContext } from './TranscriptAppearanceContext';
 import * as React from "react";
 import { View, Pressable, Platform } from 'react-native';
-import { isRecoveredHistoryTranscriptObservationProvenance } from '@happier-dev/protocol';
+import { isAskUserQuestionToolName, isRecoveredHistoryTranscriptObservationProvenance } from '@happier-dev/protocol';
 import { Modal } from '@/modal';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
@@ -818,7 +818,7 @@ function UserTextBlock(props: {
           style={styles.userMessageWrapper}
           {...(isWeb ? {} : { pointerEvents: 'box-none' as const })}
         >
-          <View style={styles.userMessageBubbleAligner}>
+          <View style={[styles.userMessageBubbleAligner, appearance?.userLeading ? styles.userMessageBubbleAlignerLeading : null]}>
             <TranscriptJumpAttention
               sessionId={props.sessionId}
               routeMessageId={buildMessageRouteId(props.message)}
@@ -832,7 +832,16 @@ function UserTextBlock(props: {
                 interaction={props.interaction}
                 onJumpToAnchor={handleJumpToAnchor}
               />
-              <MarkdownView codeBlockStateKey={JSON.stringify([props.sessionId, props.message.id])} markdown={renderedMarkdownText} onOptionPress={handleOptionPress} onOptionLongPress={handleOptionLongPress} onLinkPress={handleMarkdownLinkPress} selectable={true} profile="transcript" textStyle={styles.transcriptMarkdownText} />
+              {appearance?.userLeading ? (
+                <View style={styles.userMessageWithLeading}>
+                  {appearance.userLeading}
+                  <View style={styles.userMessageLeadingContent}>
+                    <MarkdownView codeBlockStateKey={JSON.stringify([props.sessionId, props.message.id])} markdown={renderedMarkdownText} onOptionPress={handleOptionPress} onOptionLongPress={handleOptionLongPress} onLinkPress={handleMarkdownLinkPress} selectable={true} profile="transcript" textStyle={styles.transcriptMarkdownText} />
+                  </View>
+                </View>
+              ) : (
+                <MarkdownView codeBlockStateKey={JSON.stringify([props.sessionId, props.message.id])} markdown={renderedMarkdownText} onOptionPress={handleOptionPress} onOptionLongPress={handleOptionLongPress} onLinkPress={handleMarkdownLinkPress} selectable={true} profile="transcript" textStyle={styles.transcriptMarkdownText} />
+              )}
               {sessionMediaInlineImages.length > 0 ? (
                 <SessionMediaInlineImages
                   sessionId={props.sessionId}
@@ -1749,13 +1758,13 @@ function ToolCallBlock(props: {
         viewProps={structuredPinHost.hoverProps}
         style={containerStyle}
       >
-        <TranscriptAppearanceContext.Provider value={null}>{containerContent}</TranscriptAppearanceContext.Provider>
+        <TranscriptAppearanceContext.Provider value={isAskUserQuestionToolName(props.message.tool.name) ? appearance : null}>{containerContent}</TranscriptAppearanceContext.Provider>
       </TranscriptJumpAttention>
     );
   }
   return (
     <View {...structuredPinHost.hoverProps} style={containerStyle}>
-      <TranscriptAppearanceContext.Provider value={null}>{containerContent}</TranscriptAppearanceContext.Provider>
+      <TranscriptAppearanceContext.Provider value={isAskUserQuestionToolName(props.message.tool.name) ? appearance : null}>{containerContent}</TranscriptAppearanceContext.Provider>
     </View>
   );
 }
@@ -1812,6 +1821,9 @@ const styles = StyleSheet.create((theme) => ({
       alignSelf: 'flex-end',
       maxWidth: '100%',
     },
+    userMessageBubbleAlignerLeading: { alignSelf: 'flex-start' },
+    userMessageWithLeading: { flexDirection: 'row' },
+    userMessageLeadingContent: { flexShrink: 1 },
     userMessageBubble: {
       backgroundColor: theme.colors.message.user.background,
       paddingHorizontal: 14,

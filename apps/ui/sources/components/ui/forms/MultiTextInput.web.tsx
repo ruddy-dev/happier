@@ -9,6 +9,7 @@ import { extractWebAttachmentFilesFromDataTransfer } from '@/utils/files/webAtta
 import { normalizeKeyboardKeyPressEvent, type KeyPressEvent as KeyboardKeyPressEvent } from '@/keyboard/events';
 import { recordLargeTextInputDiagnostic } from '@/utils/system/userInteractionDiagnostics';
 import { MULTI_TEXT_INPUT_BASE_FONT_SIZE } from './multiTextInputTypography';
+import { useCoordinatorComposerInput } from '@/ignorePrevious/model/coordinatorComposerInput';
 import {
     WEB_TEXTAREA_AUTOSIZE_VALUE_LENGTH_LIMIT,
     TEXT_INPUT_LARGE_TEXT_CHANGE_DEBOUNCE_MS,
@@ -163,6 +164,8 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
     } = props;
     
     const { theme } = useUnistyles();
+    const coordinatorInput = useCoordinatorComposerInput(props.testID);
+    const observeCoordinatorInput = coordinatorInput?.observer.observe;
     const uiFontScale = useLocalSetting('uiFontScale');
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const isComposingRef = React.useRef(false);
@@ -475,6 +478,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
     }, [onStateChange, onSelectionChange, scheduleChangeText, value.length]);
 
     const handleChange = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        observeCoordinatorInput?.(e.currentTarget);
         const text = e.target.value;
         liveValueRef.current = text;
         applyTextareaHeight(e.currentTarget, text.length);
@@ -494,9 +498,10 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
             if (containsLikelyNonWhitespace(text) === containsLikelyNonWhitespace(parentText)) return;
         }
         emitInputState(e.target);
-    }, [applyTextareaHeight, emitInputState]);
+    }, [applyTextareaHeight, emitInputState, observeCoordinatorInput]);
 
     const handleSelect = React.useCallback((e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+        observeCoordinatorInput?.(e.currentTarget);
         if (isComposingRef.current) return;
         const target = e.target as HTMLTextAreaElement;
         const selection = { 
@@ -510,7 +515,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
         if (onStateChange) {
             onStateChange({ text: target.value, selection });
         }
-    }, [onSelectionChange, onStateChange]);
+    }, [onSelectionChange, onStateChange, observeCoordinatorInput]);
 
     const handleScroll = React.useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
         const scrollY = e.currentTarget.scrollTop;
@@ -528,9 +533,10 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
     const handleCompositionEnd = React.useCallback((e: React.CompositionEvent<HTMLTextAreaElement>) => {
         isComposingRef.current = false;
         const node = textareaRef.current ?? e.currentTarget;
+        observeCoordinatorInput?.(node);
         liveValueRef.current = node.value;
         emitInputState(node);
-    }, [emitInputState]);
+    }, [emitInputState, observeCoordinatorInput]);
 
     const handlePaste = React.useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         const cb = props.onFilesPasted;
@@ -589,6 +595,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
                 textareaRef.current.value = text;
                 textareaRef.current.setSelectionRange(nextSelection.start, nextSelection.end);
                 applyTextareaHeight(textareaRef.current, text.length);
+                observeCoordinatorInput?.(textareaRef.current);
             }
 
             emitChangeText(text);
@@ -611,6 +618,7 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
             const nextSelection = clampTextSelection(selection, liveText.length);
             if (textareaRef.current) {
                 textareaRef.current.setSelectionRange(nextSelection.start, nextSelection.end);
+                observeCoordinatorInput?.(textareaRef.current);
             }
 
             if (onStateChange) {
@@ -644,7 +652,13 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
             const node = textareaRef.current;
             return node ? { x: node.scrollLeft, y: node.scrollTop } : { x: 0, y: 0 };
         },
-    }), [applyTextareaHeight, emitChangeText, flushPendingTextChange, onStateChange, onSelectionChange, value]);
+    }), [applyTextareaHeight, emitChangeText, flushPendingTextChange, onStateChange, onSelectionChange, value, observeCoordinatorInput]);
+
+    // Runs after controlled-value reconciliation, so sends, draft restore and dictation report
+    // the actual adopted DOM value rather than a stale prop. No listener or polling is needed.
+    React.useLayoutEffect(() => {
+        if (textareaRef.current) observeCoordinatorInput?.(textareaRef.current);
+    });
 
     const commonTextareaProps = {
         ref: textareaRef,
@@ -674,12 +688,14 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
     };
 
     return (
-        <View style={{ width: '100%', position: 'relative' }}>
+        <View style={{ width: '100%', position: 'relative', ...(coordinatorInput?.prompt ? { flexDirection: 'row', alignItems: 'flex-start', gap: 8 } as const : {}) }}>
+            {coordinatorInput?.prompt ? <View style={{ paddingTop: props.paddingTop ?? 0 }}>{coordinatorInput.prompt}</View> : null}
             <textarea
                 {...commonTextareaProps}
                 rows={1}
                 style={{
                     ...textareaStyle,
+                    ...(coordinatorInput?.textStyle ? { fontFamily: coordinatorInput.textStyle.fontFamily, color: coordinatorInput.textStyle.color, minWidth: 0, flex: 1 } : {}),
                     maxHeight: normalizedMaxHeight,
                     height: renderedTextareaHeight,
                     overflowY: 'auto',
