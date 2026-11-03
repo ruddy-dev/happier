@@ -99,7 +99,8 @@ function areTerminalStatesInterchangeable(
     return previous.status === 'terminal'
         && next.status === 'terminal'
         && previous.createdAt === next.createdAt
-        && previous.terminalKind === next.terminalKind;
+        && previous.terminalKind === next.terminalKind
+        && previous.hardTerminalCreatedAt === next.hardTerminalCreatedAt;
 }
 
 /**

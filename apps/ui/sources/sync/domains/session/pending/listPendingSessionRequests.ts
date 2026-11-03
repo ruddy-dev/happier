@@ -40,7 +40,7 @@ const PENDING_REQUEST_COVERAGE_OPTIONS = {
     equivalentCompletedReasons: [CLAUDE_LOCAL_PERMISSION_BRIDGE_STOPPED_REASON],
 } as const;
 
-export type TranscriptRequestState =
+export type TranscriptRequestState = (
     | Readonly<{
         status: 'pending';
         request: SessionPendingRequest;
@@ -50,6 +50,9 @@ export type TranscriptRequestState =
         status: 'terminal';
         createdAt: number;
         terminalKind: 'hard' | 'soft_interrupted';
+    }>) & Readonly<{
+        /** Older hard outcomes still suppress stale agent details after a later pending contribution. */
+        hardTerminalCreatedAt?: number;
     }>;
 
 /**
@@ -140,26 +143,25 @@ export function mergeTranscriptRequestState(
         return nextState;
     }
 
-    if (nextState.status === 'terminal') {
-        if (
-            previousState.status !== 'terminal'
-            || nextState.createdAt > previousState.createdAt
-            || (
-                nextState.createdAt === previousState.createdAt
-                && nextState.terminalKind === 'hard'
-                && previousState.terminalKind !== 'hard'
-            )
-        ) {
-            return nextState;
-        }
-        return previousState;
-    }
+    const nextWins = nextState.createdAt > previousState.createdAt
+        || (nextState.createdAt === previousState.createdAt
+            && (previousState.status === 'pending'
+                || (nextState.status === 'terminal' && nextState.terminalKind === 'hard')));
+    const winner = nextWins ? nextState : previousState;
+    // Keep completion-independent evidence in either fold order. A completed newer
+    // pending contribution must not erase the outcome that covers older agent state.
+    const hardTerminalCreatedAt = Math.max(
+        readHardTerminalCreatedAt(previousState) ?? -Infinity,
+        readHardTerminalCreatedAt(nextState) ?? -Infinity,
+    );
+    return hardTerminalCreatedAt > (readHardTerminalCreatedAt(winner) ?? -Infinity)
+        ? { ...winner, hardTerminalCreatedAt }
+        : winner;
+}
 
-    if (previousState.status === 'terminal') {
-        return nextState.createdAt > previousState.createdAt ? nextState : previousState;
-    }
-
-    return nextState.createdAt >= previousState.createdAt ? nextState : previousState;
+function readHardTerminalCreatedAt(state: TranscriptRequestState | undefined): number | null {
+    return state?.status === 'terminal' && state.terminalKind === 'hard'
+        ? state.createdAt : state?.hardTerminalCreatedAt ?? null;
 }
 
 function updateTranscriptRequestState(
@@ -278,8 +280,8 @@ function listPendingAgentStateRequests(agentState: AgentState | null | undefined
 }
 
 function isAgentRequestSuppressedByTranscript(request: SessionPendingRequest, state: TranscriptRequestState | undefined): boolean {
-    return state?.status === 'terminal' && state.terminalKind === 'hard'
-        && (request.createdAt ?? 0) <= state.createdAt;
+    const hardTerminalCreatedAt = readHardTerminalCreatedAt(state);
+    return hardTerminalCreatedAt !== null && (request.createdAt ?? 0) <= hardTerminalCreatedAt;
 }
 
 /**
@@ -308,7 +310,7 @@ export function observePendingSessionRequest(
             ? mergePendingRequestMetadata(transcriptRequest, agentRequest) : agentRequest };
     }
     if (transcriptRequest) return { status: 'pending', request: transcriptRequest };
-    return { status: (transcriptState?.status === 'terminal' && transcriptState.terminalKind === 'hard') || covered || transcriptCovered
+    return { status: readHardTerminalCreatedAt(transcriptState) !== null || covered || transcriptCovered
         ? 'terminal' : 'absent' };
 }
 
