@@ -213,6 +213,22 @@ describe('/desk/settings', () => {
         expect(storage.getState().settings).toBe(settings);
     });
 
+    it.each([
+        ['droid', 'A round droid with one bright eye.'],
+        ['ipb', 'A boxy companion with an antenna.'],
+    ])('R56: explains the saved preview-only choice for %s in the real Settings picker', async (choice, description) => {
+        state.width = 390;
+        const screen = await renderScreen(await settingsPage());
+        await screen.pressByTestIdAsync(`ip-no-worker-${choice}`);
+        expect(screen.findByTestId(`ip-no-worker-${choice}`)!.props.accessibilityState).toEqual({ checked: true });
+        const caption = screen.findByTestId('ip-robot-caption-unassigned')!;
+        expect(caption.props.children).toBe(`${description} Preview only for now. Your choice is saved for future unassigned issues.`);
+        expect(caption.props.numberOfLines).toBeUndefined();
+        expect(caption.props.accessibilityElementsHidden).not.toBe(true);
+        expect(caption.props.importantForAccessibility).not.toBe('no-hide-descendants');
+        expect(screen.findByTestId('ip-codex-robot-model')!.props.accessibilityState).toEqual({ checked: true });
+    });
+
     it('R48: hydrates unknown role choices as safe defaults without writing on mount', async () => {
         const persisted = new MMKV();
         persisted.set('ignorePrevious.noWorkerRobot', 'future');
