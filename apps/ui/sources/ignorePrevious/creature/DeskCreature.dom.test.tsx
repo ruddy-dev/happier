@@ -4,9 +4,14 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeskCreature, CREATURE_RUN_CAP_MS } from './DeskCreature.web';
 import type { DeskCreatureProps } from './DeskCreature.types';
+import { ShogView } from '../components/ShogView';
+import { deskPrefs } from '../deskPrefs';
 import { useCreatureMode } from './useCreatureMode';
 import { CREATURE_BURST_MS, type CreatureModeInput } from './creatureMode';
 
+// Select the real web hosts and real web renderer for the panel integration below.
+vi.mock('react-native', async () => vi.importActual('react-native-web'));
+vi.mock('./DeskCreature', async () => vi.importActual('./DeskCreature.web'));
 const preference = vi.hoisted(() => {
     // Path2D is constructed at module load by the copied mask artwork.
     globalThis.Path2D = class { roundRect() {} arc() {} addPath() {} } as unknown as typeof Path2D;
@@ -49,6 +54,8 @@ async function visibility(value: boolean) {
 beforeEach(() => {
     vi.useFakeTimers();
     preference.reduced = false;
+    deskPrefs.set('creatureEnabled', true);
+    deskPrefs.set('chatStyle', 'mask');
     hidden = false;
     nextFrame = 0;
     frames = new Map();
@@ -61,7 +68,7 @@ beforeEach(() => {
         observe() {}
         disconnect() { observers.delete(this.callback); }
     });
-    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(240);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(128);
     // jsdom has no canvas. Keep the drawing engine real; stub only its browser drawing boundary.
@@ -301,5 +308,59 @@ describe('DeskCreature browser lifecycle', () => {
         await render();
         await intersect(true);
         expect(frames.size).toBe(1);
+    });
+});
+
+// Uses the same canvas/RAF browser boundary above. The renderer, surface, and panel stay real.
+describe('Shog panel Replay lifecycle', () => {
+    async function panel() {
+        await act(async () => root.render(<ShogView onClose={() => {}} />));
+        await act(async () => vi.dynamicImportSettled());
+        await intersect(true);
+    }
+    function button(id: string) {
+        const element = container.querySelector<HTMLElement>(`[data-testid="ip-shog-${id}"]`);
+        expect(element).not.toBeNull();
+        return element!;
+    }
+    it.each(['pause', 'rest', 'playing'] as const)('Replay replaces the real canvas after %s and preserves control focus', async state => {
+        await panel();
+        const original = container.querySelector('canvas');
+        expect(original).not.toBeNull();
+        expect(frames.size).toBe(1);
+        if (state !== 'rest') await act(async () => vi.advanceTimersByTime(2500));
+        if (state === 'pause') await act(async () => button('pause').click());
+        if (state === 'rest') await act(async () => vi.advanceTimersByTime(6000));
+        if (state !== 'playing') expect(frames.size).toBe(0);
+        expect(container.querySelector('canvas')).toBe(original);
+        const replay = button('replay');
+        await act(async () => { replay.focus(); replay.click(); });
+        await act(async () => vi.dynamicImportSettled());
+        await intersect(true);
+        expect(original!.isConnected).toBe(false);
+        expect(container.querySelector('canvas')).not.toBe(original);
+        expect(container.querySelectorAll('canvas')).toHaveLength(1);
+        expect(document.activeElement).toBe(replay);
+        expect(frames.size).toBe(1);
+        await act(async () => vi.advanceTimersByTime(5999));
+        expect(frames.size).toBe(1);
+        await act(async () => vi.advanceTimersByTime(1));
+        expect(frames.size).toBe(0);
+    });
+    it.each(['system', 'desk'] as const)('calm %s preference keeps visible controls disabled without restarting the renderer', async source => {
+        if (source === 'system') preference.reduced = true;
+        else deskPrefs.set('creatureEnabled', false);
+        await panel();
+        const canvas = container.querySelector('canvas');
+        expect(canvas).not.toBeNull();
+        for (const name of ['pause', 'replay']) {
+            const control = button(name);
+            expect(control.getAttribute('aria-disabled')).toBe('true');
+            expect(control.tabIndex).toBe(-1);
+            await act(async () => control.click());
+        }
+        expect(container.querySelector('canvas')).toBe(canvas);
+        expect(frames.size).toBe(0);
+        expect(button('done').getAttribute('aria-disabled')).not.toBe('true');
     });
 });

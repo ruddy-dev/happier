@@ -165,6 +165,14 @@ afterEach(() => {
 });
 
 describe('FloatingOverlay', () => {
+    it.each(['modal', 'theme'] as const)('applies a requested square radius to both %s paint surfaces', async (surfaceChrome) => {
+        const screen = await renderOverlay({ surfaceChrome, borderRadius: 0 });
+        const surfaces = findAnimatedViewStyles(screen).filter(({ style }) => style.maxHeight !== undefined);
+        expect(surfaces[0].style.borderRadius).toBe(0);
+        expect(surfaces[1].style.borderRadius).toBe(0);
+        expect(surfaces[1].style.overflow).toBe('hidden');
+    });
+
     it('renders an arrow when configured', async () => {
         const screen = await renderOverlay({
             maxHeight: 200,
@@ -290,18 +298,19 @@ describe('FloatingOverlay', () => {
 
 
 it.each([
-    ['deskPageTokyo', true, 'web', 2],
-    ['deskPageDark', true, 'web', 12],
-    ['deskPageTokyo', false, 'web', 12],
-    ['deskPageTokyo', true, 'ios', 12],
-] as const)('scopes overlay geometry for %s voice=%s platform=%s', async (name, voice, platform, radius) => {
+    ['deskPageTokyo', true, 'web', undefined, 2],
+    ['deskPageTokyo', true, 'web', 0, 2],
+    ['deskPageDark', true, 'web', undefined, 12],
+    ['deskPageTokyo', false, 'web', 0, 0],
+    ['deskPageTokyo', true, 'ios', undefined, 12],
+] as const)('scopes overlay geometry for %s voice=%s platform=%s explicit=%s', async (name, voice, platform, borderRadius, radius) => {
     shared.platformOS = platform;
     const { FloatingOverlay } = await import('./FloatingOverlay');
     const { DeskVoicePageContext, DeskPageThemeContext } = await import('@/ignorePrevious/appearance/deskPageThemeContext');
     const screen = await renderScreen(
         React.createElement(DeskPageThemeContext.Provider, { value: name },
             React.createElement(DeskVoicePageContext.Provider, { value: voice },
-                React.createElement(FloatingOverlay, { maxHeight: 200, containerStyle: { borderTopLeftRadius: 0, borderTopRightRadius: 0 }, children: React.createElement(Child) }))),
+                React.createElement(FloatingOverlay, { maxHeight: 200, borderRadius, containerStyle: { borderTopLeftRadius: 0, borderTopRightRadius: 0 }, children: React.createElement(Child) }))),
     );
     const styles = findAnimatedViewStyles(screen).map((node) => node.style);
     const frame = styles.find((style) => style.maxHeight === 200 && style.overflow !== 'hidden' && style.borderTopLeftRadius === 0)!;
@@ -309,4 +318,5 @@ it.each([
     expect(frame.borderRadius).toBe(radius);
     expect(frame.borderTopRightRadius).toBe(0);
     expect(clip.borderRadius).toBe(radius);
+    expect(clip.overflow).toBe('hidden');
 });

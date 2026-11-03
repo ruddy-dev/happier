@@ -1,3 +1,4 @@
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { renderScreen } from '@/dev/testkit';
@@ -119,13 +120,15 @@ async function renderDesk() {
     function CountProbe() {
         return <Text testID="probe-count">{String(useWaitingCount())}</Text>;
     }
-    return renderScreen(
+    const screen = await renderScreen(
         <>
             <WaitingPanel />
             <CoordinatorPrompts coordinatorId="c1" />
             <CountProbe />
         </>,
     );
+    await revealWaitingDetails(screen);
+    return screen;
 }
 
 type Screen = Awaited<ReturnType<typeof renderDesk>>;
@@ -231,6 +234,7 @@ describe('WaitingPanel follows the transcript', () => {
         });
         expectDeskEntriesUnchanged(before);
 
+        await revealWaitingDetails(screen);
         expect(screen.getTextContent()).toContain('Allow bash');
         expect(screen.getTextContent()).not.toContain('Waiting on you. Open the session to see what.');
         expect(textOf(screen, 'probe-count')).toBe('1');

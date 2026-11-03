@@ -2,6 +2,8 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import type { MultiTextInputHandle } from '@/components/ui/forms/MultiTextInput';
+import { useComposerRequestHandle } from '@/components/sessions/model/composerRequests';
 import { AgentInput } from '@/components/sessions/agentInput/AgentInput';
 import { useSessionComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
 import type { PermissionMode } from '@/sync/domains/permissions/permissionTypes';
@@ -35,10 +37,12 @@ export function CoordinatorComposerFixture({ sessionId, footerLeadingActions, st
     const originalAccess = React.useRef(session?.accessLevel);
     const [state, setState] = React.useState<FixtureState>('idle');
     const [draft, setDraft] = React.useState('');
+    const inputRef = React.useRef<MultiTextInputHandle>(null);
     const [permissionMode, setPermissionMode] = React.useState<PermissionMode>('plan');
     const [modelMode, setModelMode] = React.useState('default');
     const controls = useDeskComposerControls(sessionId);
     const isReadOnly = session?.accessLevel === 'view';
+    useComposerRequestHandle(sessionId, { setText: setDraft, getText: () => inputRef.current?.getText() ?? draft, focus: () => inputRef.current?.focus() }, !isReadOnly);
     const agentType = state === 'idle' ? 'claude' : 'codex';
     const metadata = React.useMemo(() => session?.metadata ? {
         ...session.metadata, flavor: agentType, permissionMode,
@@ -79,7 +83,7 @@ export function CoordinatorComposerFixture({ sessionId, footerLeadingActions, st
                 <DeskText style={{ color: theme.colors.text.secondary }}>{option.label}</DeskText>
             </Pressable>)}
         </View> : null}
-        <AgentInput sessionId={sessionId} value={draft} onChangeText={setDraft}
+        <AgentInput ref={inputRef} sessionId={sessionId} value={draft} onChangeText={setDraft}
             onSend={noAction} isSendDisabled={true} disabled={isReadOnly}
             agentType={agentType} metadata={metadata} permissionMode={permissionMode}
             onPermissionModeChange={isReadOnly ? undefined : setPermissionMode}

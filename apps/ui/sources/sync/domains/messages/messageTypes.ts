@@ -30,6 +30,8 @@ export type ToolCall = {
          * (e.g. Claude Agent SDK `permission_suggestions` / `PermissionUpdate[]`).
          */
         suggestions?: unknown;
+        /** Derived in-memory ambiguity, never a producer grant or wire/storage field. */
+        requiresInspection?: true;
     };
 }
 

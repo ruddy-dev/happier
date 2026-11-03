@@ -98,6 +98,8 @@ interface FloatingOverlayProps {
     edgeFades?: FloatingOverlayEdgeFades;
     containerStyle?: StyleProp<ViewStyle>;
     scrollViewStyle?: StyleProp<ViewStyle>;
+    /** Override the radius of both the shadow frame and clipped surface. */
+    borderRadius?: number;
     /**
      * Optional subtle chevrons (up/down/left/right) that show when more content
      * exists beyond the current scroll position. Defaults to false.
@@ -134,6 +136,7 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
         surfaceChrome = 'modal',
         containerStyle,
         scrollViewStyle,
+        borderRadius,
         scrollViewRef,
         onScrollViewLayout,
         onScrollViewContentSizeChange,
@@ -234,13 +237,14 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
         <Animated.View style={[
             surfaceChrome === 'theme' ? styles.themedSurfaceShadowFrame : styles.modalShadowFrame,
             { maxHeight },
-            terminalVoice ? { borderRadius: 2 } : null,
             containerStyle,
+            borderRadius === undefined ? null : { borderRadius },
+            terminalVoice ? { borderRadius: 2 } : null,
         ]}>
             <Animated.View style={[
                 surfaceChrome === 'theme' ? styles.themedSurfaceClip : styles.modalClipSurface,
                 { maxHeight },
-                terminalVoice ? { borderRadius: 2 } : null,
+                terminalVoice ? { borderRadius: 2 } : borderRadius === undefined ? null : { borderRadius },
             ]}>
                 {content}
                 {scrollEnabled && fadeCfg ? (

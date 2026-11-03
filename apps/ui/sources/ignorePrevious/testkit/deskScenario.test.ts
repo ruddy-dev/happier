@@ -94,15 +94,15 @@ describe('deskScenario', () => {
 
     it('HARNESS-late: a late step is a no-op, a stamped one lands', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
 
         // An echo older than what the store holds: the store keeps the newer requests.
         await scenario.apply('w1', { requests: { r2: bash } }, { late: true });
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
 
         // The same patch as a fresh observation is taken.
         await scenario.apply('w1', { requests: { r2: bash } });
-        expect(scenario.textOf('ip-approvals-count')).toBe('2');
+        expect(scenario.textOf('ip-approvals-count')).toBe('2 requests');
     });
 
     it('HARNESS-steps: advance applies due steps in order, at their time', async () => {
@@ -116,12 +116,12 @@ describe('deskScenario', () => {
         scenario = await startDeskScenario({ script: stepped, coordinator: 'c1' });
         const t0 = Date.now();
         await scenario.advance(4_999);
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
         await scenario.advance(1);
-        expect(scenario.textOf('ip-approvals-count')).toBe('2');
+        expect(scenario.textOf('ip-approvals-count')).toBe('2 requests');
         expect(storage.getState().sessions.w1?.agentState?.requests?.r2?.createdAt).toBe(t0 + 5_000);
         await scenario.advance(5_000);
-        expect(scenario.textOf('ip-approvals-count')).toBe('0');
+        expect(scenario.textOf('ip-approvals-count')).toBe('0 requests');
         expect(Date.now()).toBe(t0 + 10_000);
     });
 

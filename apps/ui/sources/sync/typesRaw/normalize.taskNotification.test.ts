@@ -19,7 +19,7 @@ describe('typesRaw.normalizeRawMessage (task-notification)', () => {
       const normalized = normalizeRawMessage(`nested-${index}`, null, index + 1, { role: 'agent', content: { type: 'output', data }, meta: { source: 'cli' } } as never);
       if (normalized) updates.push(reducer(state, [normalized]));
     });
-    const nestedId = state.sidechainToolIdToMessageId.get('nested-tool');
+    const nestedId = state.sidechainToolIdToMessageId.get('nested-tool')?.at(-1)?.messageId;
     const parentId = state.toolIdToMessageId.get('parent-tool');
     expect(nestedId ? state.messages.get(nestedId)?.tool?.result : null).toBe('Nested settled outcome');
     expect(parentId ? state.messages.get(parentId)?.tool?.state : null).toBe('running');

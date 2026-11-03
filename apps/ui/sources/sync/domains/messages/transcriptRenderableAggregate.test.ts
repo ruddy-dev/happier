@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { listPendingSessionRequests, observePendingSessionRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 
 import type { Message } from './messageTypes';
 import {
@@ -6,6 +9,7 @@ import {
     buildTranscriptRenderableAggregate,
     canReuseTranscriptRenderableAggregateRequestStates,
     isTranscriptRenderableAggregate,
+    withTranscriptRenderableAggregateCompletedRequests,
     type TranscriptRenderableAggregate,
 } from './transcriptRenderableAggregate';
 
@@ -78,10 +82,32 @@ function expectAggregatesEquivalent(
     expect(actual.latestCommittedMessageCreatedAt).toBe(expected.latestCommittedMessageCreatedAt);
     expect(actual.latestUnreadAffectingMessageSeq).toBe(expected.latestUnreadAffectingMessageSeq);
     expect(actual.messageCount).toBe(expected.messageCount);
+    expect(actual.requestProjection).toEqual(expected.requestProjection);
     expect(Array.from(actual.requestStates.entries())).toEqual(Array.from(expected.requestStates.entries()));
 }
 
 describe('buildTranscriptRenderableAggregate', () => {
+    it('retains transcript contributions covered by completions so a new completion basis needs no transcript read', () => {
+        const pending = toolCall({ permissionId: 'request' });
+        const completedRequests = { request: { tool: 'bash', arguments: { command: 'ls' },
+            createdAt: 3_000, completedAt: 4_000, status: 'approved' as const } };
+        const aggregate = buildTranscriptRenderableAggregate({ messages: [pending], completedRequests });
+        expect(aggregate.requestStates.get('request')?.status).toBe('pending');
+        expect(aggregate.completedRequestsRef).toBe(completedRequests);
+        const session = createSessionFixture({ active: true, agentState: { requests: {}, completedRequests } });
+        expect(listPendingSessionRequests(session, [], { states: aggregate.requestStates })).toEqual([]);
+        expect(buildSessionListRenderableFromSession(session, undefined, aggregate))
+            .toEqual(buildSessionListRenderableFromSession(session, [pending]));
+        expect(observePendingSessionRequest(session, 'request', aggregate.requestStates.get('request')).status).toBe('terminal');
+        const refreshed = withTranscriptRenderableAggregateCompletedRequests(aggregate, null);
+        expect(refreshed.requestStates).toBe(aggregate.requestStates);
+        expect(refreshed.completedRequestsRef).toBeNull();
+        const returned = { ...session, agentState: { requests: {}, completedRequests: null } };
+        expect(listPendingSessionRequests(returned, [], { states: refreshed.requestStates }).map(request => request.id)).toEqual(['request']);
+        expect(buildSessionListRenderableFromSession(returned, undefined, refreshed))
+            .toEqual(buildSessionListRenderableFromSession(returned, [pending]));
+        expect(observePendingSessionRequest(returned, 'request', refreshed.requestStates.get('request')).status).toBe('pending');
+    });
     it('folds attention, unread, and transcript request state over all messages', () => {
         const messages = [
             agentText({ id: 'a1', createdAt: 1_000, seq: 10 }),
@@ -244,6 +270,28 @@ describe('applyMessageChangeToTranscriptRenderableAggregate', () => {
             previous: pendingTool,
             next: withoutPermission,
         })).toBe(false);
+    });
+
+    it('requires a rebuild when a nested hard outcome disappears behind an unchanged interruption', () => {
+        const hard = toolCall({ id: 'old', createdAt: 200, permissionId: 'request', permissionStatus: 'approved' });
+        const interrupted = toolCall({ id: 'latest', createdAt: 500, permissionId: 'request',
+            permissionStatus: 'canceled', children: [hard] });
+        if (interrupted.kind !== 'tool-call') throw new Error('Expected tool call fixture');
+        interrupted.tool.permission = { ...interrupted.tool.permission!, reason: 'Request interrupted' };
+        const session = createSessionFixture({ active: true, agentState: { requests: {
+            request: { tool: 'bash', arguments: { command: 'ls' }, createdAt: 100 },
+        }, completedRequests: null } });
+        const aggregate = buildTranscriptRenderableAggregate({ messages: [interrupted], completedRequests: null });
+        expect(listPendingSessionRequests(session, [], { states: aggregate.requestStates })).toEqual([]);
+
+        const withoutHard = { ...interrupted, children: [] };
+        expect(applyMessageChangeToTranscriptRenderableAggregate({
+            aggregate, previous: interrupted, next: withoutHard,
+        })).toBe(false);
+        const rebuilt = buildTranscriptRenderableAggregate({ messages: [withoutHard], completedRequests: null });
+        expect(listPendingSessionRequests(session, [], { states: rebuilt.requestStates })).toEqual([
+            { id: 'request', tool: 'bash', kind: 'permission', arguments: { command: 'ls' }, createdAt: 100 },
+        ]);
     });
 });
 

@@ -1,3 +1,4 @@
+import { reconcileSidechainPermissions } from './helpers/sidechainPermissions';
 /**
  * Message Reducer for Real-time Sync System
  * 
@@ -211,7 +212,7 @@ type StoredPermission = {
 
 export type ReducerState = {
     toolIdToMessageId: Map<string, string>; // toolId/permissionId -> messageId (since they're the same now)
-    sidechainToolIdToMessageId: Map<string, string>; // toolId -> sidechain messageId (for dual tracking)
+    sidechainToolIdToMessageId: Map<string, Array<{ messageId: string; sidechainId: string }>>; // toolId -> retained sidechain occurrences
     permissions: Map<string, StoredPermission>; // Store permission details by ID for quick lookup
     orphanToolResults: Map<string, OrphanToolResultBucket>; // Buffer tool results that arrive before their tool call
     localIds: Map<string, string>;
@@ -544,6 +545,8 @@ export function reducer(
         allocateId,
     });
 
+    reconcileSidechainPermissions(state, agentState, changed);
+
     runModeSwitchEventsPhase({
         state,
         nonSidechainMessages,
@@ -806,7 +809,12 @@ function convertReducerMessageToMessage(
             localId: reducerMsg.localId,
             createdAt: reducerMsg.createdAt,
             kind: 'tool-call',
-            tool: { ...reducerMsg.tool },
+            // Later reducer passes mutate permission fields in place. Keep the published
+            // message's prior contribution intact for incremental aggregate reconciliation.
+            tool: {
+                ...reducerMsg.tool,
+                ...(reducerMsg.tool.permission ? { permission: { ...reducerMsg.tool.permission } } : {}),
+            },
             children: childMessages,
             meta: reducerMsg.meta,
             ...observationMetadata,

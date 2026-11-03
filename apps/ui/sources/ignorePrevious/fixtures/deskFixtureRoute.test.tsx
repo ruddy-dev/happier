@@ -204,6 +204,32 @@ describe('dev/desk-fixture route', () => {
         await screen.unmount();
     });
 
+    it('R48: opens the production robot picker offline, restores picks after reopening and leaves account settings alone', async () => {
+        const screen = await showFixtureDesk();
+        const settings = storage.getState().settings;
+        const profile = storage.getState().profile;
+        const sessions = storage.getState().sessions;
+        expect(screen.findByTestId('ip-robot-fixture-toggle')).not.toBeNull();
+        await screen.pressByTestIdAsync('ip-robot-fixture-toggle');
+        expect(screen.findByTestId('ip-robot-picker-codex')).not.toBeNull();
+        await screen.pressByTestIdAsync('ip-no-worker-ipb');
+        expect(screen.findByTestId('ip-codex-robot-model')!.props.accessibilityState).toEqual({ checked: true });
+        await screen.pressByTestIdAsync('ip-codex-robot-loupe');
+        await screen.pressByTestIdAsync('ip-robot-fixture-toggle');
+        expect(screen.findByTestId('ip-robot-picker-codex')).toBeNull();
+        await screen.pressByTestIdAsync('ip-robot-fixture-toggle');
+        expect(screen.findByTestId('ip-codex-robot-loupe')!.props.accessibilityState).toEqual({ checked: true });
+        expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+        expect(storage.getState().settings).toBe(settings);
+        expect(storage.getState().profile).toBe(profile);
+        expect(storage.getState().sessions).toBe(sessions);
+        await act(async () => auth.set({ isAuthenticated: true }));
+        expect(screen.findByTestId('ip-robot-fixture-toggle')).toBeNull();
+        expect(screen.findByTestId('ip-robot-picker-codex')).toBeNull();
+        expect(screen.findByTestId('ip-fixture-signed-in')).not.toBeNull();
+        await screen.unmount();
+    });
+
     it('leaves a coordinator choice already stored on this device alone', async () => {
         setStoredCoordinatorId('real-coord-session');
 

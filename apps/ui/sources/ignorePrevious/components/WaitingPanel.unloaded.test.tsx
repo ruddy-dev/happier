@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { findTestInstanceByTypeContainingText } from '@/dev/testkit/render/renderScreen';
 
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import raw from '../testkit/scripts/W6-unloaded-record.json';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,17 +71,19 @@ describe('WaitingPanel unloaded record (W6)', () => {
         expect(findTestInstanceByTypeContainingText(scenario.screen.tree, 'Pressable', 'Open session')).toBeTruthy();
         expect(waiting).not.toContain('Allow');
         expect(waiting).not.toContain('Deny');
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
     });
 
     it('W6: when the record loads, the row becomes an Allow card', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.openApprovals();
         await scenario.advance(5_000);
+        expect(scenario.textOf('ip-waiting') ?? '').not.toContain('Allow Bash');
+        await revealWaitingDetails(scenario.screen);
         const waiting = scenario.textOf('ip-waiting') ?? '';
         expect(waiting).toContain('Allow Bash');
         expect(waiting).not.toContain('Waiting on you. Open the session to see what.');
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
     });
 });
 
