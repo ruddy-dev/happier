@@ -8,8 +8,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
-import { AgentInput } from '@/components/sessions/agentInput/AgentInput';
-import type { PermissionMode } from '@/sync/domains/permissions/permissionTypes';
+import { CoordinatorComposerFixture } from './CoordinatorComposerFixture';
 import { t } from '@/text';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 import { isHostVisible, isRuntimeActive, subscribeToRuntimeActiveChange } from '@/utils/runtime/isRuntimeActive';
@@ -22,11 +21,6 @@ import { storage } from '@/sync/domains/state/storage';
 import { CreatureFixture } from './CreatureFixture';
 import { FreshStartFixture } from './FreshStartFixture';
 
-// No session operations or remote discovery in the synthetic route. All edits stay local.
-const noSend = () => {};
-const noSuggestions = async () => [];
-const noFileViewer = () => {};
-const autocompleteKinds = [] as const;
 const subscribeIdle = () => () => {};
 // useSyncExternalStore needs a stable snapshot for the original, non-player fixture.
 const idleTranscript = { status: 'idle' as const, started: false, step: 0, transcript: scenario.coordinatorBody.transcript };
@@ -34,8 +28,6 @@ const getIdleSnapshot = () => idleTranscript;
 
 export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingActions }: { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
-    const [draft, setDraft] = React.useState('');
-    const [permissionMode, setPermissionMode] = React.useState<PermissionMode>('plan');
     const hasDemo = storage(state => Boolean(state.sessions[demo.coordinatorId]));
     const player = hasDemo ? getDemoConversation() : null;
     const playback = React.useSyncExternalStore(player?.subscribe ?? subscribeIdle, player?.getSnapshot ?? getIdleSnapshot);
@@ -95,13 +87,8 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
                     })}
                 </View>
             </ScrollView>
-            <AgentInput sessionId={hasDemo ? demo.coordinatorId : scenario.coordinatorId}
-                value={draft} onChangeText={setDraft} placeholder={t('ignorePrevious.composer.placeholder')}
-                onSend={noSend} isSendDisabled={true} agentType="claude"
-                permissionMode={permissionMode} onPermissionModeChange={setPermissionMode}
-                onFileViewerPress={noFileViewer} autocompleteKinds={autocompleteKinds} autocompleteSuggestions={noSuggestions}
-                footerLeadingActions={footerLeadingActions} statusTrailingActions={statusTrailingActions}
-                hideContextUsage={true} providerUsageGauge={null} />
+            <CoordinatorComposerFixture sessionId={hasDemo ? demo.coordinatorId : scenario.coordinatorId}
+                footerLeadingActions={footerLeadingActions} statusTrailingActions={statusTrailingActions} />
         </View>
     );
 }
