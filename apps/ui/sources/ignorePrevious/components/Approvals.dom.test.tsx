@@ -9,6 +9,9 @@ import { storage } from '@/sync/domains/state/storage';
 import { ApprovalsButton, ApprovalsDrawer } from './Approvals';
 import { deskPrefs } from '../deskPrefs';
 import { sessionAllowResult, sessionDenyResult, sessionAllowWithAnswers } from '@/sync/ops';
+import { createDeferred } from '@/dev/testkit';
+import { createWaitingHistory } from './WaitingPanel';
+import type { SessionPermissionResult } from '@/sync/ops/sessions';
 
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
@@ -48,10 +51,11 @@ function Drawer({ width, draft = false }: { width: number; draft?: boolean }) {
     const [open, setOpen] = React.useState(false);
     const [dirty, setDirty] = React.useState(false);
     const openerRef = React.useRef<View>(null);
+    const [history] = React.useState(createWaitingHistory);
     return <>
         <ApprovalsButton open={open} onPress={() => setOpen(value => !value)} openerRef={openerRef} />
         <input data-testid="chat" />
-        <ApprovalsDrawer open={open} width={width} openerRef={openerRef} onClose={() => setOpen(false)} hasHalfAnsweredCard={dirty} onDirtyChange={setDirty}>
+        <ApprovalsDrawer open={open} width={width} openerRef={openerRef} onClose={() => setOpen(false)} history={history} hasHalfAnsweredCard={dirty} onDirtyChange={setDirty}>
             {draft ? <DraftCard onDirty={setDirty} /> : null}
         </ApprovalsDrawer>
     </>;
@@ -229,4 +233,59 @@ it('does not steal focus from chat when an unfocused request disappears', async 
     await render(1440); await click('ip-approvals-open'); await click('chat');
     await act(async () => storage.getState().applySessions([{ ...session, agentStateVersion: 2, agentState: { requests: {} } }]));
     expect(document.activeElement).toBe(element('chat'));
+});
+
+it.each(['allow', 'deny', 'answer'] as const)('drawer reopen during %s keeps the pending and settled state reactive', async action => {
+    const gate = createDeferred<SessionPermissionResult>();
+    if (action === 'answer') vi.mocked(sessionAllowWithAnswers).mockImplementationOnce(async () => { await gate.promise; });
+    else vi.mocked(action === 'allow' ? sessionAllowResult : sessionDenyResult).mockReturnValueOnce(gate.promise);
+    storage.getState().setSocketStatus('connected');
+    storage.getState().applySessions([createSessionFixture({ id: 'worker', active: true, agentState: { requests: {
+        request: action === 'answer'
+            ? { tool: 'AskUserQuestion', kind: 'user_action', arguments: { questions: [{ question: 'Choose?', options: [{ label: 'Unit' }] }] }, createdAt: 1 }
+            : { tool: 'Bash', arguments: { command: 'echo pending' }, createdAt: 1 },
+    } } })]);
+    await render(390); await click('ip-approvals-open'); await click('ip-waiting-toggle-request');
+    if (action === 'answer') await click('ip-waiting-option-request-0-0');
+    const actionId = `ip-waiting-${action === 'answer' ? 'send' : action}-request`;
+    await click(actionId);
+    await click('ip-approvals-close');
+    expect(visible()).toBeNull();
+    await click('ip-approvals-open'); await click('ip-waiting-toggle-request');
+    const busy = element(actionId).getAttribute('aria-busy');
+    try {
+        await click(actionId);
+    } finally { await act(async () => gate.resolve({ ok: true })); }
+    // No request-store update accompanies completion. The open drawer must react anyway.
+    expect(element(actionId).getAttribute('aria-disabled')).toBe('true');
+    await click(actionId);
+    expect(vi.mocked(sessionAllowResult).mock.calls.length + vi.mocked(sessionDenyResult).mock.calls.length + vi.mocked(sessionAllowWithAnswers).mock.calls.length).toBe(1);
+    expect(busy).toBe('true');
+});
+
+it('view-only question text stays escaped and has no hidden Enter action through permission changes', async () => {
+    const session = createSessionFixture({ id: 'viewer', active: true, accessLevel: 'view', agentState: { requests: {
+        request: { tool: 'AskUserQuestion', kind: 'user_action', arguments: { questions: [{
+            question: 'Choose <img src=x onerror=alert(1)>\u202E', options: [{ label: 'Unit\u2066', description: 'Safe <script>\u200B' }], freeform: {},
+        }] }, createdAt: 1 },
+    } } });
+    storage.getState().setSocketStatus('connected'); storage.getState().applySessions([session]);
+    await render(390); await click('ip-approvals-open');
+    const toggle = element('ip-waiting-toggle-request');
+    await click('ip-waiting-toggle-request');
+    expect(element('ip-waiting-detail-request').textContent).toContain('Choose <img src=x onerror=alert(1)>⟨U+202E⟩');
+    expect(element('ip-waiting-detail-request').textContent).toContain('Unit⟨U+2066⟩');
+    expect(element('ip-waiting-detail-request').textContent).toContain('Safe <script>⟨U+200B⟩');
+    expect(element('ip-waiting-detail-request').querySelectorAll('img,script,input,textarea')).toHaveLength(0);
+    expect(element('ip-waiting-detail-request').querySelectorAll('[role="button"],button')).toHaveLength(1); // Open session only.
+    await act(async () => {
+        toggle.focus();
+        toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        toggle.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true, cancelable: true }));
+        toggle.click(); // jsdom does not synthesize native button activation.
+    });
+    await act(async () => storage.getState().applySessions([{ ...session, accessLevel: 'edit', canApprovePermissions: true, updatedAt: 2 }]));
+    // The collapsed row's retained controls also cannot submit via Enter.
+    await act(async () => element('ip-waiting-detail-request').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(sessionAllowResult).not.toHaveBeenCalled(); expect(sessionDenyResult).not.toHaveBeenCalled(); expect(sessionAllowWithAnswers).not.toHaveBeenCalled();
 });

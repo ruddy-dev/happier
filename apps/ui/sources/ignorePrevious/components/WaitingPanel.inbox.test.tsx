@@ -50,6 +50,177 @@ function seed(sessions: Session[]) {
     });
 }
 
+function questionWorker(text = 'Which checks?'): Session {
+    return createSessionFixture({ id: 'question-worker', active: true, agentState: { requests: {
+        question: { tool: 'AskUserQuestion', kind: 'user_action', arguments: { questions: [{
+            header: 'Checks\u202E', question: text, options: [{ label: 'Unit\u2066', description: 'Run <checks>\u200B' }], freeform: {},
+        }] }, createdAt: 1 },
+    } } });
+}
+
+it.each(['allow', 'deny', 'answer'] as const)('reopened %s reacts to the earlier send settling while the same request stays listed', async action => {
+    const pending = createDeferred<SessionPermissionResult | void>();
+    boundary[action].mockReturnValueOnce(pending.promise);
+    seed([action === 'answer' ? questionWorker() : worker('worker', 'echo check')]);
+    const history = createWaitingHistory();
+    const requestId = action === 'answer' ? 'question' : 'shared';
+    const actionId = `ip-waiting-${action === 'answer' ? 'send' : action}-${requestId}`;
+    const first = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(first.findByTestId(`ip-waiting-toggle-${requestId}`));
+    if (action === 'answer') await pressTestInstanceAsync(first.findByTestId('ip-waiting-option-question-0-0'));
+    await pressTestInstanceAsync(first.findByTestId(actionId));
+    act(() => first.tree.unmount());
+    const reopened = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(reopened.findByTestId(`ip-waiting-toggle-${requestId}`));
+    // Complete the new draft as well: its empty state must not hide a lost sending/sent state.
+    if (action === 'answer') act(() => reopened.tree.changeTextByTestId('ip-waiting-other-question-0', 'second answer'));
+    const sending = reopened.findByTestId(actionId)?.props.accessibilityState;
+    try {
+        await pressTestInstanceAsync(reopened.findByTestId(actionId));
+        expect(boundary[action]).toHaveBeenCalledTimes(1);
+    } finally {
+        await act(async () => pending.resolve(action === 'answer' ? undefined : { ok: true }));
+    }
+    const settled = reopened.findByTestId(actionId)?.props.disabled;
+    await pressTestInstanceAsync(reopened.findByTestId(actionId));
+    if (action !== 'answer') await pressTestInstanceAsync(reopened.findByTestId(`ip-waiting-${action === 'allow' ? 'deny' : 'allow'}-shared`));
+    expect(boundary.allow.mock.calls.length + boundary.deny.mock.calls.length + boundary.answer.mock.calls.length).toBe(1);
+    expect(sending).toMatchObject({ disabled: true, busy: true });
+    expect(settled).toBe(true);
+});
+
+it.each(['allow', 'deny', 'answer'] as const)('reopened %s permits a retry after the earlier send fails', async action => {
+    const pending = createDeferred<SessionPermissionResult | void>();
+    boundary[action].mockReturnValueOnce(pending.promise);
+    seed([action === 'answer' ? questionWorker() : worker('worker', 'echo retry')]);
+    const history = createWaitingHistory();
+    const requestId = action === 'answer' ? 'question' : 'shared';
+    const actionId = `ip-waiting-${action === 'answer' ? 'send' : action}-${requestId}`;
+    const first = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(first.findByTestId(`ip-waiting-toggle-${requestId}`));
+    if (action === 'answer') act(() => first.tree.changeTextByTestId('ip-waiting-other-question-0', 'discarded draft'));
+    await pressTestInstanceAsync(first.findByTestId(actionId));
+    act(() => first.tree.unmount());
+    const reopened = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(reopened.findByTestId(`ip-waiting-toggle-${requestId}`));
+    const sending = reopened.findByTestId(actionId)?.props.accessibilityState;
+    if (action === 'answer') expect(reopened.findByTestId('ip-waiting-other-question-0')?.props.value).toBe('');
+    await act(async () => pending.reject(new Error('offline')));
+    if (action === 'answer') {
+        expect(reopened.findByTestId('ip-waiting-question-error-question')?.props.accessibilityRole).toBe('alert');
+        act(() => reopened.tree.changeTextByTestId('ip-waiting-other-question-0', 'fresh retry'));
+    }
+    expect(reopened.findByTestId(actionId)?.props.disabled).toBe(false);
+    await pressTestInstanceAsync(reopened.findByTestId(actionId));
+    expect(boundary[action]).toHaveBeenCalledTimes(2);
+    expect(reopened.findByTestId(actionId)?.props.disabled).toBe(true);
+    expect(sending).toMatchObject({ disabled: true, busy: true });
+    if (action === 'answer') expect(JSON.stringify(boundary.answer.mock.calls[1])).not.toContain('discarded draft');
+});
+
+it.each([{ accessLevel: 'view' as const }, { accessLevel: 'edit' as const, canApprovePermissions: false }])(
+    'R10: readable escaped questions without mutation controls for %j, including replacements and permission changes', async access => {
+        const original = questionWorker('Choose <safe>\u202E');
+        seed([{ ...original, ...access }]);
+        const screen = await renderScreen(<WaitingPanel />);
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-question'));
+        expect(screen.getTextContent()).toContain('Choose <safe>⟨U+202E⟩');
+        expect(screen.getTextContent()).toContain('Checks⟨U+202E⟩');
+        expect(screen.getTextContent()).toContain('Unit⟨U+2066⟩');
+        expect(screen.getTextContent()).toContain('Run <checks>⟨U+200B⟩');
+        expect(screen.findByTestId('ip-waiting-option-question-0-0')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-other-question-0')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-send-question')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-allow-question')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-question')).toBeNull();
+        act(() => storage.getState().applySessions([{ ...original, accessLevel: 'edit', canApprovePermissions: true, updatedAt: 2 }]));
+        act(() => screen.tree.changeTextByTestId('ip-waiting-other-question-0', 'stale secret draft'));
+        const staleSend = screen.findByTestId('ip-waiting-send-question')!.props.onPress;
+        await act(async () => { storage.getState().applySessions([{ ...original, ...access, updatedAt: 3 }]); staleSend(); });
+        expect(boundary.answer).not.toHaveBeenCalled();
+        expect(screen.findByTestId('ip-waiting-send-question')).toBeNull();
+        expect(screen.getTextContent()).not.toContain('stale secret draft');
+        act(() => storage.getState().applySessions([{ ...original, accessLevel: 'edit', canApprovePermissions: true, updatedAt: 4 }]));
+        expect(screen.findByTestId('ip-waiting-other-question-0')?.props.value).toBe('');
+        await act(async () => staleSend());
+        expect(boundary.answer).not.toHaveBeenCalled();
+        act(() => storage.getState().applySessions([{ ...original, ...access, updatedAt: 5 }]));
+        const replacement = questionWorker('Replacement\u202E');
+        act(() => storage.getState().applySessions([{ ...replacement, ...access, agentStateVersion: 2, updatedAt: 6 }]));
+        expect(screen.findByTestId('ip-waiting-changed-question')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-question'));
+        expect(screen.getTextContent()).toContain('Replacement⟨U+202E⟩');
+        expect(screen.getTextContent()).not.toContain('Choose <safe>');
+        expect(screen.findByTestId('ip-waiting-send-question')).toBeNull();
+        act(() => storage.getState().applySessions([{ ...replacement, agentStateVersion: 2, accessLevel: 'edit', canApprovePermissions: true, updatedAt: 7 }]));
+        expect(screen.findByTestId('ip-waiting-other-question-0')?.props.value).toBe('');
+        await act(async () => staleSend());
+        expect(boundary.answer).not.toHaveBeenCalled();
+    },
+);
+
+it('a reopened pending question cannot settle onto replacement content or leak its old draft', async () => {
+    const pending = createDeferred<void>(); boundary.answer.mockReturnValueOnce(pending.promise);
+    const original = questionWorker('Original\u202E'); seed([original]);
+    const history = createWaitingHistory();
+    const first = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(first.findByTestId('ip-waiting-toggle-question'));
+    act(() => first.tree.changeTextByTestId('ip-waiting-other-question-0', 'old draft'));
+    const oldSend = first.findByTestId('ip-waiting-send-question')!.props.onPress;
+    await act(async () => oldSend());
+    act(() => first.tree.unmount());
+    const reopened = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-toggle-question'));
+    act(() => storage.getState().applySessions([{ ...questionWorker('Original⟨U+202E⟩'), agentStateVersion: 2 }]));
+    expect(reopened.findByTestId('ip-waiting-changed-question')).not.toBeNull();
+    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-toggle-question'));
+    expect(reopened.findByTestId('ip-waiting-other-question-0')?.props.value).toBe('');
+    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-option-question-0-0'));
+    try {
+        await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-send-question'));
+        expect(boundary.answer).toHaveBeenCalledTimes(1); // The real shared transport lock still belongs to A.
+    } finally { await act(async () => pending.resolve()); }
+    await act(async () => oldSend());
+    expect(boundary.answer).toHaveBeenCalledTimes(1);
+    expect(reopened.findByTestId('ip-waiting-send-question')?.props.disabled).toBe(false);
+    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-send-question'));
+    expect(boundary.answer).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(boundary.answer.mock.calls[1])).not.toContain('old draft');
+});
+
+it('a new desk lifecycle does not inherit sent state from the previous desk', async () => {
+    seed([worker('worker', 'echo same')]);
+    const first = await renderScreen(<WaitingPanel history={createWaitingHistory()} />);
+    await pressTestInstanceAsync(first.findByTestId('ip-waiting-toggle-shared'));
+    await pressTestInstanceAsync(first.findByTestId('ip-waiting-allow-shared'));
+    act(() => first.tree.unmount());
+    const nextDesk = await renderScreen(<WaitingPanel history={createWaitingHistory()} />);
+    await pressTestInstanceAsync(nextDesk.findByTestId('ip-waiting-toggle-shared'));
+    expect(nextDesk.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+    await pressTestInstanceAsync(nextDesk.findByTestId('ip-waiting-allow-shared'));
+    expect(boundary.allow).toHaveBeenCalledTimes(2);
+});
+
+it.each(['success', 'failure'] as const)('a removed request cannot pass late %s state to its next occurrence', async result => {
+    const pending = createDeferred<SessionPermissionResult>(); boundary.allow.mockReturnValueOnce(pending.promise);
+    const original = worker('worker', 'echo same'); seed([original]);
+    const history = createWaitingHistory();
+    const first = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(first.findByTestId('ip-waiting-toggle-shared'));
+    await pressTestInstanceAsync(first.findByTestId('ip-waiting-allow-shared'));
+    act(() => first.tree.unmount());
+    const reopened = await renderScreen(<WaitingPanel history={history} />);
+    act(() => storage.getState().applySessions([{ ...original, agentStateVersion: 2, agentState: { requests: {} } }]));
+    expect(reopened.findByTestId('ip-answered-shared')).not.toBeNull();
+    await act(async () => result === 'success' ? pending.resolve({ ok: true }) : pending.reject(new Error('offline')));
+    if (result === 'success') expect(reopened.getTextContent()).toContain(t('ignorePrevious.waiting.allowed'));
+    act(() => storage.getState().applySessions([{ ...original, agentStateVersion: 3 }]));
+    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-toggle-shared'));
+    expect(reopened.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+    await pressTestInstanceAsync(reopened.findByTestId('ip-waiting-allow-shared'));
+    expect(boundary.allow).toHaveBeenCalledTimes(2);
+});
+
 it('R46: starts compact; opening and collapsing never answer; full detail precedes Allow', async () => {
     const command = 'echo start ' + 'argument '.repeat(40) + '&& echo final-command-tail';
     seed([worker('worker', command)]);
