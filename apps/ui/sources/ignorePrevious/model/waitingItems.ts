@@ -9,6 +9,7 @@ export type WaitingItem = {
     sessionId: string;
     requestId: string;
     sessionTitle: string;
+    /** Safe display name; raw tool identity remains in requestContent. */
     tool: string;
     /** Questions (`user_action`) get no Allow/Deny; supported question cards offer explicit Send. */
     kind: SessionPendingRequest['kind'];
@@ -177,7 +178,7 @@ export function toWaitingItems(
             sessionId,
             requestId: request.id,
             sessionTitle,
-            tool: request.tool,
+            tool: displayText(request.tool),
             kind: request.kind,
             summary: summariseRequest(request.tool, request.arguments),
             detail: describeRequest(request.tool, request.arguments),
