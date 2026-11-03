@@ -33,6 +33,22 @@ While the desk tab is open, its isolated notifier follows the existing Waiting o
 
 Worker bulbs refresh on store changes and the existing shared desk clock. On web, the notifier also owns one 30-second recheck while the page is hidden or unfocused, `blocked` is selected, waits exist, and the Notification API is available. It stops that interval when any condition fails or the notifier unmounts. Each recheck judges worker activity at the current time; browser background throttling may delay it. Alerts require granted browser permission and a hidden or unfocused page. They contain only **Waiting on you**, use the replacement tag `ip-waiting`, and focus the window when clicked. Happier's own notifications and phone push are unchanged.
 
+## Public static desk demo (development tooling)
+
+From the repository root, build a fresh folder with:
+
+```bash
+node scripts/overlay/buildDeskDemo.mjs [output-folder] [base-path]
+```
+
+Defaults are `.project/tmp/desk-demo/` and `/desk-demo/`. The output must not already exist. This performs a cold fixture-enabled Expo web export with an isolated Metro cache, no dotenv or machine-local app config, empty server URLs, no analytics key or error-reporting DSN, and the analytics feature denied. `EXPO_BASE_URL` supplies Expo's asset/router prefix only for this build. It does not copy into a website or publish anything.
+
+The folder root loads an external bootstrap before Expo starts. It selects `dev/desk-fixture/?data=demo`, and a second directory `index.html` at that path makes reload work on a static host without SPA fallback. Both documents load the same app and assets. Public icon links, favicon constants and the self-hosted desk font URL are prefixed during post-processing. The upstream PWA-install manifest link is removed from the demo documents. Linked installs are discovered from the real Expo and hoisted expo-constants package locations, including package-level symlinks. Demo presentation hides developer previews and the stack header, replaces the connection banner with a sample-data note, and keeps all desk session Open controls local. Ordinary fixtures retain their developer tools; ordinary desk session navigation delegates to Happier's canonical session navigation hook, including the Sessions sheet.
+
+The build runs `node scripts/overlay/deskDemoGuard.mjs <output-folder> [base-path]` before reporting success. The guard rejects private identifiers, paths, endpoints, non-placeholder emails and key-shaped secrets in every exported file; it reports remaining HTTPS hosts with counts for review. Personal names and handles are not stored in the repository: set `DESK_DEMO_PRIVATE_TERMS` to a comma-separated list when building or running the guard, which fails when the list is empty. Static scanning does not prove runtime isolation. Before publishing, verify zero off-origin requests and zero WebSockets in the guarded browser, including simulation and worker Open. The upstream signed-out feature probe may still request same-origin `/v1/features`; a static-host 404 produces an unsupported-feature snapshot without stopping the desk. No shared sync implementation is altered for the demo.
+
+Hosting needs a path-specific CSP that allows self-hosted scripts/fonts/images, React Native Web's injected inline styles, same-origin asset/feature fetches, and same-origin framing. The site's global `frame-ancestors 'none'` policy must be replaced for this path, rather than combined with another CSP. The hosting integration owns the final header and browser verification.
+
 ## Branches
 
 - `stable-base`: the upstream stable tag in use. It only ever moves forward to a newer stable tag.
@@ -176,7 +192,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `packages/tests/src/testkit/socketClient.ts`, `packages/tests/suites/core-e2e/rpc.permissionRoundtrip.test.ts` | RPC `params` and replies are typed `unknown`, as plain sessions send raw JSON rather than base64 ciphertext. |
 | `apps/ui/sources/theme/profiles/communityBuiltInThemeProfiles.ts` | Narrows its preset type so the overlay presets keep their `ignorePrevious.*` translation keys instead of upstream's `settingsAppearance.themeProfiles.presets.*` template. |
 | `apps/ui/sources/sync/ops/sessions.ts` | Adds `sessionAllowResult` and `sessionDenyResult`, which return the CLI's answer instead of dropping it. `sessionAllow` and `sessionDeny` call them and keep their `void` behaviour. Adds `sessionAbortResult` for honest Desk failures without local thinking recovery; legacy `sessionAbort` preserves its void semantics through one shared recovery helper. |
-| `apps/ui/sources/app/(app)/dev/desk-fixture.tsx` | ATR-74 adds the optional `data=demo` dataset selector to the existing gated fixture route; no parameter preserves the original fixture. |
+| `apps/ui/sources/app/(app)/dev/desk-fixture.tsx` | ATR-74 adds the optional `data=demo` dataset selector to the existing gated fixture route; no parameter preserves the original fixture. ATR-76 supplies demo presentation context and hides the stack header only for `data=demo`. |
 | `apps/ui/sources/auth/routing/authRouting.ts`, `authRouting.test.ts` | One line makes `dev/desk-fixture` public for signed-out users, only in a build with `EXPO_PUBLIC_IP_FIXTURES=1`; the test covers it on and off. |
 | `apps/ui/sources/sync/store/domains/sessions.ts` | Adds `deleteSessions` at the existing deletion owner; single deletion delegates to it, and a batch saves the warm cache only after all sessions and projections are removed. |
 | `apps/ui/sources/sync/store/types.ts` | Exposes the additive batch-deletion method on the public store interface. |
@@ -189,6 +205,7 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/sync/runtime/sessionRealtimeRecordConsumers.ts` | ATR-44 adds a server-scoped, refcounted mount registry, an indexed membership lookup, a test-clear function and change listeners with import-cycle-safe storage. It grants record demand only; sessions without a record consumer behave as upstream. |
 | `apps/ui/sources/sync/runtime/sessionRealtimeRecordConsumers.test.ts` | ATR-44 covers refcounts, server isolation, notifications and suppression; sessions without a record consumer retain upstream full-content decisions. |
 | `apps/ui/sources/sync/sync.recordConsumers.test.ts` | ATR-44 exercises real snapshot/exact-fetch orchestration with fake HTTP responses, including late-load dedupe, four-request concurrency and no retry until membership changes. It checks that a nonconsumer snapshot row retains upstream unloaded behavior, that in-page desk-only failures settle once and advance pagination while pinned/attention/explicit failures reject, and that changed catch-up ids refresh without extra reads for unchanged loaded consumers. |
+| `apps/ui/app.config.js` | ATR-76 adds `experiments.baseUrl` only when `EXPO_BASE_URL` is non-empty; ordinary app configuration stays unchanged. |
 | `apps/ui/metro.config.js` | Two seams: `HAPPIER_METRO_EXTRA_WATCH_FOLDERS` adds watch folders (off unless set), and a `resolver.blockList` entry drops `ignorePrevious/fixtures/` unless `EXPO_PUBLIC_IP_FIXTURES=1`. |
 | `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.ts` | Adds `holdAfterSuccess`, default true to preserve the session footer; the desk opts out of shared settlement after success while keeping in-flight arbitration. |
 | `apps/ui/sources/components/tools/shell/permissions/permissionActionDispatchGuard.test.ts` | Covers the option with a retained footer request and release on cleanup. |

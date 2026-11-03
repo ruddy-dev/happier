@@ -16,7 +16,7 @@ import { workerPermissionMode, requestsApprovedAfterModeChange, type ModeChangeR
 import { useWorkerPermissionOutcome } from '../model/workerPermissionOutcome';
 import { DeskText as Text } from '../typography/DeskText';
 import { Typography } from '@/constants/Typography';
-import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
+import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
 import { useHappyAction } from '@/hooks/ui/useHappyAction';
 import { applyPermissionModeSelection } from '@/sync/domains/permissions/permissionModeApply';
 import { getPermissionModeOptionsForSession, normalizePermissionModeForAgentType } from '@/sync/domains/permissions/permissionModeOptions';
@@ -240,7 +240,7 @@ function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume:
     const machine = storage((state) => state.machines[target?.machineId ?? originId ?? ''] ?? null);
     const nowMs = useDeskNow();
     const machineReachable = resolveSessionMachineReachability({ machineIsKnown: Boolean(machine), machineIsOnline: machine ? isMachineOnline(machine, nowMs) : false });
-    const navigateToSession = useNavigateToSession();
+    const navigateToSession = useDeskSessionNavigation();
 
     return (
         <View style={{ gap: 6 }}>

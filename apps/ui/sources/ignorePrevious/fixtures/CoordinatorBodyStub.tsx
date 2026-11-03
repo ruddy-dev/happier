@@ -65,8 +65,7 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
                         scroll.current?.scrollToEnd({ animated: !reducedMotion });
                     }
                 }}>
-                <CreatureFixture />
-                <FreshStartFixture />
+                {!hasDemo ? <><CreatureFixture /><FreshStartFixture /></> : null}
                 <View style={{ gap: 10, padding: 16 }}>
                     {transcript.map((line, index) => {
                         const mine = line.from === 'you';

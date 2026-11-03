@@ -11094,6 +11094,9 @@ settingsSession: {
   },
     ignorePrevious: {
         demo: {
+            noteTitle: 'Demo desk',
+            sampleNote: 'An interactive demo with made-up work. Nothing is connected or sent.',
+            openWorkerNote: "In the live desk this opens the worker's chat.",
             simulate: 'Simulate conversation',
             pause: 'Pause',
             resume: 'Resume',

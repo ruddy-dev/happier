@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { TextInput } from '@/components/ui/text/Text';
 import { Icon } from '@/components/ui/icons/Icon';
-import { useRouter } from 'expo-router';
+import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
 import { useUnistyles } from 'react-native-unistyles';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 import { t } from '@/text';
@@ -18,7 +18,7 @@ import { toWorkerRows } from './WorkColumn';
 
 export function SessionsSheet({ openerRef, onClose }: { openerRef: React.RefObject<View | null>; onClose: () => void }) {
     const { theme } = useUnistyles();
-    const router = useRouter();
+    const navigateToSession = useDeskSessionNavigation();
     const contentRef = React.useRef<View>(null);
     const [search, setSearch] = React.useState('');
     const desk = useDeskSessions();
@@ -49,7 +49,7 @@ export function SessionsSheet({ openerRef, onClose }: { openerRef: React.RefObje
         <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
             {entries.map(group => <View key={group.title} style={{ gap: 8 }}>
                 <DeskText accessibilityRole="header" style={{ color: theme.colors.text.secondary }}>{group.title}</DeskText>
-                {group.rows.filter(row => row.title.toLocaleLowerCase().includes(query)).map(row => <Pressable key={row.id} testID={`ip-sessions-row-${row.id}`} accessibilityRole="button" onPress={() => { onClose(); router.navigate(`/session/${row.id}`); }} style={{ paddingVertical: 8 }}><DeskText style={{ color: theme.colors.text.primary }} numberOfLines={1}>{row.title}</DeskText></Pressable>)}
+                {group.rows.filter(row => row.title.toLocaleLowerCase().includes(query)).map(row => <Pressable key={row.id} testID={`ip-sessions-row-${row.id}`} accessibilityRole="button" onPress={() => { onClose(); void navigateToSession(row.id); }} style={{ paddingVertical: 8 }}><DeskText style={{ color: theme.colors.text.primary }} numberOfLines={1}>{row.title}</DeskText></Pressable>)}
             </View>)}
         </ScrollView>
     </View>;
