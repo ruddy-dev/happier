@@ -8,6 +8,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
+import { MultiTextInput } from '@/components/ui/forms/MultiTextInput';
 import { t } from '@/text';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 import { isHostVisible, isRuntimeActive, subscribeToRuntimeActiveChange } from '@/utils/runtime/isRuntimeActive';
@@ -27,6 +28,7 @@ const getIdleSnapshot = () => idleTranscript;
 
 export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingActions }: { footerLeadingActions?: React.ReactNode; statusTrailingActions?: React.ReactNode }) {
     const { theme } = useUnistyles();
+    const [draft, setDraft] = React.useState('');
     const hasDemo = storage(state => Boolean(state.sessions[demo.coordinatorId]));
     const player = hasDemo ? getDemoConversation() : null;
     const playback = React.useSyncExternalStore(player?.subscribe ?? subscribeIdle, player?.getSnapshot ?? getIdleSnapshot);
@@ -86,7 +88,8 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
                         );
                     })}
                 </View>
-                <View
+            </ScrollView>
+                <View testID="agent-input-drop-zone"
                     style={{
                         margin: 12,
                         paddingHorizontal: 14,
@@ -96,10 +99,16 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
                         borderColor: theme.colors.border.default,
                     }}
                 >
-                    <Text style={{ color: theme.colors.text.secondary, fontSize: 14 }}>{composerPlaceholder}</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingTop: 8 }}>{footerLeadingActions}{statusTrailingActions}</View>
+                    <MultiTextInput value={draft} onChangeText={setDraft} testID="session-composer-input" placeholder={composerPlaceholder} />
+                    <View testID="agent-input-action-footer" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingTop: 8 }}>
+                        {footerLeadingActions}{statusTrailingActions}
+                        <View style={{ flex: 1 }} />
+                        <Pressable testID="session-composer-send" accessibilityRole="button" accessibilityLabel={t('common.send')}
+                            onPress={() => setDraft('')} style={{ paddingHorizontal: 12, minHeight: 32, justifyContent: 'center' }}>
+                            <DeskText style={{ color: theme.colors.text.primary }}>{t('common.send')}</DeskText>
+                        </Pressable>
+                    </View>
                 </View>
-            </ScrollView>
         </View>
     );
 }
