@@ -12,7 +12,7 @@ type WebDragDropHandlers = Readonly<{
 export type WebDropTargetViewProps = ViewProps & WebDragDropHandlers;
 
 export function WebDropTargetView(props: WebDropTargetViewProps): React.ReactElement {
-    const panelLeading = useCoordinatorComposerPanelLeading(Platform.OS === 'web' ? props.testID : undefined);
+    const panelLeading = useCoordinatorComposerPanelLeading(props.testID);
     const panelFooter = useCoordinatorComposerPanelFooter(Platform.OS === 'web' ? props.testID : undefined);
     const { onDragEnter, onDragLeave, onDragOver, onDrop, ...rest } = props;
     const handlersRef = React.useRef<WebDragDropHandlers>({

@@ -9,9 +9,17 @@ import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { DeskText } from '../typography/DeskText';
 
-/** Web-only opt-in around the real SessionView and the synthetic screenshot body alike. */
+/** Per-composer opt-in around the real SessionView and the synthetic screenshot body alike. */
 export function CoordinatorComposer({ children, coordinatorId, phone = false }: React.PropsWithChildren<{ coordinatorId?: string; phone?: boolean }>) {
-    return Platform.OS === 'web' ? <WebCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</WebCoordinatorComposer> : <>{children}</>;
+    return Platform.OS === 'web' ? <WebCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</WebCoordinatorComposer> :
+        phone && coordinatorId ? <NativeCoordinatorComposer coordinatorId={coordinatorId}>{children}</NativeCoordinatorComposer> : <>{children}</>;
+}
+
+function NativeCoordinatorComposer({ children, coordinatorId }: React.PropsWithChildren<{ coordinatorId: string }>) {
+    const [observer] = React.useState(createCoordinatorComposerObserver);
+    const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null,
+        panelLeading: <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> }), [observer, coordinatorId]);
+    return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
 }
 
 function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {

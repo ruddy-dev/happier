@@ -111,7 +111,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                     </FloatingOverlay>
                 </View> : null}
             </View>
-            {(Platform.OS !== 'web' || !isDeskPhoneWidth(windowWidth)) && <CoordinatorPrompts coordinatorId={sessionId} />}
+            {!isDeskPhoneWidth(windowWidth) && <CoordinatorPrompts coordinatorId={sessionId} />}
             <View style={{ flex: 1 }}>
                 <CoordinatorComposer key={sessionId} coordinatorId={sessionId} phone={isDeskPhoneWidth(windowWidth)}>
                 <TranscriptAppearanceContext.Provider value={appearance}>

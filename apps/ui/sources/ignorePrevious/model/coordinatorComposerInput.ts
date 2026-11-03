@@ -6,22 +6,26 @@ type DraftStatus = Readonly<{ writing: boolean; multiline: boolean; line: number
 export function createCoordinatorComposerObserver() {
     let status: DraftStatus = { writing: false, multiline: false, line: 1, column: 1 };
     const listeners = new Set<() => void>();
+    const observeText = (text: string, caret: number) => {
+        const multiline = text.includes('\n');
+        let line = 1;
+        if (multiline) {
+            for (let i = text.indexOf('\n'); i >= 0 && i < caret; i = text.indexOf('\n', i + 1)) line++;
+        }
+        const column = multiline && caret > 0 ? caret - text.lastIndexOf('\n', caret - 1) : 1;
+        const writing = text.length > 0;
+        if (status.writing === writing && status.multiline === multiline && status.line === line && status.column === column) return;
+        status = { writing, multiline, line, column };
+        for (const listener of listeners) listener();
+    };
     return {
         getSnapshot: () => status,
         subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+        observeText,
         observe: (input: HTMLTextAreaElement) => {
             const text = input.value;
             const caret = input.selectionDirection === 'backward' ? input.selectionStart : input.selectionEnd;
-            const multiline = text.includes('\n');
-            let line = 1;
-            if (multiline) {
-                for (let i = text.indexOf('\n'); i >= 0 && i < caret; i = text.indexOf('\n', i + 1)) line++;
-            }
-            const column = multiline && caret > 0 ? caret - text.lastIndexOf('\n', caret - 1) : 1;
-            const writing = text.length > 0;
-            if (status.writing === writing && status.multiline === multiline && status.line === line && status.column === column) return;
-            status = { writing, multiline, line, column };
-            for (const listener of listeners) listener();
+            observeText(text, caret);
         },
     };
 }
