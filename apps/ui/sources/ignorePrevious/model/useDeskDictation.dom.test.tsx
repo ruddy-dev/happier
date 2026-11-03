@@ -12,6 +12,7 @@ import { createComposerTextStore } from '@/components/sessions/agentInput/compos
 import { useDraft } from '@/hooks/session/useDraft';
 import { useSessionComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
 import { mergeDictationTranscript, useDeskDictation, useDeskDictationControls } from './useDeskDictation';
+import { deskPrefs } from '../deskPrefs';
 
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
@@ -44,6 +45,7 @@ const previous = storage.getState();
 let getUserMedia: ReturnType<typeof vi.fn>;
 let start: ReturnType<typeof vi.fn>;
 let abort: ReturnType<typeof vi.fn>;
+let stopTrack: ReturnType<typeof vi.fn>;
 let audio: ReturnType<typeof createWebAudioBoundary>;
 function draft(id = sessionId) {
     return getSessionDraftSnapshot(scope, { kind: 'session', sessionId: id })?.document.composer.text.value ?? '';
@@ -60,7 +62,8 @@ beforeEach(async () => {
     type('');
     audio = createWebAudioBoundary();
     vi.stubGlobal('AudioContext', audio.AudioContext);
-    getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    stopTrack = vi.fn();
+    getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] }));
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } });
     start = vi.fn();
     abort = vi.fn();
@@ -256,6 +259,81 @@ function badge(controls: ReturnType<typeof useDeskDictationControls>) {
 }
 
 describe('coordinator hold Space dictation', () => {
+    it('passes ordinary Space typing through when the stored preference is off, including after remount', async () => {
+        deskPrefs.set('deskHoldSpace', false);
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(false);
+        // jsdom has no keyboard default action; emulate the browser's unsuppressed text insertion.
+        input.value += ' ';
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        expect((await key(input, 'keyup')).defaultPrevented).toBe(false);
+        expect(input.value).toBe(' ');
+        expect(getUserMedia).not.toHaveBeenCalled();
+        expect(badge(hook.getCurrent()).accessibilityHint).not.toContain(t('ignorePrevious.dictation.holdSpaceHint'));
+        await hook.unmount();
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        input.value = '';
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(false);
+        expect(start).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])('an explicit hold Space option %s overrides the opposite stored preference', async enabled => {
+        deskPrefs.set('deskHoldSpace', !enabled);
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}, { holdSpace: enabled }));
+        const input = sessionInput();
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(enabled);
+        expect(start).toHaveBeenCalledTimes(enabled ? 1 : 0);
+        expect(badge(hook.getCurrent()).accessibilityHint?.includes(t('ignorePrevious.dictation.holdSpaceHint'))).toBe(enabled);
+        if (enabled) {
+            await act(async () => { deskPrefs.set('deskHoldSpace', true); });
+            await act(async () => { deskPrefs.set('deskHoldSpace', false); });
+            expect(badge(hook.getCurrent()).tone).toBe('active');
+            await key(input, 'keyup');
+        }
+    });
+
+    it('releases a held recording as soon as the preference turns off and can be enabled again', async () => {
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'keep held speech' }] });
+        await act(async () => { deskPrefs.set('deskHoldSpace', false); });
+        expect(badge(hook.getCurrent()).tone).toBe('neutral');
+        expect(draft()).toBe('keep held speech');
+        expect(stopTrack).toHaveBeenCalled();
+        await key(input, 'keyup');
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(false);
+        await act(async () => { deskPrefs.set('deskHoldSpace', true); });
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(true);
+        await key(input, 'keyup');
+        expect(start).toHaveBeenCalledTimes(2);
+    });
+
+    it('cancels a held pending permission when the preference turns off', async () => {
+        let grant!: (value: { getTracks: () => [] }) => void;
+        getUserMedia.mockImplementation(() => new Promise(resolve => { grant = resolve; }));
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        await act(async () => { deskPrefs.set('deskHoldSpace', false); });
+        await act(async () => { grant({ getTracks: () => [] }); });
+        expect(start).not.toHaveBeenCalled();
+        expect(badge(hook.getCurrent()).tone).toBe('neutral');
+        expect(draft()).toBe('');
+    });
+
+    it('does not stop a mic-started recording when the hold preference turns off', async () => {
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        await act(async () => { badge(hook.getCurrent()).onPress?.(); });
+        await act(async () => { deskPrefs.set('deskHoldSpace', false); });
+        expect(badge(hook.getCurrent()).tone).toBe('active');
+        emit('result', { results: [{ transcript: 'mic speech' }] });
+        await act(async () => { badge(hook.getCurrent()).onPress?.(); });
+        expect(draft()).toBe('mic speech');
+    });
+
     it.each([false, true])('starts from the empty input, suppresses repeat and merges unsent on release, wrapped=%s', async (wrapped) => {
         const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
         const input = sessionInput(undefined, undefined, wrapped);

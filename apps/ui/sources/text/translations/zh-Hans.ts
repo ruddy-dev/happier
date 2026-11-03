@@ -11093,6 +11093,19 @@ settingsSession: {
     friendAcceptedGeneric: "好友请求已接受",
   },
     ignorePrevious: {
+        voice: {
+            title: 'Voice',
+            unsent: "Dictation fills the coordinator's message box. Nothing is sent until you press Send.",
+            engine: "Dictation: Browser's own",
+            googleWarning: 'May send your audio to Google',
+            speechServerPlanned: 'A speech server that keeps audio on this PC is planned.',
+            language: ({ language }: { language: string }) => `Language: ${language}`,
+            browserDefault: 'Browser default',
+            changeSettings: "Change in Happier's voice settings",
+            holdSpace: 'Hold Space to talk',
+            holdSpaceDetail: 'Hold Space in an empty message box to dictate',
+            native: 'Hold Space works in the browser only. You can still save your choice here.',
+        },
         dictation: {
             start: 'Dictate',
             stop: 'Stop dictation',
