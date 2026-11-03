@@ -14,6 +14,7 @@ This fork is Happier's latest stable release plus a small overlay: the `/desk` s
 | Composer seam | `apps/ui/sources/components/sessions/model/{sessionComposerOverrides,composerRequests}.ts` (new), wired into `SessionView.tsx` |
 | Dev-only desk fixture (screenshots, landing-page demo) | `apps/ui/sources/app/(app)/dev/desk-fixture.tsx` (route), `apps/ui/sources/ignorePrevious/fixtures/` (scenario, store seeding and the stub coordinator body), `apps/ui/scripts/ipFixtureShots.mjs` and `ipFixtureShots.test.mjs` (shots and comparison sheet in system Chrome, browser-free tests), `scripts/overlay/ipFixtureShipGuard.mjs` (all new) |
 | Desk test harness | `apps/ui/sources/ignorePrevious/testkit/` (scenario driver and JSON scripts); in the UI testkit, `mocks/reducedMotion.ts` and `mocks/sync.ts`; `apps/ui/sources/dev/vitestOriginGuard.ts`; in `packages/tests`, `src/testkit/deskTest/`, `scripts/desk-env.mjs` and `suites/core-e2e/permissions.lifecycle.plain.test.ts` (all new) |
+| Floating overlay | `apps/ui/sources/components/ui/overlays/FloatingOverlay.tsx` adds an optional radius for both frame and clip; `FloatingOverlay.arrow.test.ts` covers the option. Defaults remain upstream. |
 
 Desk text must use `DeskText` (or `DESK_FONT_STACK` from `ignorePrevious/fonts/deskFont.ts`): Happier `Text` sets Inter/Plex inline, and portaled content (Popover, Modal) does not inherit the root.
 

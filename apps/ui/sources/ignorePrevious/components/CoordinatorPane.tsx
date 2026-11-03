@@ -105,7 +105,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                     shogOpen={shogOpen} shogOpenerRef={shogOpenerRef} shogCreatureOpenerRef={shogCreatureOpenerRef}
                     shogPanelId={shogPanelId} accessory={headerAccessory} />
                 {shogOpen ? <View style={{ position: 'absolute', top: '100%', left: 0, right: 0 }}>
-                    <FloatingOverlay maxHeight={shogHeight}>
+                    <FloatingOverlay maxHeight={shogHeight} borderRadius={0}>
                         <ShogView onClose={closeShog} contentRef={shogContentRef} panelId={shogPanelId} height={shogHeight} />
                     </FloatingOverlay>
                 </View> : null}
