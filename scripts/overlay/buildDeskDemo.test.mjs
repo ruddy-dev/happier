@@ -41,14 +41,39 @@ test('watch folders include package-link install roots as well as local module d
     } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('output protection resolves symlinked ancestors before accepting a new destination', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'demo-output-links-'));
+    try {
+        const checkout = join(dir, 'checkout');
+        mkdirSync(checkout);
+        for (const tree of ['apps', 'packages', 'scripts', 'node_modules', '.git', '.agents']) {
+            mkdirSync(join(checkout, tree));
+            symlinkSync(join(checkout, tree), join(dir, `${tree}-alias`), 'junction');
+            assert.throws(() => parseArgs([join(dir, `${tree}-alias/new/demo`)], checkout), /output/i, tree);
+        }
+        symlinkSync(checkout, join(dir, 'checkout-alias'), 'junction');
+        assert.throws(() => parseArgs([join(dir, 'checkout-alias')], checkout), /output/i);
+        assert.throws(() => parseArgs([join(dir, 'checkout-alias/apps/new/demo')], checkout), /output/i);
+        assert.throws(() => parseArgs([join(dir, 'checkout-alias/apps/new/demo')], join(dir, 'checkout-alias')), /output/i);
+        const exports = join(dir, 'exports');
+        mkdirSync(exports);
+        symlinkSync(exports, join(checkout, 'output-alias'), 'junction');
+        const output = join(checkout, 'output-alias/new/demo');
+        assert.equal(parseArgs([output], checkout).outdir, output);
+        // A sibling whose name begins with a protected tree name is still safe.
+        assert.equal(parseArgs(['apps-output/new/demo'], checkout).outdir, join(checkout, 'apps-output/new/demo'));
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('export environment excludes inherited endpoints and keys and disables dotenv/analytics', () => {
-    const env = demoEnvironment({ PATH: '/bin', EXPO_PUBLIC_HAPPIER_SERVER_URL: 'https://private.invalid', EXPO_PUBLIC_SENTRY_DSN: 'secret', HAPPIER_TOKEN: 'secret', EXPO_PUBLIC_POSTHOG_KEY: 'secret' }, '/desk-demo/', '/tmp/cache', []);
+    const env = demoEnvironment({ PATH: '/bin', EXPO_PUBLIC_DEBUG: '1', EXPO_PUBLIC_HAPPIER_SERVER_URL: 'https://private.invalid', EXPO_PUBLIC_SENTRY_DSN: 'secret', HAPPIER_TOKEN: 'secret', EXPO_PUBLIC_POSTHOG_KEY: 'secret' }, '/desk-demo/', '/tmp/cache', []);
     assert.equal(env.EXPO_PUBLIC_HAPPIER_SERVER_URL, '');
     assert.equal(env.EXPO_PUBLIC_HAPPY_SERVER_URL, '');
     assert.equal(env.EXPO_PUBLIC_SERVER_URL, '');
     assert.equal(env.EXPO_PUBLIC_SENTRY_DSN, undefined);
     assert.equal(env.HAPPIER_TOKEN, undefined);
     assert.equal(env.EXPO_PUBLIC_POSTHOG_KEY, undefined);
+    assert.equal(env.EXPO_PUBLIC_DEBUG, undefined);
     assert.equal(env.EXPO_NO_DOTENV, '1');
     assert.equal(env.EXPO_PUBLIC_IP_FIXTURES, '1');
     assert.equal(env.EXPO_PUBLIC_HAPPIER_BUILD_FEATURES_DENY, 'app.analytics');
