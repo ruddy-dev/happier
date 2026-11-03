@@ -46,7 +46,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
     const stateWorker = group.stateWorker;
     const freshnessWorker = stateWorker ?? newest;
     const unheardMinutes = freshnessWorker?.unheardMinutes;
-    const limitedWorkers = open ? [] : group.workers.filter(worker => worker.usageLimit);
+    const limitedWorkers = group.workers.filter(worker => worker.usageLimit);
     const titleCounts = new Map<string, number>();
     if (open) for (const worker of group.workers) titleCounts.set(worker.title, (titleCounts.get(worker.title) ?? 0) + 1);
     const count = t('ignorePrevious.workList.workerCount', { count: group.workers.length });
@@ -55,8 +55,9 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
     const contextProject = group.issueKey ? projectName : undefined;
     const title = item?.title ?? newest?.title ?? label;
     const summary = [contextProject, title !== label ? label : null, stage ? t('ignorePrevious.workCard.stage', { stage: t(`ignorePrevious.workCard.${stage}`) }) : null].filter(Boolean).join('. ');
-    const limitReason = group.bulb === 'waiting' && stateWorker?.usageLimit
-        ? t('connectedServices.pools.behavior.switchOn.usageLimit') : null;
+    const limitReason = limitedWorkers.length > 1
+        ? t('ignorePrevious.usageLimit.limitedCount', { count: limitedWorkers.length })
+        : limitedWorkers.length === 1 ? t('connectedServices.pools.behavior.switchOn.usageLimit') : null;
     const state = [bulbWord(group.bulb), attention, limitReason].filter(Boolean).join('. ');
 
     return (
@@ -110,7 +111,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                     ) : null}
                 </View>
             </Pressable>
-            {limitedWorkers.length > 0 ? (
+            {!open && limitedWorkers.length > 0 ? (
                 <View style={{ paddingHorizontal: 12, paddingBottom: 8, minWidth: 0, maxWidth: '100%' }}>
                     {limitedWorkers.length === 1 && limitedWorkers[0].usageLimit ? (
                         <WorkerUsageLimitLine status={limitedWorkers[0].usageLimit} sessionId={limitedWorkers[0].sessionId} compact />

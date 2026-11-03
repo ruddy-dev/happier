@@ -11356,7 +11356,7 @@ settingsSession: {
             resetDue: 'Usage limit: reset due',
             waitsForResetAt: ({ time }: { time: string }) => `Usage limit: waits for reset, ${time}`,
             autoResumeArmed: ({ line }: { line: string }) => `${line}; auto-resume armed`,
-            limitedCount: ({ count }: { count: number }) => `${count} limited`,
+            limitedCount: ({ count }: { count: number }) => `${count} at usage limit`,
             nextKnownResetAt: ({ count, time }: { count: string; time: string }) => `${count} · next known reset ${time}`,
             nextKnownResetDue: ({ count }: { count: string }) => `${count} · next known reset due`,
             workerSession: ({ id }: { id: string }) => `Session ${id}`,
