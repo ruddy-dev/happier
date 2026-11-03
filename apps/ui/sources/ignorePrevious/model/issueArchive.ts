@@ -17,6 +17,8 @@ export function buildWorkerArchivePrState(snapshot: ScmWorkingSnapshot | null, n
     if (!snapshot?.pullRequest) return null;
     const badge = buildWorkerPrBadge(snapshot, nowMs);
     if (!badge) return 'unknown';
+    // Merge is irreversible. Only non-merged evidence needs a current lookup.
+    if (badge.state === 'merged') return 'merged';
     if (badge.old || badge.fetchedAt === null) return 'stale';
     return badge.state;
 }
