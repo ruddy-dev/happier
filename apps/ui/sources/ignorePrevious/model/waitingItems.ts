@@ -25,6 +25,11 @@ export type WaitingItem = {
     disabledReason: WaitingDisabledReason;
 };
 
+/** Local answer state must never transfer to different content under the same request id. */
+export function waitingItemGenerationKey(item: Pick<WaitingItem, 'key' | 'requestContent'>): string {
+    return JSON.stringify([item.key, item.requestContent]);
+}
+
 const MAX_SUMMARY = 140;
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 
