@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
+import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { storage } from '@/sync/domains/state/storage';
 
 import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId } from '@/ignorePrevious/deskPrefs';
@@ -13,6 +14,11 @@ import demo from './demo/desk-demo.json';
 import { DEMO_STEP_MS, demoScript } from './demoConversation';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock('react-native-unistyles', async () => {
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    return createUnistylesMock();
+});
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -91,6 +97,15 @@ function Panes({ children }: { children?: React.ReactNode }) {
 describe('landing demo route', () => {
     const before = storage.getState();
     const storedBefore = getStoredCoordinatorId();
+    beforeAll(async () => {
+        await installAgentAssetLoader();
+        // Load the real lazy composer graph before the route's render assertions.
+        await act(async () => { await import('./CoordinatorBodyStub'); });
+    });
+    afterAll(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
     beforeEach(() => {
         storage.setState(before, true);
         setStoredCoordinatorId(null);
