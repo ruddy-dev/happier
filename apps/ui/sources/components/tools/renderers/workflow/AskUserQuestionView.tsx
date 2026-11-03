@@ -684,6 +684,11 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                             </View>
                             <Text style={styles.questionText}>{question.question}</Text>
                             <View style={styles.optionsContainer}>
+                                {colors && !canInteract && options.length > 0 ? (
+                                    <Text testID={`ask-user-question.options-unavailable:${qIndex}`} style={styles.optionDescription}>
+                                        {t('common.unavailable')}
+                                    </Text>
+                                ) : null}
                                 {options.length === 0 || question.freeform ? (
                                     <View>
                                         <TextInput
