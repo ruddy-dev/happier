@@ -11399,6 +11399,7 @@ settingsSession: {
     friendAcceptedGeneric: "友達リクエストが承認されました",
   },
     ignorePrevious: {
+        transcriptQuestionChrome: { title: 'Question for you', context: 'Mentions' },
         demo: {
             noteTitle: 'Demo desk',
             sampleNote: 'An interactive demo with made-up work. Nothing is connected or sent.',

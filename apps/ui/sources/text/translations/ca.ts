@@ -10701,6 +10701,7 @@ settingsSession: {
         friendAcceptedGeneric: 'Sol·licitud d\'amistat acceptada',
     },
     ignorePrevious: {
+        transcriptQuestionChrome: { title: 'Question for you', context: 'Mentions' },
         demo: {
             noteTitle: 'Demo desk',
             sampleNote: 'An interactive demo with made-up work. Nothing is connected or sent.',
