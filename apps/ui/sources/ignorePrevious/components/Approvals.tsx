@@ -60,7 +60,7 @@ export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { o
                 backgroundColor: phone ? (open ? paint.ink : paint.panel) : waiting ? paint.yel : 'transparent',
             }}
         >
-            <Text style={{ color: phone ? (open ? paint.bg : paint.ink) : waiting ? paint.yelink : paint.ink, fontSize: terminal || phone ? 12.5 : 13.5, fontWeight: waiting ? '700' : '500', letterSpacing: phone ? -0.25 : 0 }}>{phone ? t('ignorePrevious.waiting.heading') : t('ignorePrevious.title')}</Text>
+            <Text style={{ color: phone ? (open ? paint.bg : paint.ink) : waiting ? paint.yelink : paint.ink, fontSize: terminal || phone ? 12.5 : 13.5, fontWeight: waiting ? '700' : '500', letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.waiting.heading')}</Text>
             <Text testID="ip-approvals-count" style={{ color: phone ? (open ? paint.bg : paint.ink) : waiting ? paint.yel : terminal ? paint.mute : theme.colors.text.secondary, backgroundColor: !phone && waiting ? paint.yelink : 'transparent', paddingHorizontal: !phone && waiting ? 6 : 0, borderRadius: terminal ? 2 : 999, fontSize: 12, fontVariant: ['tabular-nums'], ...Typography.default('semiBold') }}>
                 {ready ? t('ignorePrevious.waiting.requestCount', { count }) : t('ignorePrevious.waiting.unknownRequestCount')}
             </Text>

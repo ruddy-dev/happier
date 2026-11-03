@@ -11568,6 +11568,11 @@ settingsSession: {
             partialReason: "Some usage figures aren't available for this account.",
             percentage: ({ value }: { value: number }) => `${value}%`,
             summary: ({ label, value }: { label: string; value: string }) => `${label} ${value}`,
+            phoneSummary: {
+                maxWeek: ({ value }: { value: string }) => `Max ${value}`,
+                lastFiveHours: ({ value }: { value: string }) => `5h ${value}`,
+                fableShare: ({ value }: { value: string }) => `Fable\nest. ${value}`,
+            },
         },
         chatStyle: {
             appearance: 'Appearance',
