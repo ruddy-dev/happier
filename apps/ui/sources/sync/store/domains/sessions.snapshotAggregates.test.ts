@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import type { Message } from '@/sync/domains/messages/messageTypes';
@@ -10,6 +10,8 @@ import { readDeskWaits } from '@/ignorePrevious/model/useDeskWaits';
 import { buildSessionListRowModel } from '@/components/sessions/shell/row/buildSessionListRowModel';
 import { buildSessionListRenderableFromSession, type SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { listPendingSessionRequests, observePendingSessionRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { buildInboxSessionState } from '@/hooks/inbox/buildInboxSessionState';
+import { getSessionActivityForVoiceTool } from '@/voice/tools/actionImpl/sessionActivity';
 
 const sessionId = 'snapshot-worker';
 let previous: ReturnType<typeof storage.getState>;
@@ -18,7 +20,7 @@ beforeEach(() => {
     previous = storage.getState();
     storage.setState({ sessions: {}, sessionMessages: {}, sessionListRenderables: {} });
 });
-afterEach(() => storage.setState(previous, true));
+afterEach(() => { storage.setState(previous, true); vi.restoreAllMocks(); });
 
 function seedTranscript(withProjectedCounts = true) {
     storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true,
@@ -60,10 +62,132 @@ function ordinaryRow(row: SessionListRenderableSession, item = row) {
 }
 
 describe('session snapshots: transcript aggregates', () => {
+    it('rebuilds an invalidated partial aggregate during public message refresh, with one historical store walk', () => {
+        storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true, agentState: null })]);
+        const history: NormalizedMessage[] = Array.from({ length: 10_000 }, (_, index) => ({
+            id: `public-history-${index}`, localId: null, createdAt: index + 100, seq: index + 1,
+            role: 'user', isSidechain: false, content: { type: 'text', text: 'Historical text' },
+        }));
+        const stream: NormalizedMessage = { id: 'stream', localId: 'segment', createdAt: 20_000,
+            seq: 20_000, role: 'agent', isSidechain: false,
+            meta: { happierStreamSegmentV1: { v: 1, segmentKind: 'assistant', segmentLocalId: 'segment', updatedAtMs: 1 } },
+            content: [{ type: 'text', text: 'Streaming', uuid: 'stream', parentUUID: null }] };
+        storage.getState().applyMessages(sessionId, [...history, pendingMessage('Bash'), stream]);
+        const entry = storage.getState().sessionMessages[sessionId];
+        const aggregate = entry.renderableAggregate!;
+        expect(entry.messageIdsOldestFirst).toHaveLength(10_002);
+        const historicalIds = new Set(entry.messageIdsOldestFirst.filter(id => entry.messagesById[id].kind === 'user-text'));
+        let historyReads = 0;
+        let recordEnumerations = 0;
+        let reducerVisits = 0;
+        const messagesById = new Proxy(entry.messagesById, {
+            get(target, key, receiver) {
+                if (typeof key === 'string' && historicalIds.has(key)) historyReads++;
+                return Reflect.get(target, key, receiver);
+            },
+            ownKeys(target) { recordEnumerations++; return Reflect.ownKeys(target); },
+        });
+        const iterate = entry.reducerState.messages[Symbol.iterator].bind(entry.reducerState.messages);
+        vi.spyOn(entry.reducerState.messages, Symbol.iterator).mockImplementation(function* () {
+            for (const pair of iterate()) { reducerVisits++; yield pair; }
+            return undefined;
+        });
+        storage.setState({ sessionMessages: { [sessionId]: { ...entry, messagesById, messagesMap: messagesById } } });
+        storage.getState().applyMessages(sessionId, [{ ...stream,
+            transcriptObservationProvenance: { kind: 'non_dependent', source: 'history' },
+            meta: { happierStreamSegmentV1: { v: 1, segmentKind: 'assistant', segmentLocalId: 'segment', updatedAtMs: 2 } },
+        }]);
+        const updated = storage.getState().sessionMessages[sessionId];
+        expect(updated.isLoaded).toBe(false);
+        expect(updated.renderableAggregate).not.toBe(aggregate);
+        expect(updated.renderableAggregate?.latestCommittedMessageCreatedAt).toBe(10_099);
+        expect(storage.getState().sessionListRenderables[sessionId].hasPendingPermissionRequests).toBe(true);
+        expect(historyReads).toBe(10_000);
+        expect(recordEnumerations).toBe(0);
+        expect(reducerVisits).toBe(10_002);
+    });
+
+    it('retracts a sole interrupted contribution during a public partial snapshot without historical store reads', () => {
+        storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true, agentState: null })]);
+        const history: NormalizedMessage[] = Array.from({ length: 10_000 }, (_, index) => ({
+            id: `snapshot-history-${index}`, localId: null, createdAt: index + 100, seq: index + 1,
+            role: 'user', isSidechain: false, content: { type: 'text', text: 'Historical text' },
+        }));
+        storage.getState().applyMessages(sessionId, [...history,
+            pendingMessage('Bash'), pendingMessage('AskUserQuestion', 'resume', 20_000)]);
+        const current = storage.getState().sessions[sessionId];
+        storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 1,
+            agentState: { requests: {}, completedRequests: { resume: { tool: 'AskUserQuestion',
+                arguments: { permissionId: 'resume', status: 'pending', command: 'echo review' },
+                createdAt: 20_000, completedAt: 20_001, status: 'canceled', reason: 'Request interrupted' } } } }]);
+        const entry = storage.getState().sessionMessages[sessionId];
+        expect(entry.messageIdsOldestFirst).toHaveLength(10_002);
+        const historicalIds = new Set(entry.messageIdsOldestFirst.filter(id => entry.messagesById[id].kind === 'user-text'));
+        let historyReads = 0;
+        let recordEnumerations = 0;
+        let reducerVisits = 0;
+        const messagesById = new Proxy(entry.messagesById, {
+            get(target, key, receiver) {
+                if (typeof key === 'string' && historicalIds.has(key)) historyReads++;
+                return Reflect.get(target, key, receiver);
+            },
+            ownKeys(target) { recordEnumerations++; return Reflect.ownKeys(target); },
+        });
+        const iterate = entry.reducerState.messages[Symbol.iterator].bind(entry.reducerState.messages);
+        vi.spyOn(entry.reducerState.messages, Symbol.iterator).mockImplementation(function* () {
+            for (const pair of iterate()) { reducerVisits++; yield pair; }
+            return undefined;
+        });
+        storage.setState({ sessionMessages: { [sessionId]: { ...entry, messagesById, messagesMap: messagesById } } });
+        storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 2,
+            agentState: { requests: { resume: { tool: 'AskUserQuestion',
+                arguments: { permissionId: 'resume', status: 'pending', command: 'echo review' }, createdAt: 20_000 } },
+                completedRequests: null } }]);
+        expect(storage.getState().sessionMessages[sessionId].isLoaded).toBe(false);
+        expect(storage.getState().sessionMessages[sessionId].renderableAggregate?.requestStates.get('resume'))
+            .toMatchObject({ status: 'pending' });
+        expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+            hasPendingPermissionRequests: true, hasPendingUserActionRequests: true,
+        });
+        expect(historyReads).toBe(0);
+        expect(recordEnumerations).toBe(0);
+        // The existing agent-state reducer still visits its retained records; no O(changed) claim.
+        expect(reducerVisits).toBe(10_002);
+    });
+
+    it.each([false, true])('keeps unrelated transcript evidence when an interrupted request resumes, loaded=%s', loaded => {
+        storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true, agentState: null,
+            pendingPermissionRequestCount: undefined, pendingUserActionRequestCount: undefined })]);
+        storage.getState().applyMessages(sessionId, [pendingMessage('Bash'), pendingMessage('AskUserQuestion', 'resume', 1_100)]);
+        if (loaded) storage.getState().applyMessagesLoaded(sessionId);
+        const current = storage.getState().sessions[sessionId];
+        storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 1,
+            agentState: { requests: {}, completedRequests: { resume: { tool: 'AskUserQuestion',
+                arguments: { permissionId: 'resume', status: 'pending', command: 'echo review' },
+                createdAt: 1_100, completedAt: 1_101, status: 'canceled', reason: 'Request interrupted' } } } }]);
+        expect(storage.getState().sessionMessages[sessionId].renderableAggregate?.requestStates.get('resume'))
+            .toMatchObject({ status: 'terminal', terminalKind: 'soft_interrupted' });
+        storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 2,
+            agentState: { requests: { resume: { tool: 'AskUserQuestion',
+                arguments: { permissionId: 'resume', status: 'pending', command: 'echo review' }, createdAt: 1_100 } },
+                completedRequests: null } }]);
+        expect(listPendingSessionRequests(storage.getState().sessions[sessionId])).toMatchObject([
+            { id: 'request' }, { id: 'resume' },
+        ]);
+        expect(storage.getState().sessionListRenderables[sessionId].hasPendingPermissionRequests).toBe(true);
+        storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 3,
+            agentState: { requests: {}, completedRequests: null } }]);
+        expect(listPendingSessionRequests(storage.getState().sessions[sessionId])).toMatchObject([
+            { id: 'request' }, { id: 'resume' },
+        ]);
+        expect(storage.getState().sessionListRenderables[sessionId].hasPendingUserActionRequests).toBe(true);
+    });
+
     it.each([
         ['Bash', 'hasPendingPermissionRequests', 'permission_required'],
         ['AskUserQuestion', 'hasPendingUserActionRequests', 'action_required'],
-    ] as const)('keeps transcript-only %s pending in ordinary rows across an unrelated partial snapshot', (tool, flag, status) => {
+    ] as const)('keeps transcript-only %s pending in ordinary rows across an unrelated partial snapshot', async (tool, flag, status) => {
+        vi.spyOn(Date, 'now').mockReturnValue(1_002);
         storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true,
             createdAt: 1_000, activeAt: 1_000, updatedAt: 1_000, agentState: null,
             pendingPermissionRequestCount: undefined, pendingUserActionRequestCount: undefined })]);
@@ -81,6 +205,14 @@ describe('session snapshots: transcript aggregates', () => {
         expect(after.pendingRequestObservedAt).toBe(1_001);
         expect(ordinaryRow(after, before).status.state).toBe(status);
         expect(ordinaryRow(after, before).attention.rowState).toBe(status);
+        storage.getState().applyReady();
+        const state = storage.getState();
+        expect(buildInboxSessionState({ sessions: Object.values(state.sessions),
+            sessionMessagesById: state.sessionMessages, nowMs: 1_002 }).sessionsNeedingAttention)
+            .toMatchObject([{ sessionId, reason: status }]);
+        expect(await getSessionActivityForVoiceTool({ sessionId })).toMatchObject({ ok: true,
+            permissionRequired: tool === 'Bash', actionRequired: tool === 'AskUserQuestion' });
+        expect(readDeskWaits().items).toMatchObject([{ sessionId, requestId: 'request' }]);
     });
 
     it.each([
@@ -111,7 +243,8 @@ describe('session snapshots: transcript aggregates', () => {
         expect(after.meaningfulActivityAt).toBe(9_000);
     });
 
-    it.each(['Bash', 'AskUserQuestion'])('honors partial %s terminal evidence over lagging projected counts', tool => {
+    it.each(['Bash', 'AskUserQuestion'])('honors partial %s terminal evidence over lagging projected counts and stale agentState', async tool => {
+        vi.spyOn(Date, 'now').mockReturnValue(1_003);
         storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true,
             pendingPermissionRequestCount: tool === 'Bash' ? 1 : 0,
             pendingUserActionRequestCount: tool === 'AskUserQuestion' ? 1 : 0,
@@ -123,13 +256,24 @@ describe('session snapshots: transcript aggregates', () => {
                 content: 'Done', is_error: false, permissions: { result: 'approved', date: 1_002 },
                 uuid: 'result', parentUUID: null }] }]);
         const current = storage.getState().sessions[sessionId];
-        storage.getState().applySessions([{ ...current, updatedAt: 1_003 }]);
+        storage.getState().applySessions([{ ...current, updatedAt: 1_003,
+            agentStateVersion: current.agentStateVersion + 1, agentState: { requests: {
+                request: { tool, arguments: { permissionId: 'request', status: 'pending', command: 'echo review' }, createdAt: 1_001 },
+            }, completedRequests: null } }]);
         const after = storage.getState().sessionListRenderables[sessionId];
         expect(after.hasPendingPermissionRequests).toBe(false);
         expect(after.hasPendingUserActionRequests).toBe(false);
         expect(after.pendingRequestObservedAt).toBeNull();
         expect(ordinaryRow(after, before).status.state).not.toMatch(/permission_required|action_required/);
         expect(storage.getState().sessionMessages[sessionId].renderableAggregate?.requestStates.get('request')?.status).toBe('terminal');
+        const state = storage.getState();
+        expect(listPendingSessionRequests(state.sessions[sessionId])).toEqual([]);
+        expect(buildInboxSessionState({ sessions: Object.values(state.sessions),
+            sessionMessagesById: state.sessionMessages, nowMs: 1_003 }).sessionsNeedingAttention).toEqual([]);
+        expect(await getSessionActivityForVoiceTool({ sessionId })).toMatchObject({ ok: true,
+            permissionRequired: false, actionRequired: false });
+        storage.getState().applyReady();
+        expect(readDeskWaits().items).toEqual([]);
     });
 
     it('refreshes partial completion references, retains terminal evidence after removal, and clears lifecycle state', () => {
@@ -312,6 +456,12 @@ describe('session snapshots: transcript aggregates', () => {
             });
             let messageReads = 0;
             let enumerations = 0;
+            let reducerVisits = 0;
+            const iterate = entry.reducerState.messages[Symbol.iterator].bind(entry.reducerState.messages);
+            vi.spyOn(entry.reducerState.messages, Symbol.iterator).mockImplementation(function* () {
+                for (const pair of iterate()) { reducerVisits++; yield pair; }
+                return undefined;
+            });
             const messagesById = new Proxy(Object.fromEntries(messages.map(message => [message.id, message])), {
                 get(target, key, receiver) {
                     if (typeof key === 'string' && key.startsWith('historical-')) messageReads++;
@@ -347,6 +497,8 @@ describe('session snapshots: transcript aggregates', () => {
 
             expect(messageReads, 'snapshot read partial message bodies').toBe(0);
             expect(enumerations, 'snapshot traversed partial message IDs or records').toBe(0);
+            // These legacy-shape fixtures add store history but retain only the one real reducer tool.
+            expect(reducerVisits).toBe(1);
             const stored = storage.getState().sessionMessages[sessionId];
             expect(stored.isLoaded).toBe(false);
             // No cold build or request-map copy is needed, including when real reconciliation

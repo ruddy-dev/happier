@@ -119,6 +119,63 @@ function terminalTranscript() {
     }]);
 }
 
+it.each([false, true])('observes a zero-count closed-drawer gap with a missing aggregate, loaded=%s', loaded => {
+    seedTranscriptOnly();
+    const { history, key } = watch();
+    storage.getState().resetSessionMessages('observer-worker');
+    if (loaded) storage.getState().applyMessagesLoaded('observer-worker');
+    const current = storage.getState().sessions['observer-worker'];
+    storage.getState().applySessions([{ ...current, agentState: null,
+        pendingPermissionRequestCount: 0, pendingUserActionRequestCount: 0 }]);
+    expect(storage.getState().sessionListRenderables['observer-worker'].hasPendingPermissionRequests).toBe(false);
+    expect(history.getState().departed.has(key)).toBe(true);
+    storage.getState().applySessions([{ ...current, agentState: null,
+        pendingPermissionRequestCount: 1, pendingUserActionRequestCount: 0 }]);
+    storage.getState().applyMessages('observer-worker', [transcriptRequest()]);
+    expect(waitingItems.waitingItemGenerationKey(readDeskWaits().items[0])).toBe(key);
+    expect(history.getState().actions.has(key)).toBe(false);
+});
+
+it('observes a zero projection and identical reopen while the closed drawer retains its pending transcript', () => {
+    seedTranscriptOnly();
+    const { history, key } = watch();
+    const current = storage.getState().sessions['observer-worker'];
+    storage.getState().applySessions([{ ...current, pendingPermissionRequestCount: 0,
+        pendingUserActionRequestCount: 0 }]);
+    expect(storage.getState().sessionListRenderables['observer-worker'].hasPendingPermissionRequests).toBe(false);
+    expect(history.getState().departed.has(key)).toBe(true);
+    storage.getState().applySessions([{ ...current, pendingPermissionRequestCount: 1,
+        pendingUserActionRequestCount: 0 }]);
+    expect(history.getState().actions.has(key)).toBe(false);
+});
+
+it.each([undefined, 1])('keeps a missing partial aggregate unknown with projected permission count %s', count => {
+    seedTranscriptOnly();
+    const { history, key } = watch();
+    storage.getState().resetSessionMessages('observer-worker');
+    const current = storage.getState().sessions['observer-worker'];
+    storage.getState().applySessions([{ ...current, agentState: null,
+        pendingPermissionRequestCount: count, pendingUserActionRequestCount: count === undefined ? undefined : 0 }]);
+    expect(history.getState().departed.has(key)).toBe(false);
+    storage.getState().applySessions([{ ...current, agentState: null, pendingPermissionRequestCount: 1 }]);
+    storage.getState().applyMessages('observer-worker', [transcriptRequest()]);
+    expect(history.getState().actions.has(key)).toBe(true);
+});
+
+it.each(['one missing count', 'conflicting live request'] as const)('does not turn %s into a proved empty projection', boundary => {
+    seedTranscriptOnly();
+    const { history, key } = watch();
+    storage.getState().resetSessionMessages('observer-worker');
+    const current = storage.getState().sessions['observer-worker'];
+    storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 1,
+        agentState: boundary === 'conflicting live request' ? { requests: {
+            acted: { tool: 'Bash', arguments: { command: 'echo acted' }, createdAt: 1 },
+        } } : null,
+        pendingPermissionRequestCount: 0,
+        pendingUserActionRequestCount: boundary === 'one missing count' ? undefined : 0 }]);
+    expect(history.getState().departed.has(key)).toBe(false);
+});
+
 it.each(['sent', 'unavailable', 'sending'] as const)('retires loaded transcript-only %s feedback after a terminal observation despite a positive count', phase => {
     seedTranscriptOnly();
     const { history, key } = watch();
