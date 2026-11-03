@@ -115,6 +115,44 @@ function waitingRecord() {
 }
 
 describe('desk browser notifier', () => {
+    it.each(['every', 'blocked'] as const)('R10/R24: %s alerts for editable/no-approval waits but not view-only waits', setting => {
+        deskPrefs.set('deskNotify', setting);
+        ready();
+        mount();
+        const sharedWait = createSessionFixture({ id: 'viewer', active: true, activeAt: Date.now(),
+            accessLevel: 'view', canApprovePermissions: false, pendingPermissionRequestCount: 1,
+            agentState: { requests: { request: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: Date.now() } } },
+        });
+        act(() => {
+            storage.getState().applySessions([sharedWait]);
+            storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession({ ...sharedWait, id: 'viewer-unloaded' })]);
+        });
+        expect(BrowserNotification.instances).toHaveLength(0);
+        const editor = { ...sharedWait, id: 'editor-unloaded', accessLevel: 'edit' as const };
+        act(() => storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(editor)]));
+        expect(BrowserNotification.instances).toHaveLength(1);
+        // Details replace an already alerted placeholder without a duplicate alert.
+        act(() => storage.getState().applySessions([editor]));
+        expect(BrowserNotification.instances).toHaveLength(1);
+        act(() => storage.getState().applySessions([{ ...editor, id: 'editor-loaded' }]));
+        expect(BrowserNotification.instances).toHaveLength(setting === 'every' ? 2 : 1);
+    });
+
+    it('R10: a view-only unloaded row cannot absorb the first alert after gaining edit access without approval', () => {
+        deskPrefs.set('deskNotify', 'every');
+        const viewer = createSessionFixture({ id: 'viewer', active: true, activeAt: Date.now(),
+            accessLevel: 'view', canApprovePermissions: false, pendingPermissionRequestCount: 1,
+        });
+        act(() => storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(viewer)]));
+        ready();
+        mount();
+        expect(BrowserNotification.instances).toHaveLength(0);
+        act(() => storage.getState().mergeSessionListRenderables([
+            buildSessionListRenderableFromSession({ ...viewer, accessLevel: 'edit' }),
+        ]));
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
     it.each([
         ['every', 'loaded'], ['every', 'unloaded'],
         ['blocked', 'loaded'], ['blocked', 'unloaded'],

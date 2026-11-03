@@ -293,14 +293,17 @@ export function readDeskWaits(excludeSessionId?: string): DeskWaits {
     return selectDetails(storage.getState(), excludeSessionId);
 }
 
-/** Read the same membership as the attention count, only when the shortcut is pressed. */
+/** A user-requested walk-through lists exactly the waits counted by its attention summary. */
 export function readDeskAttentionWaits(excludeSessionId?: string): DeskWaits {
     const state = storage.getState();
     const { projection } = selectProjection(state, excludeSessionId);
-    const ids = new Set([...projection.inputs, ...projection.unloaded].filter(isAggregateWait).map(({ row }) => row.id));
+    const attentionSessionIds = new Set([...projection.inputs, ...projection.unloaded].filter(isAggregateWait).map(({ row }) => row.id));
     const details = selectDetails(state, excludeSessionId);
-    return { ...details, items: details.items.filter(item => ids.has(item.sessionId)),
-        unloaded: details.unloaded.filter(item => ids.has(item.sessionId)) };
+    return {
+        ...details,
+        items: details.items.filter(item => attentionSessionIds.has(item.sessionId)),
+        unloaded: details.unloaded.filter(item => attentionSessionIds.has(item.sessionId)),
+    };
 }
 
 export function useWaitingCount(): number {

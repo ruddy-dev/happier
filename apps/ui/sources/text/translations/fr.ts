@@ -10829,11 +10829,19 @@ settingsSession: {
             permissionFailed: "This browser couldn't allow alerts. Try again or check the site settings.",
             alertTitle: 'Waiting on you',
         },
-        topBar: { sessions: 'Sessions', usage: 'Usage', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
+        topBar: { brand: 'Ignore Previous', usageStatus: ({ status }: { status: string }) => `Usage: ${status}`, sessions: 'Sessions', usage: 'Usage', search: 'Search sessions', coordinator: 'Coordinator', onIssues: 'On issues', shog: 'Shog', waitingHint: 'Opens over the screen' },
         usage: {
             maxWeek: 'Max week', lastFiveHours: 'Last five hours', fableShare: 'Fable share',
             estimate: ' (estimate)', notAvailable: 'Not available', close: 'Close',
             reason: "Usage isn't connected to this desk yet, so no figures are shown.",
+            partialReason: "Some usage figures aren't available for this account.",
+            percentage: ({ value }: { value: number }) => `${value}%`,
+            summary: ({ label, value }: { label: string; value: string }) => `${label} ${value}`,
+            phoneSummary: {
+                maxWeek: ({ value }: { value: string }) => `Max ${value}`,
+                lastFiveHours: ({ value }: { value: string }) => `5h ${value}`,
+                fableShare: ({ value }: { value: string }) => `Fable\nest. ${value}`,
+            },
         },
         chatStyle: {
             appearance: 'Appearance',

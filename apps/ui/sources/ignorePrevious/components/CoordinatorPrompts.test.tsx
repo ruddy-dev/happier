@@ -231,6 +231,44 @@ describe('CoordinatorPrompts', () => {
         expect(text).not.toContain('Title coord');
     });
 
+    it('R10/R24: the mixed prompt counts editable waits without approval rights and keeps view-only waits in the listing', async () => {
+        const shared = { accessLevel: 'edit' as const, canApprovePermissions: false };
+        seed([
+            session('coord', { tool: 'Bash', arguments: { command: 'coordinator-command' }, createdAt: 1 }),
+            session('owner', { tool: 'Bash', arguments: { command: 'owner-command' }, createdAt: 2 }),
+            { ...session('editor', { tool: 'Bash', arguments: { command: 'editor-command' }, createdAt: 3 }), ...shared },
+            { ...session('viewer', { tool: 'Bash', arguments: { command: 'viewer-command' }, createdAt: 4 }), accessLevel: 'view' },
+        ]);
+        act(() => storage.getState().mergeSessionListRenderables([
+            buildSessionListRenderableFromSession({ ...session('editor-unloaded', null), ...shared, pendingPermissionRequestCount: 1 }),
+            buildSessionListRenderableFromSession({ ...session('viewer-unloaded', null), accessLevel: 'view', pendingPermissionRequestCount: 1 }),
+        ]));
+        const { readDeskWaits } = await import('../model/useDeskWaits');
+        const screen = await renderPrompts();
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+        const text = String(readComposerText('coord'));
+        expect(text).toContain('owner-command');
+        expect(text).toContain('editor-command');
+        expect(text).toContain('session editor-unloaded');
+        expect(text).not.toContain('viewer');
+        expect(text).not.toContain('coordinator-command');
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.walkWaiting', { count: 3 }));
+        expect(readDeskWaits().items.map(item => item.sessionId)).toEqual(['coord', 'owner', 'editor', 'viewer']);
+        expect(readDeskWaits().unloaded.map(item => item.sessionId).sort()).toEqual(['editor-unloaded', 'viewer-unloaded']);
+
+        // The prompt reads fresh attention on press even if the chip remains mounted.
+        act(() => storage.getState().applySessions([
+            { ...storage.getState().sessions.editor!, accessLevel: 'view' },
+        ]));
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.walkWaiting', { count: 2 }));
+        unregister();
+        let nextText = '';
+        unregister = registerComposerRequestHandle('coord', { setText: value => { nextText = value; }, getText: () => nextText, focus: () => {} });
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+        expect(nextText).not.toContain('editor-command');
+        expect(nextText).toContain('session editor-unloaded');
+    });
+
     it('L2: no walk-through when only the coordinator waits', async () => {
         seed([session('coord', { tool: 'Bash', arguments: { command: 'coordinator-command' }, createdAt: 10 })]);
         const screen = await renderPrompts();

@@ -77,7 +77,12 @@ export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinat
     const contents = <>
             {chip('ip-brief-first', t('ignorePrevious.composer.briefFirst'), () => fill(t('ignorePrevious.composer.briefPrompt')))}
             {chip('ip-start-new', t('ignorePrevious.composer.startNew'), () => fill(t('ignorePrevious.composer.startPrompt')))}
-            {count > 0 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () => fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskAttentionWaits(coordinatorId)) }))) : null}
+            {count > 0
+                ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () =>
+                      // Read the details only on press, so the closed chip keeps only the count subscription.
+                      fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskAttentionWaits(coordinatorId)) })),
+                  )
+                : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}
         </>;
     if (phone) return <ScrollView testID="ip-phone-shortcuts" horizontal keyboardShouldPersistTaps="handled" style={{ flexGrow: 0, minWidth: 0, maxWidth: '100%' }} contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>{contents}</ScrollView>;

@@ -201,7 +201,7 @@ export function DeskScreen() {
     }, []);
 
     const approvalsButton = <ApprovalsButton phone={phone} openerRef={approvalsOpenerRef} open={approvals.open} onPress={approvals.toggle} />;
-    const settingsButton = (
+    const settingsButton = (colour: string) => (
         <Pressable
             testID="ip-settings-open"
             accessibilityRole="button"
@@ -209,7 +209,7 @@ export function DeskScreen() {
             onPress={() => router.navigate('/desk/settings')}
             style={{ paddingHorizontal: 12, minHeight: 48, justifyContent: 'center' }}
         >
-            <Icon name="gear" size={20} color={theme.colors.text.secondary} />
+            <Icon name="gear" size={20} color={colour} />
         </Pressable>
     );
     const coordinator = coordinatorId && !changing ? (
