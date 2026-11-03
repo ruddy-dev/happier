@@ -93,6 +93,8 @@ type Projection = {
     sourceLoading: readonly string[];
     inputs: readonly WaitInput[];
     unloaded: UnloadedInput[];
+    answerableInputs: readonly WaitInput[];
+    answerableUnloaded: readonly UnloadedInput[];
     loadingSessionIds: readonly string[];
     details?: DeskWaits;
     previousDetails?: DeskWaits;
@@ -185,11 +187,14 @@ function selectProjection(state: State, scope?: DeskWaitsSummaryScope): { snapsh
     if (!projection || projection.summary.ready !== ready
         || !shallow(projection.inputs, inputs) || !shallow(projection.unloaded, unloaded)
         || !shallow(projection.loadingSessionIds, loadingSessionIds)) {
-        const count = inputs.reduce((sum, input) => sum + input.requests.length, 0) + unloaded.length;
+        // View-only waits stay in details, but never ask for attention as the user's turn (R10).
+        const answerableInputs = inputs.filter(({ row }) => approvalDisabledReason(row) === null);
+        const answerableUnloaded = unloaded.filter(({ row }) => approvalDisabledReason(row) === null);
+        const count = answerableInputs.reduce((sum, input) => sum + input.requests.length, 0) + answerableUnloaded.length;
         const summary = projection?.summary.count === count && projection.summary.ready === ready
             ? projection.summary : { count, ready };
         projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
-            inputs, unloaded, loadingSessionIds, previousDetails: projection?.details ?? projection?.previousDetails,
+            inputs, unloaded, answerableInputs, answerableUnloaded, loadingSessionIds, previousDetails: projection?.details ?? projection?.previousDetails,
             previousActivity: projection?.activity ?? projection?.previousActivity };
         current.projections.set(key, projection);
     }
@@ -250,8 +255,8 @@ export function selectDeskNotificationWaits(state: State): NotificationWaits {
     const { projection } = selectProjection(state);
     if (!projection.notificationWaits) {
         const waitSessionIds = Object.fromEntries([
-            ...projection.inputs.flatMap(({ row, requests }) => requests.map(request => [waitingItemKey(row.id, request.id), row.id] as const)),
-            ...projection.unloaded.map(({ row }) => [unloadedWaitKey(row.id), row.id] as const),
+            ...projection.answerableInputs.flatMap(({ row, requests }) => requests.map(request => [waitingItemKey(row.id, request.id), row.id] as const)),
+            ...projection.answerableUnloaded.map(({ row }) => [unloadedWaitKey(row.id), row.id] as const),
         ]);
         projection.notificationWaits = {
             ready: projection.summary.ready,
@@ -288,10 +293,10 @@ function selectActivity(state: State, scope?: DeskWaitsSummaryScope): DeskWaitsA
     const { projection } = selectProjection(state, scope);
     if (!projection.activity) {
         const count = projection.summary.ready ? projection.summary.count : null;
-        const requests = projection.inputs.flatMap(({ row, requests }) => requests.map(request => ({
+        const requests = projection.answerableInputs.flatMap(({ row, requests }) => requests.map(request => ({
             sessionId: row.id, requestId: request.id,
         })));
-        const unloadedSessionIds = projection.unloaded.map(({ row }) => row.id);
+        const unloadedSessionIds = projection.answerableUnloaded.map(({ row }) => row.id);
         const previous = projection.previousActivity;
         projection.activity = previous && previous.count === count
             && shallow(previous.unloadedSessionIds, unloadedSessionIds)

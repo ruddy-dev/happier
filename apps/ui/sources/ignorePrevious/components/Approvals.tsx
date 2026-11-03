@@ -12,10 +12,12 @@ import { useDeskPopup } from '../popups/useDeskPopup';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { DeskText as Text } from '../typography/DeskText';
 import { WaitingPanel, type WaitingHistory } from './WaitingPanel';
+import { useTopBarAppearance } from './topBarAppearance';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null>; phone?: boolean }) {
     const { theme } = useUnistyles();
+    const { terminal, paint } = useTopBarAppearance();
     const { count, ready } = useDeskWaitsSummary();
     const waiting = ready && count > 0;
     // Before the first sync the count is not known yet; 0 would say nothing waits (F4).
@@ -39,17 +41,19 @@ export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { o
                 gap: 6,
                 paddingHorizontal: 10,
                 paddingVertical: 5,
-                borderRadius: 999,
+                minHeight: 44,
+                flexShrink: 0,
+                borderRadius: terminal ? 2 : 999,
                 borderWidth: 1,
-                borderColor: waiting ? theme.colors.state.warning.border : theme.colors.border.default,
-                backgroundColor: waiting ? theme.colors.state.warning.background : 'transparent',
+                borderColor: waiting ? paint.yel : paint.rule,
+                backgroundColor: waiting ? paint.yel : 'transparent',
             }}
         >
-            <Text style={{ color: theme.colors.text.primary, fontSize: phone ? 12.5 : 13, letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.title')}</Text>
-            <Text testID="ip-approvals-count" style={{ color: waiting ? theme.colors.text.primary : theme.colors.text.secondary, fontSize: 13, ...Typography.default('semiBold') }}>
+            <Text style={{ color: waiting ? paint.yelink : paint.ink, fontSize: terminal || phone ? 12.5 : 13.5, fontWeight: waiting ? '700' : '500', letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.title')}</Text>
+            <Text testID="ip-approvals-count" style={{ color: waiting ? paint.yel : terminal ? paint.mute : theme.colors.text.secondary, backgroundColor: waiting ? paint.yelink : 'transparent', paddingHorizontal: waiting ? 6 : 0, borderRadius: terminal ? 2 : 999, fontSize: 12, fontVariant: ['tabular-nums'], ...Typography.default('semiBold') }}>
                 {ready ? count : '–'}
             </Text>
-            <Icon name={phone ? 'caret-up' : 'sidebar-right-open'} size={16} color={theme.colors.text.secondary} />
+            <Icon name={phone ? 'caret-up' : 'sidebar-right-open'} size={16} color={waiting ? paint.yelink : paint.mute} />
         </Pressable>
     );
 }
