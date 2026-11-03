@@ -190,8 +190,13 @@ it.each(['terminal', 'mask'] as const)('R41: %s phone paints qualified supplied 
     // and Fable retains a visible estimate qualifier as well as its full name.
     for (const [values, inline, status, panelText] of [
         [{ maxWeek: 0, lastFiveHours: null, fableShare: null }, 'Max 0%', 'Max week 0%', 'Max week0%'],
+        [{ maxWeek: 100, lastFiveHours: null, fableShare: null }, 'Max 100%', 'Max week 100%', 'Max week100%'],
+        [{ maxWeek: null, lastFiveHours: 0, fableShare: null }, '5h 0%', 'Last five hours 0%', 'Last five hours0%'],
         [{ maxWeek: null, lastFiveHours: 63, fableShare: null }, '5h 63%', 'Last five hours 63%', 'Last five hours63%'],
+        [{ maxWeek: null, lastFiveHours: 100, fableShare: null }, '5h 100%', 'Last five hours 100%', 'Last five hours100%'],
+        [{ maxWeek: null, lastFiveHours: null, fableShare: 0 }, 'Fable\nest. 0%', 'Fable share (estimate) 0%', 'Fable share (estimate)0%'],
         [{ maxWeek: null, lastFiveHours: null, fableShare: 12 }, 'Fable\nest. 12%', 'Fable share (estimate) 12%', 'Fable share (estimate)12%'],
+        [{ maxWeek: null, lastFiveHours: null, fableShare: 100 }, 'Fable\nest. 100%', 'Fable share (estimate) 100%', 'Fable share (estimate)100%'],
     ] as const) {
         await renderInput({ scope, snapshot: { scope, ...values } });
         expect(button.textContent).toBe(inline);
@@ -208,9 +213,10 @@ it.each(['terminal', 'mask'] as const)('R41: %s phone paints qualified supplied 
         { scope, snapshot: null },
         undefined,
     ]) {
-        // Restore a known value before every withdrawal to catch stale text.
-        await renderInput({ scope, snapshot });
-        expect(button.textContent).toBe('Max 38%');
+        // Restore the widest qualified phone reading before every withdrawal.
+        // This checks text/scope lifecycle only; browser QA owns flex geometry.
+        await renderInput({ scope, snapshot: { ...snapshot, maxWeek: null, lastFiveHours: null, fableShare: 100 } });
+        expect(button.textContent).toBe('Fable\nest. 100%');
         await renderInput(usage);
         expect(element('ip-top-usage')).toBe(button);
         expect(element('ip-usage-popover')).toBe(panel);
