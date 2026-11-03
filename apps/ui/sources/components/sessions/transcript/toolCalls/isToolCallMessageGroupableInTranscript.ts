@@ -12,6 +12,6 @@ export function isToolCallMessageGroupableInTranscript(message: Message, keepPen
 
     const permission = message.tool.permission;
     if (keepPendingPermissions && permission?.status === 'pending') return false;
-    if (isAskUserQuestionToolName(message.tool.name) && message.tool.state === 'running' && permission?.status == null) return false;
+    if (keepPendingPermissions && isAskUserQuestionToolName(message.tool.name) && message.tool.state === 'running' && permission?.status == null) return false;
     return !isPendingUserActionRequest({ toolName: message.tool.name, requestKind: permission?.kind, permissionStatus: permission?.status });
 }
