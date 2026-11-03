@@ -18,6 +18,7 @@ import { ApprovalsButton, ApprovalsDrawer } from '../components/Approvals';
 import { createWaitingHistory } from '../components/WaitingPanel';
 import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
+import { useWorkPaint } from '../components/WorkAppearance';
 import { CoordinatorCard } from '../components/CoordinatorCard';
 import {
     getApprovalsOpen,
@@ -158,6 +159,9 @@ function useApprovalsDrawer(width: number) {
  */
 export function DeskScreen() {
     const { theme } = useUnistyles();
+    const workPaint = useWorkPaint();
+    const [chatStyle] = useDeskPref('chatStyle');
+    const workSurface = chatStyle === 'terminal' ? { backgroundColor: workPaint.paint.panel } : {};
     const router = useRouter();
     const { width, height } = useWindowDimensions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
@@ -242,6 +246,7 @@ export function DeskScreen() {
     const collapse = (
         <PanelToggle
             testID="ip-work-collapse"
+            colour={workPaint.text.secondary}
             icon={wide ? 'sidebar-left-close' : 'caret-up'}
             label={t('ignorePrevious.collapseWork')}
             onPress={() => collapseWork(true)}
@@ -250,14 +255,15 @@ export function DeskScreen() {
     const expand = (
         <PanelToggle
             testID="ip-work-expand"
+            colour={workPaint.text.secondary}
             icon={wide ? 'sidebar-left-open' : 'caret-down'}
             label={t('ignorePrevious.expandWork')}
             onPress={() => collapseWork(false)}
         />
     );
     const divider = wide
-        ? { borderRightWidth: 1, borderRightColor: theme.colors.border.default }
-        : { borderBottomWidth: 1, borderBottomColor: theme.colors.border.default };
+        ? { borderRightWidth: 1, borderRightColor: workPaint.controlBorder }
+        : { borderBottomWidth: 1, borderBottomColor: workPaint.controlBorder };
 
     let work: React.ReactNode;
     if (wide) {
@@ -266,7 +272,7 @@ export function DeskScreen() {
                 testID="ip-work-rail"
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ width: 76, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...divider }}
+                style={{ width: 76, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }}
                 contentContainerStyle={{ gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }}
             >
                 {expand}
@@ -274,7 +280,7 @@ export function DeskScreen() {
                 <WorkColumn compact="column" />
             </ScrollView>
         ) : (
-            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
+            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
                 <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
                 {coordinatorCard('slim')}
                 <WorkColumn />
@@ -282,7 +288,7 @@ export function DeskScreen() {
         );
     } else {
         work = workCollapsed && !phone ? (
-            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...divider }}>
+            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...workSurface, ...divider }}>
                 <ScrollView horizontal={false} showsHorizontalScrollIndicator={false} style={{ flex: 1, minWidth: 0, maxHeight: Math.max(0, Math.round(height * 0.45) - 16), overflow: 'hidden' }} contentContainerStyle={{ minWidth: 0 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4, minWidth: 0 }}>
                         {coordinatorCard('rail')}
@@ -296,7 +302,7 @@ export function DeskScreen() {
                 testID="ip-work"
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...divider }}
+                style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...workSurface, ...divider }}
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
                 {!phone && <View style={{ alignItems: 'flex-end' }}>{collapse}</View>}

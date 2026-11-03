@@ -11,8 +11,12 @@ test('Allow runs what the card showed, and the worker carries on', async ({ page
         await worker.agent.publishPermissionRequest({ id: 'j2-bash', tool: 'Bash', args: { command: 'rm -rf build && yarn build' } });
 
         await openDesk(page, desk);
-        await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('1', { timeout: 10_000 });
-        await page.getByTestId('ip-approvals-open').click();
+        const approvals = page.getByTestId('ip-approvals-open');
+        const approvalCount = approvals.getByTestId('ip-approvals-count');
+        await expect(approvalCount, 'Waiting on you, loaded request count and unit').toHaveText('1 request', { timeout: 10_000 });
+        await expect(approvalCount).toBeVisible();
+        await expect(approvals).toHaveAccessibleName('Show what waits on you, 1 request');
+        await approvals.click();
         const waiting = page.getByTestId('ip-waiting');
         const activeCard = waiting.getByTestId('ip-waiting-card-j2-bash');
         await expect(activeCard, 'the active request card before Allow').toBeVisible();
@@ -39,7 +43,9 @@ test('Allow runs what the card showed, and the worker carries on', async ({ page
         // The active card goes; the panel keeps an Answered entry for it (signed J2 and J3).
         await expect(activeCard, 'the active card after Allow, apart from Answered').toHaveCount(0);
         await expect(page.getByTestId('ip-answered-j2-bash'), 'the Answered entry').toBeVisible();
-        await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('0');
+        await expect(approvalCount, 'Waiting on you, loaded zero rather than unresolved').toHaveText('0 requests');
+        await expect(approvalCount).toBeVisible();
+        await expect(approvals).toHaveAccessibleName('Hide what waits on you, 0 requests');
         await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-working'), 'the bulb after Allow').toBeVisible();
     } finally {
         await seed.stopAll();
@@ -58,8 +64,12 @@ test('cards show the file a Write touches and a long command to its last charact
         await runner.agent.publishPermissionRequest({ id: 'j2-long', tool: 'Bash', args: { command: longCommand } });
 
         await openDesk(page, desk);
-        await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('2', { timeout: 10_000 });
-        await page.getByTestId('ip-approvals-open').click();
+        const approvals = page.getByTestId('ip-approvals-open');
+        const approvalCount = approvals.getByTestId('ip-approvals-count');
+        await expect(approvalCount, 'Waiting on you, loaded request count and unit').toHaveText('2 requests', { timeout: 10_000 });
+        await expect(approvalCount).toBeVisible();
+        await expect(approvals).toHaveAccessibleName('Show what waits on you, 2 requests');
+        await approvals.click();
         const waiting = page.getByTestId('ip-waiting');
         const writeCard = waiting.getByTestId('ip-waiting-card-j2-write');
         const longCard = waiting.getByTestId('ip-waiting-card-j2-long');
@@ -87,7 +97,9 @@ test('cards show the file a Write touches and a long command to its last charact
         await expect(longToggle).toHaveAttribute('aria-expanded', 'true');
         await expect(longDetail.getByText(longCommand, { exact: true }), 'the complete command through its last character').toBeVisible();
         await expect(longDetail.getByRole('button', { name: 'Allow Bash', exact: true })).toBeEnabled();
-        await expect(page.getByTestId('ip-approvals-count'), 'inspection leaves both requests waiting').toHaveText('2');
+        await expect(approvalCount, 'inspection leaves both requests waiting').toHaveText('2 requests');
+        await expect(approvalCount).toBeVisible();
+        await expect(approvals).toHaveAccessibleName('Hide what waits on you, 2 requests');
         expect(writer.agent.getReceivedDecisions(), 'inspecting Write sends no answer').toEqual([]);
         expect(runner.agent.getReceivedDecisions(), 'inspecting Bash sends no answer').toEqual([]);
     } finally {

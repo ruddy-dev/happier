@@ -501,3 +501,57 @@ it('requires a fresh look at an edit changed at the same file path', async () =>
     await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-edit'));
     expect(boundary.allow).toHaveBeenCalledExactlyOnceWith('editor', 'edit');
 });
+
+
+it.each(['stale', 'unknown'] as const)('aligns %s owner advice with mounted controls across disconnect, reconnect and refresh', async activity => {
+    seed([createSessionFixture({ ...worker('worker', 'echo check'), activeAt: activity === 'unknown' ? 0 : Date.now() - 180_000,
+        thinkingAt: 0, runtimeActivityObservedAt: null, latestTurnStatusObservedAt: null, latestReadyEventAt: null,
+        pendingRequestObservedAt: null, agentState: { requests: { shared: { tool: 'Bash', arguments: { command: 'echo check' } } } } })]);
+    const screen = await renderScreen(<WaitingPanel />);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    const invitation = t(activity === 'unknown' ? 'ignorePrevious.waiting.workerUnknown' : 'ignorePrevious.connection.staleRequest');
+    const assertActionable = (enabled: boolean) => {
+        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(!enabled);
+        expect(screen.findByTestId('ip-waiting-deny-shared')?.props.disabled).toBe(!enabled);
+        expect(screen.getTextContent().includes(invitation)).toBe(enabled);
+    };
+    assertActionable(true);
+    act(() => storage.getState().setSocketStatus('disconnected'));
+    assertActionable(false);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    expect(boundary.allow).not.toHaveBeenCalled();
+    act(() => storage.getState().setSocketStatus('connected'));
+    assertActionable(true);
+    act(() => storage.setState({ isDataReady: false }));
+    assertActionable(false);
+    act(() => storage.getState().applyReady());
+    assertActionable(true);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-deny-shared'));
+    expect(boundary.deny).toHaveBeenCalledTimes(1);
+    assertActionable(false);
+});
+
+it.each(['sent', 'unavailable', 'changed'] as const)('does not invite stale approval while sending or after %s', async outcome => {
+    const pending = createDeferred<SessionPermissionResult>();
+    boundary.allow.mockReturnValueOnce(pending.promise);
+    const original = worker('worker', 'echo original');
+    seed([original]);
+    const screen = await renderScreen(<WaitingPanel />);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    expect(screen.getTextContent()).toContain(t('ignorePrevious.connection.staleRequest'));
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    try {
+        expect(screen.findByTestId('ip-waiting-allow-shared')?.props.accessibilityState).toMatchObject({ disabled: true, busy: true });
+        expect(screen.getTextContent()).not.toContain(t('ignorePrevious.connection.staleRequest'));
+        if (outcome === 'changed') act(() => storage.getState().applySessions([{ ...worker('worker', 'echo replacement'), agentStateVersion: original.agentStateVersion + 1 }]));
+    } finally {
+        await act(async () => pending.resolve(outcome === 'unavailable' ? { ok: false, errorCode: 'permission_request_not_found', errorMessage: 'Request unavailable', requestId: 'shared' } : { ok: true }));
+    }
+    if (outcome === 'changed') {
+        expect(screen.findByTestId('ip-waiting-changed-shared')).not.toBeNull();
+        await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    }
+    expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(true);
+    expect(screen.findByTestId('ip-waiting-deny-shared')?.props.disabled).toBe(true);
+    expect(screen.getTextContent()).not.toContain(t('ignorePrevious.connection.staleRequest'));
+});

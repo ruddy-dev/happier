@@ -179,7 +179,7 @@ it('shows desk chrome and phone panes at the agreed boundary', async () => {
     expect(container.querySelectorAll('[data-testid="ip-approvals-open"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
     expect(element('ip-top-usage').textContent).toBe('Usage');
-    expect(element('ip-approvals-count').textContent).toBe('0');
+    expect(element('ip-approvals-count').textContent).toBe('0 requests');
     await render(390);
     expect(element('ip-top-sessions')).toBeTruthy();
     expect(getComputedStyle(element('ip-work').parentElement!).display).toBe('none');
@@ -277,6 +277,21 @@ it('uses the selected desk palette for phone tabs and provides real focusable ta
     expect(element('ip-tab-work').style.backgroundColor).not.toBe('');
     deskPrefs.set('terminalPalette', 'tokyo');
 });
+it('keeps a populated Waiting tab within its share of the 390px bar and opens its drawer', async () => {
+    await act(async () => seedCards(['first', 'second', 'third']));
+    await render(390);
+    const tab = element('ip-tab-waiting');
+    expect(element('ip-approvals-count').textContent).toBe('3 requests');
+    expect(tab.getAttribute('aria-label')).toContain('3 requests');
+    expect(getComputedStyle(tab).flexGrow).toBe('1');
+    expect(getComputedStyle(tab).flexBasis).toBe('0%');
+    expect(getComputedStyle(tab).flexDirection).toBe('column');
+    await click('ip-tab-waiting');
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(element('ip-waiting-count').textContent).toBe('3 requests');
+    await click('ip-approvals-close');
+    expect(document.activeElement).toBe(tab);
+});
 it('M12: gives Usage the same visible and accessible text without a percentage', async () => {
     await render(1440);
     const usage = element('ip-top-usage');
@@ -289,10 +304,10 @@ it('uses a muted zero while preserving the waiting label', async () => {
     const zero = getComputedStyle(element('ip-approvals-count')).color;
     const token = document.createElement('span'); token.style.color = lightTheme.colors.text.secondary; document.body.append(token);
     expect(zero).toBe(getComputedStyle(token).color); token.remove();
-    const label = element('ip-approvals-open').textContent!.replace('0', '');
+    const label = element('ip-approvals-open').textContent!.replace(element('ip-approvals-count').textContent!, '');
     await act(async () => seedCards(['first']));
     expect(getComputedStyle(element('ip-approvals-count')).color).not.toBe(zero);
-    expect(element('ip-approvals-open').textContent!.replace('1', '')).toBe(label);
+    expect(element('ip-approvals-open').textContent!.replace(element('ip-approvals-count').textContent!, '')).toBe(label);
 });
 it('returns focus to the current waiting opener after crossing the boundary', async () => {
     await render(1000); await click('ip-approvals-open'); await render(820); await escape();

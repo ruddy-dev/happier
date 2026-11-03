@@ -177,9 +177,10 @@ it.each([390, 1440])('R47: inbox heading counts actionable and unloaded waits at
             createSessionFixture({ id: 'unloaded', active: true, pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now() })]);
     });
     await render(width); await click('ip-approvals-open');
-    expect(element('ip-waiting-count').textContent).toBe('2');
+    expect(element('ip-waiting-count').textContent).toBe('2 requests');
     expect(element('ip-waiting-heading').textContent).toContain('Waiting on you');
-    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toBe(element('ip-waiting-heading').textContent);
+    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toContain('Waiting on you');
+    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toMatch(/\d+ requests/);
     // The canonical SVG boundary stub retains its native testID prop as a host attribute.
     expect(container.querySelectorAll('[testid="ip-waiting-mask"]')).toHaveLength(1);
     expect(element('ip-waiting-card-viewer')).toBeTruthy();
@@ -187,6 +188,69 @@ it.each([390, 1440])('R47: inbox heading counts actionable and unloaded waits at
     expect(container.querySelector('[data-testid="ip-waiting-allow-owner"]')).toBeNull();
     await click('ip-waiting-toggle-viewer');
     expect(container.querySelector('[data-testid="ip-waiting-allow-viewer"]')).toBeNull();
+});
+
+it.each([390, 1440])('P2: request units and restricted meanings are available before disclosure at %s', async width => {
+    const now = Date.now();
+    const pending = (id: string, accessLevel?: 'view' | 'edit' | 'admin') => createSessionFixture({
+        id, active: true, activeAt: now, updatedAt: now, accessLevel,
+        canApprovePermissions: accessLevel ? false : undefined,
+        agentState: { requests: {
+            [id]: { tool: 'Bash', arguments: { command: `echo ${id}` }, createdAt: now },
+            ...(id === 'owner' ? { second: { tool: 'Bash', arguments: { command: 'echo second' }, createdAt: now } } : {}),
+        } },
+    });
+    await act(async () => {
+        storage.getState().setSocketStatus('connected');
+        storage.getState().applySessions([pending('owner'), pending('viewer', 'view'), pending('editor', 'edit'), pending('admin', 'admin')]);
+    });
+    await render(width);
+    expect(element('ip-approvals-count').textContent).toBe('4 requests');
+    expect(element('ip-approvals-open').getAttribute('aria-label')).toContain('4 requests');
+    await click('ip-approvals-open');
+    expect(element('ip-waiting-count').textContent).toBe('4 requests');
+    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toContain('4 requests');
+    for (const [id, note] of [
+        ['viewer', 'View only · outside request count'],
+        ['editor', 'Can edit, cannot approve · in request count'],
+        ['admin', 'Can edit, cannot approve · in request count'],
+    ]) {
+        const toggle = element(`ip-waiting-toggle-${id}`);
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(toggle.textContent).toContain(note);
+        expect(toggle.getAttribute('aria-label')).toContain(note);
+        expect(container.querySelector(`[data-testid="ip-waiting-detail-${id}"]`)).toBeNull();
+    }
+    expect(element('ip-waiting-toggle-owner').textContent).not.toMatch(/cannot approve|View only/);
+    expect(element('ip-waiting-toggle-second')).toBeTruthy();
+    expect(element('ip-waiting-toggle-owner').getAttribute('aria-label')).not.toMatch(/cannot approve|View only/);
+    expect(sessionAllowResult).not.toHaveBeenCalled();
+    expect(sessionDenyResult).not.toHaveBeenCalled();
+});
+
+it('P2: unloaded restricted requests explain their count membership before opening a session', async () => {
+    await act(async () => {
+        storage.getState().setSocketStatus('connected');
+        storage.getState().applySessions((['view', 'edit'] as const).map(accessLevel => createSessionFixture({
+            id: accessLevel, active: true, accessLevel, canApprovePermissions: false,
+            pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now(),
+        })));
+    });
+    await render(390); await click('ip-approvals-open');
+    expect(element('ip-waiting-unloaded-view').textContent).toContain('View only · outside request count');
+    expect(element('ip-waiting-unloaded-edit').textContent).toContain('Can edit, cannot approve · in request count');
+    expect(element('ip-waiting-count').textContent).toBe('1 request');
+});
+
+it('P2: unknown request counts remain unknown in visible and accessible summaries', async () => {
+    storage.setState({ isDataReady: false });
+    await render(390);
+    expect(element('ip-approvals-count').textContent).toBe('– requests');
+    expect(element('ip-approvals-open').getAttribute('aria-label')).toMatch(/request count unknown.*connecting/i);
+    await click('ip-approvals-open');
+    expect(element('ip-waiting-count').textContent).toBe('– requests');
+    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toMatch(/request count unknown.*connecting/i);
+    expect(element('ip-waiting-connecting')).toBeTruthy();
 });
 
 it.each(['mask', 'terminal'] as const)('R61: %s Waiting renders the verified side-eye mask at 22px with its red rest bulb', async style => {
@@ -217,7 +281,8 @@ it.each(['mask', 'terminal'] as const)('R61: %s Waiting renders the verified sid
     // The drawer and heading retain the label; the decorative SVG adds no second label.
     expect(mask.getAttribute('accessibilityLabel')).toBeNull();
     expect(mask.getAttribute('aria-label')).toBeNull();
-    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toBe(element('ip-waiting-heading').textContent);
+    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toContain('Waiting on you');
+    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toMatch(/\d+ requests/);
 });
 
 it.each(['Enter', ' '])('R47: Terminal row %s toggles without submitting or denying and keeps focus on its cursor', async key => {

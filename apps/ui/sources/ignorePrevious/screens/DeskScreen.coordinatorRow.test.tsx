@@ -164,7 +164,7 @@ describe('DeskScreen coordinator row (L1)', () => {
         await scenario.apply('c1', { completed: { own: 'approved' } });
         expect(scenario.textOf('ip-coord-card-waiting')).toBe(t('ignorePrevious.coordinatorCard.waiting', { count: 0 }));
         expect(scenario.textOf('ip-coord-card-state')).toBe('Idle');
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
         await scenario.apply('c1', { active: false, thinking: true });
         expect(scenario.textOf('ip-coord-card-state')).toBe('offline');
     });
@@ -231,7 +231,7 @@ describe('DeskScreen coordinator row (L1)', () => {
         await scenario.openApprovals();
         expect(scenario.screen.findByTestId('ip-waiting-card-worker')).not.toBeNull();
         expect(scenario.screen.findByTestId('ip-waiting-card-worker2')).not.toBeNull();
-        expect(scenario.textOf('ip-approvals-count')).toBe('2');
+        expect(scenario.textOf('ip-approvals-count')).toBe('2 requests');
         await scenario.apply('c1', { requests: Object.fromEntries(Array.from({ length: 10 }, (_, i) => [
             `own-${i}`, { tool: 'AskUserQuestion', arguments: { questions: [] } },
         ])) });
@@ -295,7 +295,7 @@ describe('DeskScreen coordinator row (L1)', () => {
     it('L1: the coordinator\'s request still shows in what waits on you', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.apply('c1', { requests: { q1: { tool: 'Bash', arguments: { command: 'git push' } } } });
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
     });
 });
 

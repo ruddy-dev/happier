@@ -108,9 +108,9 @@ function seed(sessions: Session[]) {
  * A sidebar row whose metadata the app could not decrypt or parse (`metadataUnavailable`), as the
  * list sync leaves it. The full record never loads, so the row is all the desk has.
  */
-function seedUnreadableRow(id: string, pendingPermissionRequestCount: number, metadata: Record<string, unknown> | null = null) {
+function seedUnreadableRow(id: string, pendingPermissionRequestCount: number, metadata: Record<string, unknown> | null = null, extra: Partial<Session> = {}) {
     const row = buildSessionListRenderableFromSession(
-        createSessionFixture({ id, active: true, pendingPermissionRequestCount, pendingRequestObservedAt: Date.now() }),
+        createSessionFixture({ id, active: true, pendingPermissionRequestCount, pendingRequestObservedAt: Date.now(), ...extra }),
     );
     act(() => {
         storage.setState(previous, true);
@@ -392,6 +392,8 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-inspect-ambiguous-id')).not.toBeNull();
         expect(screen.findByTestId('ip-waiting-allow-ambiguous-id')).toBeNull();
         expect(screen.findByTestId('ip-waiting-deny-ambiguous-id')).toBeNull();
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-ambiguous-id'))).toMatch(/Not heard from in/);
+        expect(textUnder(screen.findByTestId('ip-waiting-detail-ambiguous-id'))).not.toContain(t('ignorePrevious.connection.staleRequest'));
         expect(screen.findByTestId('ip-waiting-allow-independent')?.props.disabled).toBe(false);
         const open = screen.tree.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === t('ignorePrevious.openSession'));
         await pressTestInstanceAsync(open);
@@ -605,14 +607,16 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-allow-r13')).toBeNull();
         expect(screen.findByTestId('ip-waiting-deny-r13')).toBeNull();
         const waiting = textUnder(screen.findByTestId('ip-waiting'));
-        expect(waiting).toContain('You have view-only access to this session.');
+        expect(waiting).toContain('View only · outside request count');
         expect(waiting).toContain('npm test');
+        expect(waiting).not.toContain(t('ignorePrevious.connection.staleRequest'));
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-r13'))).toMatch(/Not heard from in/);
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session'), 'Open session');
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
         expect(permissionCalls()).toHaveLength(0);
     });
 
-    it('W9: edit access without approval rights says the owner did not allow it', async () => {
+    it('W9: edit access without approval rights explains inclusion without offering approval', async () => {
         seed([
             sessionWithRequest('s1', 'r14', { tool: 'Bash', arguments: { command: 'npm test' } }, { accessLevel: 'edit', canApprovePermissions: false }),
         ]);
@@ -620,8 +624,32 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-allow-r14')).toBeNull();
         expect(screen.findByTestId('ip-waiting-deny-r14')).toBeNull();
         expect(textUnder(screen.findByTestId('ip-waiting'))).toContain(
-            'The owner did not allow you to approve permissions for this session.',
+            'Can edit, cannot approve · in request count',
         );
+        expect(textUnder(screen.findByTestId('ip-waiting'))).not.toContain(t('ignorePrevious.connection.staleRequest'));
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-r14'))).toMatch(/Not heard from in/);
+    });
+
+    it('keeps unknown worker activity neutral when approval is unavailable', async () => {
+        seed([sessionWithRequest('s1', 'unknown-viewer', { tool: 'Bash', arguments: { command: 'npm test' }, createdAt: undefined }, {
+            accessLevel: 'view', activeAt: 0, thinkingAt: 0, runtimeActivityObservedAt: null,
+            latestTurnStatusObservedAt: null, latestReadyEventAt: null, pendingRequestObservedAt: null,
+        })]);
+        const screen = await renderPanel();
+        expect(textUnder(screen.findByTestId('ip-waiting-stale-unknown-viewer'))).toBe(t('status.activityUnknown'));
+        expect(screen.findByTestId('ip-waiting-allow-unknown-viewer')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-unknown-viewer')).toBeNull();
+    });
+
+    it('does not recommend Allow or Deny for a stale question', async () => {
+        seed([sessionWithRequest('s1', 'stale-question', { tool: 'AskUserQuestion', kind: 'user_action', arguments: {
+            questions: [{ question: 'Which approach?', options: [{ label: 'First' }, { label: 'Second' }] }],
+        } })]);
+        const screen = await renderPanel();
+        expect(screen.findByTestId('ip-waiting-card-stale-question')).not.toBeNull();
+        expect(screen.findByTestId('ip-waiting-allow-stale-question')).toBeNull();
+        expect(screen.findByTestId('ip-waiting-deny-stale-question')).toBeNull();
+        expect(textUnder(screen.findByTestId('ip-waiting-detail-stale-question'))).not.toContain(t('ignorePrevious.connection.staleRequest'));
     });
 
     it('W9: edit access with approval rights keeps the buttons', async () => {
@@ -633,14 +661,19 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-deny-r15')).toBeTruthy();
     });
 
-    it('W6: a session with unreadable metadata and a pending request shows a needs-a-look row', async () => {
-        seedUnreadableRow('u1', 1);
+    it.each([
+        [undefined, 1, null],
+        ['view', 0, 'View only · outside request count'],
+        ['edit', 1, 'Can edit, cannot approve · in request count'],
+    ] as const)('W6: unreadable metadata preserves restrictions and count membership for %s access', async (accessLevel, count, restriction) => {
+        seedUnreadableRow('u1', 1, null, { accessLevel, canApprovePermissions: false });
         const screen = await renderPanelWithCount();
         const waiting = textUnder(screen.findByTestId('ip-waiting'));
         expect(waiting).toContain(UNREADABLE);
         expect(waiting).not.toContain('Allow');
         expect(waiting).not.toContain('Deny');
-        expect(textUnder(screen.findByTestId('probe-count'))).toBe('1');
+        expect(textUnder(screen.findByTestId('probe-count'))).toBe(String(count));
+        if (restriction) expect(textUnder(screen.findByTestId('ip-waiting-unloaded-u1'))).toContain(restriction);
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session'), 'Open session');
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/u1(\?|$)/);
     });
