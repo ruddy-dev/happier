@@ -16,6 +16,7 @@ import { Modal } from '@/modal';
 import * as waitingItems from '../model/waitingItems';
 import * as transcriptReader from '@/sync/domains/messages/readStoredSessionMessages';
 import { readDeskWaits } from '../model/useDeskWaits';
+import type { NormalizedMessage } from '@/sync/typesRaw';
 
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
@@ -450,4 +451,73 @@ it('closed permission revoke/re-grant and stale observations preserve the same l
     expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).toBe('true');
     await click('ip-waiting-allow-request');
     expect(sessionAllowResult).toHaveBeenCalledTimes(1);
+});
+
+function transcriptOccurrence(createdAt = 1): NormalizedMessage {
+    return { id: `transcript-${createdAt}`, localId: null, createdAt, role: 'agent', isSidechain: false,
+        content: [{ type: 'tool-call', id: 'request', name: 'bash',
+            input: { permissionId: 'request', status: 'pending', command: 'echo same raw content' },
+            description: null, uuid: `transcript-${createdAt}`, parentUUID: null }] };
+}
+function loadTranscriptOccurrence() {
+    storage.getState().setSocketStatus('connected');
+    storage.getState().applySessions([createSessionFixture({ id: 'worker', active: true,
+        agentState: null, pendingPermissionRequestCount: 1 })]);
+    storage.getState().applyMessages('worker', [transcriptOccurrence()]);
+    storage.getState().applyMessagesLoaded('worker');
+}
+async function terminalAndReturnTranscript() {
+    await act(async () => storage.getState().applyMessages('worker', [{
+        id: 'transcript-result', localId: null, createdAt: 2, role: 'agent', isSidechain: false,
+        content: [{ type: 'tool-result', tool_use_id: 'request', content: 'done', is_error: false,
+            permissions: { result: 'approved', date: 2 }, uuid: 'transcript-result', parentUUID: null }],
+    }]));
+    expect(storage.getState().sessionMessages.worker.isLoaded).toBe(true);
+    expect(storage.getState().sessionMessages.worker.renderableAggregate?.requestStates.get('request')?.status).toBe('terminal');
+    expect(storage.getState().sessions.worker.pendingPermissionRequestCount).toBe(1);
+    await act(async () => {
+        // Model a refreshed transcript returning the identical ID, raw payload and timestamp.
+        storage.getState().resetSessionMessages('worker');
+        storage.getState().applyMessages('worker', [transcriptOccurrence()]);
+        storage.getState().applyMessagesLoaded('worker');
+    });
+}
+
+it.each(['sent', 'unavailable'] as const)('loaded transcript-only %s feedback cannot settle its identical successor while count stays positive', async phase => {
+    vi.mocked(sessionAllowResult).mockResolvedValueOnce(phase === 'sent' ? { ok: true }
+        : { ok: false, errorMessage: 'gone', requestId: 'request', errorCode: 'permission_request_expired' });
+    loadTranscriptOccurrence();
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    await click('ip-approvals-close');
+    await terminalAndReturnTranscript();
+    await openOccurrence();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+});
+
+it.each(['success', 'legacy', 'expired', 'failure'] as const)('loaded transcript-only successor rejects late %s and retains the shared transport lock', async result => {
+    const pending = createDeferred<SessionPermissionResult>();
+    vi.mocked(sessionAllowResult).mockReturnValueOnce(pending.promise);
+    loadTranscriptOccurrence();
+    await render(390); await openOccurrence(); await click('ip-waiting-allow-request');
+    await click('ip-approvals-close');
+    await terminalAndReturnTranscript();
+    await openOccurrence();
+    try {
+        expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+        await click('ip-waiting-allow-request');
+        expect(sessionAllowResult).toHaveBeenCalledTimes(1);
+    } finally {
+        await act(async () => {
+            if (result === 'failure') pending.reject(new Error('old failure'));
+            else if (result === 'expired') pending.resolve({ ok: false, errorMessage: 'gone', requestId: 'request', errorCode: 'permission_request_expired' });
+            else if (result === 'legacy') pending.resolve(undefined as unknown as SessionPermissionResult);
+            else pending.resolve({ ok: true });
+        });
+    }
+    expect(Modal.alert).not.toHaveBeenCalled();
+    expect(element('ip-waiting-allow-request').getAttribute('aria-disabled')).not.toBe('true');
+    await click('ip-waiting-allow-request');
+    expect(sessionAllowResult).toHaveBeenCalledTimes(2);
 });
