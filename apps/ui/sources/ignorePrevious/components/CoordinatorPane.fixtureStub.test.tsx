@@ -91,6 +91,28 @@ describe('CoordinatorPane body', () => {
         expect(screen.tree.findByType(SessionView).props.showHeader).toBe(false);
     });
 
+    it('M13 keeps the header creature mounted and pauses it until the Shog panel closes', async () => {
+        deskPrefs.set('creatureEnabled', true);
+        storage.getState().applySessions([createSessionFixture({ id: 'coord', active: true, activeAt: Date.now(), thinking: true, thinkingAt: Date.now() })]);
+        storage.getState().applyReady();
+        const screen = await renderScreen(<CoordinatorPane sessionId="coord" />);
+        const headerCreature = () => screen.findByTestId('ip-coord-header')!.findByType(DeskCreature);
+        const mounted = headerCreature();
+        expect(mounted.props.mode).toBe('working');
+        expect(mounted.props.playback).not.toBe('paused');
+        await screen.pressByTestIdAsync('ip-shog-open');
+        expect(screen.findByTestId('ip-shog')).not.toBeNull();
+        expect(headerCreature()).toBe(mounted);
+        expect(headerCreature().props.playback).toBe('paused');
+        expect(screen.tree.root.findAllByType(DeskCreature)).toHaveLength(2);
+        expect(screen.findByTestId('ip-shog-open')!.props.accessibilityState).toEqual({ expanded: true });
+        await screen.pressByTestIdAsync('ip-shog-done');
+        expect(screen.findByTestId('ip-shog')).toBeNull();
+        expect(headerCreature()).toBe(mounted);
+        expect(headerCreature().props.playback).not.toBe('paused');
+        expect(headerCreature().props.mode).toBe('working');
+    });
+
     it('F4: hides count-dependent state until waits load while preserving session status', async () => {
         const now = Date.now();
         const session = createSessionFixture({ id: 'c1', active: true, activeAt: now });

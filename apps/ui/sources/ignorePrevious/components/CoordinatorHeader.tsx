@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
@@ -16,9 +16,13 @@ import { DeskText } from '../typography/DeskText';
 import { MaskFace } from './MaskFace';
 
 /** Mockup 12 round 8: a large name, quiet role, and readable state over the creature. */
-export function CoordinatorHeader({ session, onOpenShog, accessory }: {
+export function CoordinatorHeader({ session, onOpenShog, shogOpen = false, shogOpenerRef, shogCreatureOpenerRef, shogPanelId, accessory }: {
     session: Session | null;
     onOpenShog: () => void;
+    shogOpen?: boolean;
+    shogOpenerRef?: React.RefObject<View | null>;
+    shogCreatureOpenerRef?: React.RefObject<View | null>;
+    shogPanelId?: string;
     accessory?: React.ReactNode;
 }) {
     const [style] = useDeskPref('chatStyle');
@@ -62,11 +66,14 @@ export function CoordinatorHeader({ session, onOpenShog, accessory }: {
             style={{ height, flexShrink: 0, position: 'relative', overflow: 'hidden', backgroundColor: paint.panel,
                 borderBottomWidth: desk.borderWidth, borderBottomColor: paint.rule,
                 flexDirection: 'row', alignItems: 'center', gap: terminal ? 10 : 14, paddingHorizontal: padding }}>
-            {creatureEnabled ? <View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
+            {creatureEnabled ? <Pressable ref={shogCreatureOpenerRef} accessible={false} focusable={false}
+                {...(Platform.OS === 'web' ? { tabIndex: -1 as const } : {})} onPress={onOpenShog}
+                style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
                 <DeskCreature style={terminal ? 'terminal' : 'slips'} redEyes={waits.count ?? 0} mode={mode}
-                    height={height} anchor={anchor} scale={scale} />
-            </View> : null}
-            <Pressable testID="ip-shog-open" accessibilityRole="button" accessibilityLabel={t('ignorePrevious.openShog')}
+                    playback={shogOpen ? 'paused' : undefined} height={height} anchor={anchor} scale={scale} />
+            </Pressable> : null}
+            <Pressable ref={shogOpenerRef} testID="ip-shog-open" aria-expanded={shogOpen} accessibilityState={{ expanded: shogOpen }} accessibilityRole="button" accessibilityLabel={t(shogOpen ? 'ignorePrevious.shogPanel.close' : 'ignorePrevious.openShog')}
+                aria-controls={Platform.OS === 'web' ? shogPanelId : undefined}
                 onPress={onOpenShog} hitSlop={6} style={{ marginLeft: maskLeft, marginRight: narrow ? 18 : 34, flexShrink: 0 }}>
                 <MaskFace testID="ip-coord-mask" size={maskSize}
                     bulb={waits.count === null ? 'idle' : waits.count > 0 ? 'turn' : 'rest'} sleepy={false} />
