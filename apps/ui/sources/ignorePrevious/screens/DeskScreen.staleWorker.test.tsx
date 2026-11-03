@@ -9,6 +9,7 @@ import { DESK_TICK_MS } from '../model/useDeskNow';
 import { storage } from '@/sync/domains/state/storage';
 
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import raw from '../testkit/scripts/F1-F2-crashed-worker.json';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -150,6 +151,7 @@ describe('DeskScreen stale and disconnected workers (F1-F3)', () => {
         await scenario.apply('w1', { requests: { r1: { tool: 'Bash', arguments: { command: 'echo test' } } } });
         await openDetails(scenario);
         await scenario.openApprovals();
+        await revealWaitingDetails(scenario.screen);
         await scenario.advance(SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS - 1_000);
         expect(scenario.textOf('ip-worker-stale-w1')).toBeNull();
         expect(scenario.screen.findByTestId('ip-stop-w1')).not.toBeNull();
@@ -176,6 +178,7 @@ describe('DeskScreen stale and disconnected workers (F1-F3)', () => {
         await scenario.apply('w1', { requests: { r1: { tool: 'Bash', arguments: { command: 'echo test' } } } });
         await openDetails(scenario);
         await scenario.openApprovals();
+        await revealWaitingDetails(scenario.screen);
         const lastGood = Date.now();
         act(() => {
             storage.getState().setLastSyncAt(lastGood - 60_000);

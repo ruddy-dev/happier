@@ -49,7 +49,7 @@ export function CoordinatorCard({ sessionId, form, onOpen }: {
                 borderWidth: rail ? 0 : borderWidth, borderColor: paint.edge, borderRadius: rail ? 10 : 12,
                 backgroundColor: paint.bg }}>
             <MaskFace size={full ? 38 : rail ? 28 : 22}
-                bulb={waitingCount === null ? 'idle' : waitingCount > 0 ? 'turn' : 'rest'} sleepy={false} />
+                bulb={waitingCount === null ? 'idle' : waitingCount > 0 ? 'turn' : 'rest'} />
             <View style={{ flex: rail ? undefined : 1, minWidth: 0, gap: full ? 4 : 0 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: rail ? 'center' : 'flex-start', gap: 8, minWidth: 0 }}>
                     <DeskText style={{ color: paint.ink, fontSize: full ? 15 : 13.5, fontWeight: '600' }}>

@@ -372,6 +372,21 @@ function readOwnerProcessGoneSinceMs(session: Session | undefined): number | nul
     return session ? readSessionRuntimeLostSinceMs(session, nowServerMs()) : null;
 }
 
+function isSoleMainRequestContributor(state: ReducerState, previous: Message | undefined, next: Message, requestId: string): boolean {
+    // The latest-call index does not rule out a retained executed occurrence.
+    // Retractions may discard the old outcome only when this row really is sole.
+    const soleCandidate = state.sidechains.size === 0
+        && previous?.kind === 'tool-call' && next.kind === 'tool-call'
+        && previous.children.length === 0 && next.children.length === 0
+        && previous.tool.id === requestId && next.tool.id === requestId
+        && state.toolIdToMessageId.get(requestId) === next.id;
+    if (!soleCandidate) return false;
+    for (const message of state.messages.values()) {
+        if (message.id !== next.id && (message.tool?.permission?.id ?? message.tool?.id) === requestId) return false;
+    }
+    return true;
+}
+
 export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
     existing: SessionMessages;
     agentState: Session['agentState'] | null;
@@ -388,6 +403,7 @@ export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
     const processedMessages = reducerResult.messages;
 
     const messagesById = existing.messagesById;
+    let renderableAggregate = existing.renderableAggregate;
     const messageRevisionsById = existing.messageRevisionsById ?? {};
     const idsToRemove = new Set<string>();
     const idsToInsert: string[] = [];
@@ -401,6 +417,10 @@ export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
 
     for (const message of processedMessages) {
         const prev = messagesById[message.id];
+        if (renderableAggregate && !applyMessageChangeToTranscriptRenderableAggregate({
+            aggregate: renderableAggregate, previous: prev ?? null, next: message,
+            isSoleRequestStateContributor: id => isSoleMainRequestContributor(existing.reducerState, prev, message, id),
+        })) renderableAggregate = undefined;
         if ((prev && shouldIncludeSubagentSourceMessage(prev)) || shouldIncludeSubagentSourceMessage(message)) {
             didSubagentSourceChange = true;
         }
@@ -492,9 +512,7 @@ export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
             messagesById,
             messageRevisionsById,
             messagesMap: messagesById,
-            // This reconcile path bypasses the incremental aggregate
-            // maintenance, so a stored aggregate must be rebuilt on next use.
-            renderableAggregate: processedMessages.length > 0 ? undefined : existing.renderableAggregate,
+            renderableAggregate,
             reducerState: existing.reducerState,
             reducerVersion: (existing.reducerVersion ?? 0) + 1,
             latestThinkingMessageId,
@@ -713,6 +731,7 @@ export function createMessagesDomain<S extends MessagesDomain & MessagesDomainDe
                             aggregate: renderableAggregate,
                             previous: prev ?? null,
                             next: message,
+                            isSoleRequestStateContributor: id => isSoleMainRequestContributor(existingSession.reducerState, prev, message, id),
                         });
                         if (!appliedToAggregate) {
                             renderableAggregate = undefined;

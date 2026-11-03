@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { AgentInput } from '@/components/sessions/agentInput/AgentInput';
 import { WebDropTargetView } from '@/components/sessions/files/repositoryTree/WebDropTargetView';
@@ -209,10 +210,10 @@ async function renderFixture(demoRoute = false, phone = false) {
     storage.getState().applySettingsLocal({ agentInputEnterToSend: true });
     await installAgentAssetLoader();
     const { CoordinatorBodyStub } = await import('../fixtures/CoordinatorBodyStub');
-    await act(async () => root.render(<DeskDemoContext.Provider value={demoRoute}><SafeAreaInsetsContext.Provider value={safeArea}><CoordinatorComposer coordinatorId="fx-coord" phone={phone}><CoordinatorBodyStub
+    await act(async () => root.render(<AppPaneProvider><DeskDemoContext.Provider value={demoRoute}><SafeAreaInsetsContext.Provider value={safeArea}><CoordinatorComposer coordinatorId="fx-coord" phone={phone}><CoordinatorBodyStub
         footerLeadingActions={<RunSettingsMenu />}
         statusTrailingActions={<span data-testid="fixture-context">Context</span>} />
-    </CoordinatorComposer></SafeAreaInsetsContext.Provider></DeskDemoContext.Provider>));
+    </CoordinatorComposer></SafeAreaInsetsContext.Provider></DeskDemoContext.Provider></AppPaneProvider>));
 }
 
 it.each([false, true])('R45 fixture state controls exclude demo identity with demo context %s and preserve playback permissions', async (demoRoute) => {
@@ -235,6 +236,8 @@ it.each([false, true])('R45 fixture state controls exclude demo identity with de
     expect(storage.getState().sessions[demo.coordinatorId]).toBe(session);
     expect(player.getSnapshot()).toBe(playback);
     expect(find('ip-fixture-composer-states')).toBeNull();
+    expect(find('ip-question-fixture')).toBeNull();
+    expect(find('ip-fixture-tool-group')).toBeNull();
     for (const state of ['idle', 'busy', 'readonly']) expect(find(`ip-fixture-composer-${state}`)).toBeNull();
     expect(find('agent-input-root')).not.toBeNull();
     const input = container.querySelector<HTMLTextAreaElement>('[data-testid="session-composer-input"]')!;
@@ -245,6 +248,8 @@ it('R45 fixture idle Claude Plan uses production controls while synthetic send s
     releaseFixture = applyDeskFixture();
     await renderFixture();
     expect(find('ip-fixture-composer-idle')).not.toBeNull();
+    expect(find('ip-question-card')).not.toBeNull();
+    expect(find('ip-fixture-tool-group')).not.toBeNull();
     expect(find('agent-input-session-mode-chip')?.textContent).toContain('Plan');
     expect(find('session-composer-send')?.getAttribute('aria-label')).toBe(t('common.send'));
     expect(find('agent-input-abort')).toBeNull();

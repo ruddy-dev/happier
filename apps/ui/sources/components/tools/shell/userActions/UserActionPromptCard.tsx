@@ -76,6 +76,7 @@ export const UserActionPromptCard = React.memo(function UserActionPromptCard(pro
                 <ToolInlineBody
                     mode="timeline"
                     tool={model.tool}
+                    permissionRequest={props.request}
                     normalizedToolName={headerText.normalizedToolName}
                     metadata={props.metadata}
                     messages={[]}

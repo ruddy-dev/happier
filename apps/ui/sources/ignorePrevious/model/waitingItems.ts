@@ -1,4 +1,5 @@
 import { displayText } from './displayText';
+import { resolveWaitingQuestions } from './waitingQuestions';
 import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 
 /** Why you can't answer a request from here, as the session's own footer would say; null when you can. */
@@ -9,19 +10,32 @@ export type WaitingItem = {
     sessionId: string;
     requestId: string;
     sessionTitle: string;
+    /** Safe display name; raw tool identity remains in requestContent. */
     tool: string;
     /** Questions (`user_action`) get no Allow/Deny; supported question cards offer explicit Send. */
     kind: SessionPendingRequest['kind'];
-    /** One line for lists and the coordinator's prompt; cut at 140 characters. */
+    /** One line for the inbox; only permission summaries enter coordinator prompts. Cut at 140 characters. */
     summary: string;
     /** What the request will do, in full, for the card someone approves from. */
     detail: string;
+    /** Unformatted payload for detecting replacements even when display escaping looks identical. */
+    requestContent: string;
     /** The agent's own description of the request: a claim, shown labelled as the agent's. */
     agentNote: string | null;
     createdAt: number | null;
     /** Set for a shared session you may watch but not approve in: the card shows no Allow or Deny. */
     disabledReason: WaitingDisabledReason;
+    requiresInspection?: true;
 };
+
+/** Local answer state must never transfer to different content under the same request id. */
+export function waitingItemGenerationKey(item: Pick<WaitingItem, 'key' | 'requestContent'>): string {
+    return JSON.stringify([item.key, item.requestContent]);
+}
+
+export function waitingRequestContent(request: Pick<SessionPendingRequest, 'kind' | 'tool' | 'arguments'>): string {
+    return JSON.stringify([request.kind, request.tool, request.arguments]);
+}
 
 const MAX_SUMMARY = 140;
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
@@ -114,8 +128,22 @@ function readShellRequest(value: unknown, topLevel = true): { command: string; r
 export function summariseRequest(tool: string, args: unknown): string {
     const parsed = parseArguments(args);
     const raw = readShellRequest(parsed)?.command ?? (FILE_TOOLS.has(tool) ? stringField(parsed, 'file_path') : null) ?? tool;
+    return summaryLine(raw);
+}
+
+function summaryLine(raw: string): string {
     const line = displayText(raw).replace(/\n/g, ' \u21B5 ');
     return line.length > MAX_SUMMARY ? `${line.slice(0, MAX_SUMMARY - 1)}\u2026` : line;
+}
+
+function summariseWaitingRequest(request: SessionPendingRequest): string {
+    const first = request.kind === 'user_action' ? resolveWaitingQuestions({
+        tool: request.tool, kind: request.kind, arguments: request.arguments,
+    })?.[0] : undefined;
+    const wording = typeof first?.question === 'string' && first.question.trim() ? first.question : first?.header;
+    return typeof wording === 'string' && wording.trim()
+        ? summaryLine(wording)
+        : summariseRequest(request.tool, request.arguments);
 }
 
 function describeArguments(tool: string, args: unknown): string {
@@ -127,7 +155,7 @@ function describeArguments(tool: string, args: unknown): string {
 /**
  * What a request will do, in full, for a card with a one-tap Allow beside it. A shell command
  * (any tool, any of the agents' shapes) is shown raw and uncut, env prelude included, followed by
- * every other field it came with; an edit shows its file; anything else shows its tool and arguments.
+ * every other field it came with; other tools show all arguments, including file edits.
  */
 export function describeRequest(tool: string, args: unknown): string {
     return displayText(describeRawRequest(tool, args));
@@ -139,8 +167,7 @@ function describeRawRequest(tool: string, args: unknown): string {
     if (shell) {
         return Object.keys(shell.rest).length === 0 ? shell.command : `${shell.command}\n${JSON.stringify(shell.rest, null, 2)}`;
     }
-    const file = FILE_TOOLS.has(tool) ? stringField(parsed, 'file_path') : null;
-    return file ?? describeArguments(tool, parsed);
+    return describeArguments(tool, parsed);
 }
 
 function optionalDisplayText(text: string | null): string | null {
@@ -171,13 +198,15 @@ export function toWaitingItems(
             sessionId,
             requestId: request.id,
             sessionTitle,
-            tool: request.tool,
+            tool: displayText(request.tool),
             kind: request.kind,
-            summary: summariseRequest(request.tool, request.arguments),
+            summary: summariseWaitingRequest(request),
             detail: describeRequest(request.tool, request.arguments),
+            requestContent: waitingRequestContent(request),
             agentNote: optionalDisplayText(stringField(parseArguments(request.arguments), 'description')),
             createdAt: request.createdAt,
             disabledReason,
+            ...(request.requiresInspection ? { requiresInspection: true as const } : {}),
         })),
     );
     return items.sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

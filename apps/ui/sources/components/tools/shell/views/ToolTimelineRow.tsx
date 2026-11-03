@@ -39,6 +39,7 @@ import {
 import { isGenericSubAgentToolName, isSubAgentTranscriptToolName } from '@happier-dev/protocol/tools/v2';
 import { buildToolCallMessageRouteId } from '@/sync/domains/messages/messageRouteIds';
 import { PermissionFooter } from '../permissions/PermissionFooter';
+import { pendingRequestFromTool } from '../permissions/usePendingRequestActionability';
 import { ApprovalPromptCard } from '../approvals/ApprovalPromptCard';
 import { resolveInactiveSessionToolCallFailure } from '../permissions/resolveInactiveSessionToolCallFailure';
 import { navigateWithBlurOnWeb } from '@/utils/platform/navigateWithBlurOnWeb';
@@ -94,6 +95,7 @@ export const ToolTimelineRow = React.memo((props: {
         });
     }, [historicalAgentId, props.metadata, theme.colors.text.primary, theme.colors.text.secondary, toolForSession]);
     const toolForRendering = headerModel.toolForRendering;
+    const permissionRequest = React.useMemo(() => pendingRequestFromTool(props.tool), [props.tool]);
 
     const toolViewDetailLevelDefault = useSetting('toolViewDetailLevelDefault');
     const toolViewDetailLevelDefaultLocalControl = useSetting('toolViewDetailLevelDefaultLocalControl');
@@ -303,6 +305,7 @@ export const ToolTimelineRow = React.memo((props: {
                 sessionId={props.sessionId}
                 toolName={normalizedToolName}
                 toolInput={toolForRendering.input}
+                permissionRequest={permissionRequest}
                 metadata={props.metadata}
                 canApprovePermissions={props.interaction?.canApprovePermissions ?? true}
                 disabledReason={props.interaction?.permissionDisabledReason}
@@ -362,6 +365,7 @@ export const ToolTimelineRow = React.memo((props: {
                         <ToolInlineBody
                             mode="timeline"
                             tool={toolForRendering}
+                            permissionRequest={permissionRequest}
                             normalizedToolName={normalizedToolName}
                             metadata={props.metadata}
                             messages={props.messages ?? []}

@@ -10,6 +10,7 @@ import { Typography } from '@/constants/Typography';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
+import { useActiveServerAccountScope } from '@/sync/store/hooks';
 
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { CoordinatorPane } from '../components/CoordinatorPane';
@@ -162,7 +163,13 @@ export function DeskScreen() {
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const { list: sessions, ready: dataReady } = useDeskSessions();
     const [workCollapsed, collapseWork] = useDeskPref('workCollapsed');
-    const [waitingHistory] = React.useState(createWaitingHistory);
+    const scope = useActiveServerAccountScope();
+    const waitingScope = JSON.stringify([scope?.serverId, scope?.accountId]);
+    const waitingHistory = React.useMemo(createWaitingHistory, [waitingScope]);
+    React.useLayoutEffect(() => () => {
+        // Retire feedback from this desk scope; the transport guard still owns pending calls.
+        waitingHistory.setState({ previous: [], answered: [], actions: new Map(), departed: new Set() });
+    }, [waitingHistory]);
     const [hasHalfAnsweredCard, setHasHalfAnsweredCard] = React.useState(false);
     const approvals = useApprovalsDrawer(width);
     const phone = isDeskPhoneWidth(width);
@@ -321,7 +328,7 @@ export function DeskScreen() {
                     </PhoneTabBar>}
                     {sessionsOpen && <SessionsSheet openerRef={sessionsRef} onClose={() => setSessionsOpen(false)} />}
                 </View>
-                <ApprovalsDrawer open={approvals.open} width={width} openerRef={approvalsOpenerRef} focusOnOpen={approvals.focusOnOpen}
+                <ApprovalsDrawer key={waitingScope} open={approvals.open} width={width} openerRef={approvalsOpenerRef} focusOnOpen={approvals.focusOnOpen}
                     hasHalfAnsweredCard={hasHalfAnsweredCard} onDirtyChange={setHasHalfAnsweredCard}
                     onClose={approvals.close} history={waitingHistory} />
             </View>

@@ -167,6 +167,7 @@ export const PermissionPromptCard = React.memo(function PermissionPromptCard(pro
                     <ToolInlineBody
                         mode="timeline"
                         tool={model.tool}
+                        permissionRequest={props.request}
                         normalizedToolName={headerText.normalizedToolName}
                         metadata={props.metadata}
                         messages={[]}
@@ -198,6 +199,7 @@ export const PermissionPromptCard = React.memo(function PermissionPromptCard(pro
                         sessionId={props.sessionId}
                         toolName={props.request.tool}
                         toolInput={props.request.arguments}
+                        permissionRequest={props.request}
                         metadata={props.metadata || null}
                         canApprovePermissions={props.canApprovePermissions}
                         disabledReason={props.disabledReason}

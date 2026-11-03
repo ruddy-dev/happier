@@ -1,5 +1,6 @@
-import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
-import { useCoordinatorTranscriptAppearance } from '../useCoordinatorTranscriptAppearance';
+import { CoordinatorTranscriptAppearanceProvider } from '../useCoordinatorTranscriptAppearance';
+import { DeskContextDataContext } from '../model/questionContext';
+import { useQuestionContextData } from '../model/useWorkCardData';
 import * as React from 'react';
 import { Platform, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
@@ -59,7 +60,7 @@ function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBod
  */
 export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: (colour: string) => React.ReactNode }) {
     const { theme } = useUnistyles();
-    const appearance = useCoordinatorTranscriptAppearance();
+    const contextData = useQuestionContextData(sessionId);
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const [shogOpen, setShogOpen] = React.useState(false);
     const shogOpenerRef = React.useRef<View>(null);
@@ -114,7 +115,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             {!isDeskPhoneWidth(windowWidth) && <CoordinatorPrompts coordinatorId={sessionId} />}
             <View style={{ flex: 1 }}>
                 <CoordinatorComposer key={sessionId} coordinatorId={sessionId} phone={isDeskPhoneWidth(windowWidth)}>
-                <TranscriptAppearanceContext.Provider value={appearance}>
+                <DeskContextDataContext.Provider value={contextData}><CoordinatorTranscriptAppearanceProvider>
                     {FixtureBody ? (
                         <React.Suspense fallback={null}>
                             <FixtureBody footerLeadingActions={composer.footerLeadingActions} statusTrailingActions={composer.statusTrailingActions} />
@@ -132,7 +133,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                             chatBottomSpacing="none"
                         />
                     )}
-                </TranscriptAppearanceContext.Provider>
+                </CoordinatorTranscriptAppearanceProvider></DeskContextDataContext.Provider>
                 </CoordinatorComposer>
             </View>
         </View>

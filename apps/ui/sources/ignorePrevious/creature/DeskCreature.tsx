@@ -8,6 +8,6 @@ import type { DeskCreatureProps } from './DeskCreature.types';
 export function DeskCreature({ mode, maskColours, width = '100%', height = 128 }: DeskCreatureProps) {
     return <View testID="ip-creature" accessible accessibilityRole="image" accessibilityLabel={creatureLabel(mode, false)}
         style={{ width, height, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        <MaskFace size={40} bulb="rest" sleepy colours={maskColours} />
+        <MaskFace size={40} bulb="rest" colours={maskColours} />
     </View>;
 }

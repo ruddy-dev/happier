@@ -33,6 +33,7 @@ export function useTranscriptRootDerivedItems(params: Readonly<{
     forkAwareMessageDescriptors: ForkAwareMessageDescriptors | null;
     forkedTranscriptEnabled: boolean;
     groupToolCalls: boolean;
+    keepPendingPermissions?: boolean;
     groupingMode: 'linear' | 'turns';
     messageIdsOldestFirst: string[];
     messagesById: Record<string, Message>;
@@ -48,6 +49,7 @@ export function useTranscriptRootDerivedItems(params: Readonly<{
         forkAwareMessageDescriptors,
         forkedTranscriptEnabled,
         groupToolCalls,
+        keepPendingPermissions,
         groupingMode,
         messageIdsOldestFirst,
         messagesById,
@@ -88,6 +90,7 @@ export function useTranscriptRootDerivedItems(params: Readonly<{
                 pendingMessages,
                 discardedMessages: discardedPendingMessages,
                 groupToolCalls,
+                keepPendingPermissions,
                 toolCallsGroupStrategy,
                 forkBoundaryBeforeMessageIds: forkAwareMessageDescriptors?.forkBoundaryBeforeMessageIds,
                 forkBoundarySignature: forkAwareMessageDescriptors?.forkBoundarySignature,
@@ -99,6 +102,7 @@ export function useTranscriptRootDerivedItems(params: Readonly<{
         discardedPendingMessages,
         forkAwareMessageDescriptors,
         groupToolCalls,
+        keepPendingPermissions,
         groupingMode,
         messageIdsOldestFirst,
         messagesById,
@@ -133,6 +137,7 @@ export function useTranscriptRootDerivedItems(params: Readonly<{
                     pendingMessages,
                     discardedMessages: discardedPendingMessages,
                     groupToolCalls,
+                    keepPendingPermissions,
                     toolCallsGroupStrategy,
                     forkBoundaryBeforeMessageIds: forkAwareMessageDescriptors?.forkBoundaryBeforeMessageIds,
                     forkBoundarySignature: forkAwareMessageDescriptors?.forkBoundarySignature,
@@ -162,6 +167,7 @@ export function useTranscriptRootDerivedItems(params: Readonly<{
         discardedPendingMessages,
         forkAwareMessageDescriptors,
         groupToolCalls,
+        keepPendingPermissions,
         groupingMode,
         messageIdsOldestFirst,
         messagesById,
@@ -203,6 +209,7 @@ export function useTranscriptRootDerivedItems(params: Readonly<{
         discardedPendingMessages,
         forkAwareMessageDescriptors,
         groupToolCalls,
+        keepPendingPermissions,
         groupingMode,
         messageIdsOldestFirst,
         messagesById,
