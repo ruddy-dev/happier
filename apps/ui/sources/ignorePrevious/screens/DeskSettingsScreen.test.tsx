@@ -1,13 +1,14 @@
 import * as React from 'react';
 import { act } from 'react-test-renderer';
 import { Platform } from 'react-native';
+import { MMKV } from 'react-native-mmkv';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen, standardCleanup } from '@/dev/testkit';
 import { readReactNativeMmkvStubEntries } from '@/dev/testkit/mocks/mmkv';
 import { storage } from '@/sync/domains/state/storage';
-import { setCoordinatorOverride } from '../deskPrefs';
+import { deskPrefs, setCoordinatorOverride } from '../deskPrefs';
 import { robotPresets } from '../palette';
 
 const state = vi.hoisted(() => ({
@@ -176,6 +177,72 @@ describe('/desk/settings', () => {
         await screen.unmount();
         await renderScreen(await settingsPage());
         expect(readReactNativeMmkvStubEntries()).toEqual([]);
+    });
+
+    it('R48: reopens independent sprite rows without erasing the Codex model default or deferred fields', async () => {
+        const settings = storage.getState().settings;
+        const persisted = new MMKV();
+        persisted.set('ignorePrevious.thinkingAndTools', 'hidden');
+        persisted.set('ignorePrevious.codexRobot', 'model');
+        await act(async () => deskPrefs.set('chatStyle', 'terminal'));
+        const screen = await renderScreen(await settingsPage());
+        expect(screen.findByTestId('ip-robot-picker-unassigned')).not.toBeNull();
+        expect(screen.findByTestId('ip-robot-picker-codex')).not.toBeNull();
+        expect(screen.findByTestId('ip-codex-robot-model')?.props.accessibilityState).toEqual({ checked: true });
+        for (const id of ['ip-no-worker-droid', 'ip-no-worker-ipb', 'ip-codex-robot-model', 'ip-codex-robot-prompt', 'ip-codex-robot-loupe', 'ip-codex-robot-lab']) {
+            expect(screen.findByTestId(id)!.findAllByProps({ testID: 'ip-sprite-pixels' }).length).toBeGreaterThan(0);
+        }
+        await screen.pressByTestIdAsync('ip-no-worker-ipb');
+        expect(screen.findByTestId('ip-codex-robot-model')!.props.accessibilityState).toEqual({ checked: true });
+        expect(persisted.getString('ignorePrevious.codexRobot')).toBe('model');
+        await screen.unmount();
+        const reopened = await renderScreen(await settingsPage());
+        expect(reopened.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+        await reopened.pressByTestIdAsync('ip-codex-robot-lab');
+        expect(reopened.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+        expect(reopened.findByTestId('ip-robot-caption-codex')).not.toBeNull();
+        expect(reopened.findByTestId('ip-robot-preview-codex')!.findAllByProps({ testID: 'ip-sprite-pixels' })).toHaveLength(1);
+        expect(reopened.getTextContent()).toContain('[✓]');
+        await reopened.unmount();
+        const third = await renderScreen(await settingsPage());
+        expect(third.findByTestId('ip-codex-robot-lab')!.props.accessibilityState).toEqual({ checked: true });
+        await third.pressByTestIdAsync('ip-codex-robot-model');
+        expect(persisted.getString('ignorePrevious.noWorkerRobot')).toBe('ipb');
+        expect(persisted.getString('ignorePrevious.codexRobot')).toBe('model');
+        expect(persisted.getString('ignorePrevious.thinkingAndTools')).toBe('hidden');
+        expect(storage.getState().settings).toBe(settings);
+    });
+
+    it('R48: hydrates unknown role choices as safe defaults without writing on mount', async () => {
+        const persisted = new MMKV();
+        persisted.set('ignorePrevious.noWorkerRobot', 'future');
+        persisted.set('ignorePrevious.codexRobot', 'future');
+        const before = readReactNativeMmkvStubEntries();
+        const screen = await renderScreen(await settingsPage());
+        expect(screen.findByTestId('ip-no-worker-droid')!.props.accessibilityState).toEqual({ checked: true });
+        expect(screen.findByTestId('ip-codex-robot-model')?.props.accessibilityState).toEqual({ checked: true });
+        expect(readReactNativeMmkvStubEntries()).toEqual(before);
+    });
+
+    it('R48: selects each role with arrow, Home, End and Space keys at phone width', async () => {
+        state.width = 390;
+        const screen = await renderScreen(await settingsPage());
+        const key = async (id: string, value: string) => {
+            const event = { key: value, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+            const option = screen.findByTestId(id);
+            expect(option?.props.onKeyDown).toBeTypeOf('function');
+            await act(async () => option!.props.onKeyDown(event));
+            expect(event.preventDefault).toHaveBeenCalled();
+        };
+        await key('ip-no-worker-droid', 'ArrowRight');
+        expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
+        await key('ip-codex-robot-model', 'End');
+        expect(screen.findByTestId('ip-codex-robot-lab')!.props.accessibilityState).toEqual({ checked: true });
+        await key('ip-codex-robot-lab', 'Home');
+        expect(screen.findByTestId('ip-codex-robot-model')!.props.accessibilityState).toEqual({ checked: true });
+        await key('ip-codex-robot-prompt', ' ');
+        expect(screen.findByTestId('ip-codex-robot-prompt')!.props.accessibilityState).toEqual({ checked: true });
+        expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
     });
 
     it('J12: a settings choice survives desk layout/theme changes and a settings remount', async () => {
