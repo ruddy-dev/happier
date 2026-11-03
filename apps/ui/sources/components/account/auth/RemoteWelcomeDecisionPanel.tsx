@@ -361,7 +361,7 @@ export function RemoteWelcomeDecisionPanel(props: RemoteWelcomeDecisionPanelProp
                 </Text>
             ) : null}
             {options.serverAvailability === 'loading' ? (
-                <View style={styles.serverLoadingBlock}>
+                <View testID="welcome-server-loading-block" style={styles.serverLoadingBlock}>
                     <ActivitySpinner />
                     <Text testID="welcome-server-loading" style={styles.serverLoadingText}>
                         {t('common.loading')}
