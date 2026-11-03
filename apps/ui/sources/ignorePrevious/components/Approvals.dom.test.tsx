@@ -8,6 +8,7 @@ import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { ApprovalsButton, ApprovalsDrawer } from './Approvals';
 import { deskPrefs } from '../deskPrefs';
+import { ipPalette } from '../palette';
 import { sessionAllowResult, sessionDenyResult, sessionAllowWithAnswers } from '@/sync/ops';
 import { createDeferred } from '@/dev/testkit';
 import { createWaitingHistory } from './WaitingPanel';
@@ -186,6 +187,37 @@ it.each([390, 1440])('R47: inbox heading counts actionable and unloaded waits at
     expect(container.querySelector('[data-testid="ip-waiting-allow-owner"]')).toBeNull();
     await click('ip-waiting-toggle-viewer');
     expect(container.querySelector('[data-testid="ip-waiting-allow-viewer"]')).toBeNull();
+});
+
+it.each(['mask', 'terminal'] as const)('R61: %s Waiting renders the verified side-eye mask at 22px with its red rest bulb', async style => {
+    deskPrefs.set('chatStyle', style);
+    await render(1440); await click('ip-approvals-open');
+    const masks = container.querySelectorAll('[testid="ip-waiting-mask"]');
+    expect(masks).toHaveLength(1);
+    const mask = masks[0];
+    expect(mask.getAttribute('width')).toBe('22');
+    expect(Number(mask.getAttribute('height'))).toBeCloseTo(22 * 1.08);
+    expect.soft(mask.getAttribute('viewBox')).toBe('40 -40 920 1040');
+    // R61 pins the logo artwork, including the visor-coloured side-eye highlights.
+    expect.soft([...mask.querySelectorAll('path')].map(path => path.getAttribute('d'))).toEqual([
+        'M232 616H470v47c0 77-48 132-119 132s-119-55-119-132z',
+        'M530 616h238v47c0 77-48 132-119 132s-119-55-119-132z',
+        'M290 665c13 41 38 67 72 67 37 0 65-29 70-74h-48c-4 20-16 31-35 31-22 0-39-8-59-24z',
+        'M588 665c13 41 38 67 72 67 37 0 65-29 70-74h-48c-4 20-16 31-35 31-22 0-39-8-59-24z',
+    ]);
+    for (const highlight of [...mask.querySelectorAll('path')].slice(2)) {
+        expect(highlight.parentElement?.getAttribute('fill')).toBe(ipPalette.light.visor);
+    }
+    const bulb = mask.querySelector('[testid="ip-bulb-rest"]');
+    expect(bulb).not.toBeNull();
+    expect(bulb?.getAttribute('cx')).toBe('500');
+    expect(bulb?.getAttribute('cy')).toBe('164');
+    expect(bulb?.getAttribute('r')).toBe('59');
+    expect(bulb?.getAttribute('fill')).toBe(ipPalette.light.red);
+    // The drawer and heading retain the label; the decorative SVG adds no second label.
+    expect(mask.getAttribute('accessibilityLabel')).toBeNull();
+    expect(mask.getAttribute('aria-label')).toBeNull();
+    expect(element('ip-approvals-drawer').getAttribute('aria-label')).toBe(element('ip-waiting-heading').textContent);
 });
 
 it.each(['Enter', ' '])('R47: Terminal row %s toggles without submitting or denying and keeps focus on its cursor', async key => {
