@@ -328,3 +328,59 @@ it('withholds a coordinator count for unloaded or partially loaded questions wit
     act(() => storage.getState().applyMessagesLoaded('own-unloaded'));
     expect(container.textContent).toBe('1/1');
 });
+
+
+it('reconciles 160 unreadable rows with linear visits and stable inputs through writes, moves, grants and pruning', () => {
+    const size = 160;
+    const rows = Array.from({ length: size }, (_, index) => ({
+        ...buildSessionListRenderableFromSession(createSessionFixture({ id: `opaque-${index}`, active: true,
+            agentState: {}, pendingPermissionRequestCount: 1, updatedAt: size - index })),
+        metadata: null, metadataUnavailable: true,
+    }));
+    act(() => storage.getState().mergeSessionListRenderables(rows));
+    const initial = readDeskWaits();
+    const builds = vi.spyOn(waitingItems, 'toWaitingItems');
+    let visits = 0;
+    const observed = rows.map(row => storage.getState().sessionListRenderables[row.id]!);
+    // Instrument fixture inputs, not a production counter or a private selector export.
+    for (const row of observed) {
+        const id = row.id;
+        Object.defineProperty(row, 'id', { configurable: true, enumerable: true, get: () => { visits++; return id; } });
+    }
+    try {
+        act(() => storage.getState().setSocketStatus('disconnected'));
+        expect(readDeskWaits()).toBe(initial);
+        console.log(JSON.stringify({ workload: '160 unreadable rows, equivalent root write', rowIdVisits: visits, detailBuilds: builds.mock.calls.length }));
+        expect(visits).toBeLessThanOrEqual(size * 5);
+        expect(builds).not.toHaveBeenCalled();
+    } finally {
+        for (let index = 0; index < observed.length; index++) Object.defineProperty(observed[index]!, 'id', {
+            configurable: true, enumerable: true, writable: true, value: rows[index]!.id,
+        });
+    }
+    act(() => storage.getState().mergeSessionListRenderables(rows.map(row => ({ ...row }))));
+    expect(readDeskWaits()).toBe(initial);
+    expect(builds).not.toHaveBeenCalled();
+    // Moving one row between readable and unreadable preserves the other placeholders.
+    const moved = { ...observed[0]!, metadata: createSessionFixture().metadata!, metadataUnavailable: false };
+    act(() => storage.getState().mergeSessionListRenderables([moved]));
+    const readable = readDeskWaits();
+    expect(readable.unloaded.find(row => row.sessionId === moved.id)?.reason).toBe('notLoaded');
+    expect(readable.unloaded.find(row => row.sessionId === 'opaque-1')).toBe(initial.unloaded.find(row => row.sessionId === 'opaque-1'));
+    // Merge preserves last-good metadata. A replacement snapshot can make it unavailable again.
+    act(() => storage.setState({ sessionListRenderables: { ...storage.getState().sessionListRenderables,
+        [moved.id]: { ...moved, metadata: null, metadataUnavailable: true, accessLevel: 'view', canApprovePermissions: false },
+    } }));
+    const restricted = readDeskWaits();
+    expect(restricted.count).toBe(size - 1);
+    expect(restricted.unloaded.find(row => row.sessionId === moved.id)).toMatchObject({ reason: 'unreadable', disabledReason: 'readOnly' });
+    act(() => storage.getState().mergeSessionListRenderables([{ ...observed[0]!, accessLevel: 'edit', canApprovePermissions: true }]));
+    expect(readDeskWaits().count).toBe(size);
+    expect(readDeskWaits().unloaded.find(row => row.sessionId === moved.id)?.disabledReason).toBeNull();
+    const { [moved.id]: removed, ...remaining } = storage.getState().sessionListRenderables;
+    act(() => storage.setState({ sessionListRenderables: remaining }));
+    expect(readDeskWaits().count).toBe(size - 1);
+    expect(readDeskWaits().unloaded.some(row => row.sessionId === moved.id)).toBe(false);
+    act(() => storage.getState().mergeSessionListRenderables([removed!]));
+    expect(readDeskWaits().unloaded.find(row => row.sessionId === moved.id)?.disabledReason).toBeNull();
+});

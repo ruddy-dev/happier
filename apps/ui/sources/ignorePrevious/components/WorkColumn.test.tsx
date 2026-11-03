@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { act } from 'react-test-renderer';
 import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -149,6 +150,63 @@ describe('WorkColumn', () => {
         vi.unstubAllGlobals();
         vi.unstubAllEnvs();
         resetServerFeaturesClientForTests();
+    });
+
+    it.each(['column', 'row'] as const)('releases Waiting detail work while the %s rail is collapsed through resize', async compact => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const waits = await import('../model/useDeskWaits');
+        const waitingItems = await import('../model/waitingItems');
+        const detailHook = vi.spyOn(waits, 'useDeskWaits');
+        const builds = vi.spyOn(waitingItems, 'toWaitingItems');
+        let resize!: (value: 'column' | 'row' | undefined) => void;
+        let unmount: (() => void) | undefined;
+        function Layout() {
+            const [mode, setMode] = React.useState<'column' | 'row' | undefined>(compact);
+            resize = setMode;
+            return <WorkColumn compact={mode} />;
+        }
+        const update = (command: string) => seed([session('rail-worker', '/work/atr-9', {
+            active: true, activeAt: Date.now(), agentStateVersion: command.length,
+            agentState: { requests: { pending: { tool: 'Bash', arguments: { command }, createdAt: 1 } } },
+        })]);
+        try {
+            update('echo initial');
+            const screen = await renderScreen(<Layout />);
+            unmount = () => screen.tree.unmount();
+            const initialBuilds = builds.mock.calls.length;
+            const initialHooks = detailHook.mock.calls.length;
+            builds.mockClear();
+            detailHook.mockClear();
+            update('echo current request');
+            console.log(JSON.stringify({ workload: `production WorkColumn ${compact} rail, pending request update`, initialBuilds,
+                initialHooks, updateBuilds: builds.mock.calls.length, updateHooks: detailHook.mock.calls.length }));
+            expect(screen.findByTestId('ip-rail-issue-ATR-9')).not.toBeNull();
+            expect(initialBuilds).toBe(0);
+            expect(initialHooks).toBe(0);
+            expect(builds).not.toHaveBeenCalled();
+            expect(detailHook).not.toHaveBeenCalled();
+            act(() => resize(undefined));
+            expect(detailHook).toHaveBeenCalled();
+            expect(builds).toHaveBeenCalledTimes(1);
+            expect(screen.getTextContent()).toContain('Approval needed: echo current request');
+            await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+            expect(screen.findByTestId('ip-open-worker-rail-worker')).not.toBeNull();
+            act(() => resize(compact === 'column' ? 'row' : 'column'));
+            builds.mockClear();
+            detailHook.mockClear();
+            update('echo latest after folding');
+            expect(builds).not.toHaveBeenCalled();
+            expect(detailHook).not.toHaveBeenCalled();
+            act(() => resize(undefined));
+            expect(builds).toHaveBeenCalledTimes(1);
+            expect(screen.getTextContent()).toContain('Approval needed: echo latest after folding');
+            // The existing Details state survives both responsive transitions.
+            expect(screen.findByTestId('ip-open-worker-rail-worker')).not.toBeNull();
+        } finally {
+            act(() => unmount?.());
+            detailHook.mockRestore();
+            builds.mockRestore();
+        }
     });
 
     it.each(['column', 'row'] as const)('updates an unloaded %s rail face to its full-record model at 28 px', async (compact) => {
