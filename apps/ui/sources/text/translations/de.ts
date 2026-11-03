@@ -10868,7 +10868,7 @@ settingsSession: {
             captionPrompt: 'A little terminal with a prompt face.',
             captionLoupe: 'A curious robot with a magnifying eye.',
             captionLab: 'Safety goggles and a white lab coat.',
-            captionModel: 'Sol: Loupe · Terra: Prompt · Astra: Lab. Other Codex models: Prompt.',
+            captionModel: 'GPT Sol: Loupe · GPT Terra: Prompt · GPT Astra: Lab. Other GPT models and codex: Prompt.',
             selectedTerminal: '[✓]', unselectedTerminal: '[ ]', selected: '✓',
             fixtureTitle: 'Robot picker preview',
             purple: 'Purple', violet: 'Violet', green: 'Green', orange: 'Orange', blue: 'Blue', magenta: 'Magenta', steel: 'Steel',
