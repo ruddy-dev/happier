@@ -441,7 +441,7 @@ describe('transcript request states cache', () => {
         const cache: TranscriptRequestStatesCache = {
             states: (() => {
                 const states = new Map<string, TranscriptRequestState>();
-                collectTranscriptRequestStates(messages, null, states);
+                collectTranscriptRequestStates(messages, states);
                 return states;
             })(),
         };
@@ -467,5 +467,28 @@ describe('transcript request states cache', () => {
         // never re-walk the (now grown) message array.
         messages.push(pendingToolCallMessage('m2', 80));
         expect(deriveLatestPendingRequestObservedAtFromSession(session, messages, cache)).toBe(50);
+    });
+
+    it('uses the same completion-independent fold for cached and direct reused-ID requests', () => {
+        const pending = pendingToolCallMessage('m1', 300);
+        if (pending.kind !== 'tool-call') throw new Error('Expected tool call fixture');
+        const terminal: Message = { ...pending, id: 'older', createdAt: 200,
+            tool: { ...pending.tool, permission: { id: 'm1-perm', status: 'approved' } } };
+        const messages = [terminal, pending];
+        const session = createSessionFixture({ active: true, pendingPermissionRequestCount: 1,
+            pendingUserActionRequestCount: 0, pendingRequestObservedAt: 100,
+            agentState: { requests: {}, completedRequests: { 'm1-perm': {
+                tool: 'bash', arguments: { command: 'ls' }, createdAt: 300,
+                completedAt: 400, status: 'approved',
+            } } } });
+        const states = new Map<string, TranscriptRequestState>();
+        collectTranscriptRequestStates(messages, states);
+        const cached = derivePendingRequestFlagsFromSession(session, undefined, { states });
+        expect(derivePendingRequestFlagsFromSession(session, messages)).toEqual(cached);
+        // The current occurrence is covered, but its stale projection remains unknown;
+        // an older occurrence's terminal is not proof about this projection.
+        expect(cached.hasPendingPermissionRequests).toBe(true);
+        expect(listPendingSessionRequests(session, messages)).toEqual([]);
+        expect(listPendingSessionRequests(session, undefined, { states })).toEqual([]);
     });
 });

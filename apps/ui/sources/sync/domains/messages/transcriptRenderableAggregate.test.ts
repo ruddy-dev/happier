@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { listPendingSessionRequests, observePendingSessionRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 
 import type { Message } from './messageTypes';
 import {
@@ -6,6 +9,7 @@ import {
     buildTranscriptRenderableAggregate,
     canReuseTranscriptRenderableAggregateRequestStates,
     isTranscriptRenderableAggregate,
+    withTranscriptRenderableAggregateCompletedRequests,
     type TranscriptRenderableAggregate,
 } from './transcriptRenderableAggregate';
 
@@ -82,6 +86,27 @@ function expectAggregatesEquivalent(
 }
 
 describe('buildTranscriptRenderableAggregate', () => {
+    it('retains transcript contributions covered by completions so a new completion basis needs no transcript read', () => {
+        const pending = toolCall({ permissionId: 'request' });
+        const completedRequests = { request: { tool: 'bash', arguments: { command: 'ls' },
+            createdAt: 3_000, completedAt: 4_000, status: 'approved' as const } };
+        const aggregate = buildTranscriptRenderableAggregate({ messages: [pending], completedRequests });
+        expect(aggregate.requestStates.get('request')?.status).toBe('pending');
+        expect(aggregate.completedRequestsRef).toBe(completedRequests);
+        const session = createSessionFixture({ active: true, agentState: { requests: {}, completedRequests } });
+        expect(listPendingSessionRequests(session, [], { states: aggregate.requestStates })).toEqual([]);
+        expect(buildSessionListRenderableFromSession(session, undefined, aggregate))
+            .toEqual(buildSessionListRenderableFromSession(session, [pending]));
+        expect(observePendingSessionRequest(session, 'request', aggregate.requestStates.get('request')).status).toBe('terminal');
+        const refreshed = withTranscriptRenderableAggregateCompletedRequests(aggregate, null);
+        expect(refreshed.requestStates).toBe(aggregate.requestStates);
+        expect(refreshed.completedRequestsRef).toBeNull();
+        const returned = { ...session, agentState: { requests: {}, completedRequests: null } };
+        expect(listPendingSessionRequests(returned, [], { states: refreshed.requestStates }).map(request => request.id)).toEqual(['request']);
+        expect(buildSessionListRenderableFromSession(returned, undefined, refreshed))
+            .toEqual(buildSessionListRenderableFromSession(returned, [pending]));
+        expect(observePendingSessionRequest(returned, 'request', refreshed.requestStates.get('request')).status).toBe('pending');
+    });
     it('folds attention, unread, and transcript request state over all messages', () => {
         const messages = [
             agentText({ id: 'a1', createdAt: 1_000, seq: 10 }),
