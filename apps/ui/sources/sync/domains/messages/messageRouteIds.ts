@@ -163,7 +163,7 @@ export function resolveSessionMessageRouteId(params: Readonly<{
     if (stableRef?.kind === 'tool') {
         return (
             params.reducerState?.toolIdToMessageId.get(stableRef.value)
-            ?? params.reducerState?.sidechainToolIdToMessageId.get(stableRef.value)
+            ?? params.reducerState?.sidechainToolIdToMessageId.get(stableRef.value)?.at(-1)?.messageId
             ?? null
         );
     }
@@ -176,7 +176,7 @@ export function resolveSessionMessageRouteId(params: Readonly<{
 
     return (
         params.reducerState?.toolIdToMessageId.get(routeMessageId)
-        ?? params.reducerState?.sidechainToolIdToMessageId.get(routeMessageId)
+        ?? params.reducerState?.sidechainToolIdToMessageId.get(routeMessageId)?.at(-1)?.messageId
         ?? params.reducerState?.localIds.get(routeMessageId)
         ?? params.reducerState?.messageIds.get(routeMessageId)
         ?? null

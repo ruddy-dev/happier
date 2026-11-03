@@ -1,5 +1,6 @@
+import * as React from 'react';
 import { act } from 'react-test-renderer';
-import { Platform } from 'react-native';
+import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred, findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
@@ -11,12 +12,13 @@ import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS as STALE } from '@/sync/domains/
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
+import { t } from '@/text';
 
 import { DESK_TICK_MS } from '../model/useDeskNow';
 import { resetWorkCardCacheForTests } from '../model/useWorkCardData';
 import type { SessionReadFileResponse } from '@/sync/ops/sessionFileSystem/fileReadWrite';
 import { encodeBase64 } from '@/encryption/base64';
-import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
+import { deskPrefs, getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
 import { armedUsageLimitRecovery, usageLimitIssue } from '../testkit/usageLimitFixtures';
 import { apiSocket } from '@/sync/api/session/apiSocket';
 import { upsertAndActivateServer } from '@/sync/domains/server/serverRuntime';
@@ -148,6 +150,63 @@ describe('WorkColumn', () => {
         vi.unstubAllGlobals();
         vi.unstubAllEnvs();
         resetServerFeaturesClientForTests();
+    });
+
+    it.each(['column', 'row'] as const)('releases Waiting detail work while the %s rail is collapsed through resize', async compact => {
+        const { WorkColumn } = await import('./WorkColumn');
+        const waits = await import('../model/useDeskWaits');
+        const waitingItems = await import('../model/waitingItems');
+        const detailHook = vi.spyOn(waits, 'useDeskWaits');
+        const builds = vi.spyOn(waitingItems, 'toWaitingItems');
+        let resize!: (value: 'column' | 'row' | undefined) => void;
+        let unmount: (() => void) | undefined;
+        function Layout() {
+            const [mode, setMode] = React.useState<'column' | 'row' | undefined>(compact);
+            resize = setMode;
+            return <WorkColumn compact={mode} />;
+        }
+        const update = (command: string) => seed([session('rail-worker', '/work/atr-9', {
+            active: true, activeAt: Date.now(), agentStateVersion: command.length,
+            agentState: { requests: { pending: { tool: 'Bash', arguments: { command }, createdAt: 1 } } },
+        })]);
+        try {
+            update('echo initial');
+            const screen = await renderScreen(<Layout />);
+            unmount = () => screen.tree.unmount();
+            const initialBuilds = builds.mock.calls.length;
+            const initialHooks = detailHook.mock.calls.length;
+            builds.mockClear();
+            detailHook.mockClear();
+            update('echo current request');
+            console.log(JSON.stringify({ workload: `production WorkColumn ${compact} rail, pending request update`, initialBuilds,
+                initialHooks, updateBuilds: builds.mock.calls.length, updateHooks: detailHook.mock.calls.length }));
+            expect(screen.findByTestId('ip-rail-issue-ATR-9')).not.toBeNull();
+            expect(initialBuilds).toBe(0);
+            expect(initialHooks).toBe(0);
+            expect(builds).not.toHaveBeenCalled();
+            expect(detailHook).not.toHaveBeenCalled();
+            act(() => resize(undefined));
+            expect(detailHook).toHaveBeenCalled();
+            expect(builds).toHaveBeenCalledTimes(1);
+            expect(screen.getTextContent()).toContain('Approval needed: echo current request');
+            await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+            expect(screen.findByTestId('ip-open-worker-rail-worker')).not.toBeNull();
+            act(() => resize(compact === 'column' ? 'row' : 'column'));
+            builds.mockClear();
+            detailHook.mockClear();
+            update('echo latest after folding');
+            expect(builds).not.toHaveBeenCalled();
+            expect(detailHook).not.toHaveBeenCalled();
+            act(() => resize(undefined));
+            expect(builds).toHaveBeenCalledTimes(1);
+            expect(screen.getTextContent()).toContain('Approval needed: echo latest after folding');
+            // The existing Details state survives both responsive transitions.
+            expect(screen.findByTestId('ip-open-worker-rail-worker')).not.toBeNull();
+        } finally {
+            act(() => unmount?.());
+            detailHook.mockRestore();
+            builds.mockRestore();
+        }
     });
 
     it.each(['column', 'row'] as const)('updates an unloaded %s rail face to its full-record model at 28 px', async (compact) => {
@@ -358,19 +417,69 @@ describe('WorkColumn', () => {
         expect(text.indexOf('ATR-6')).toBeLessThan(text.indexOf('No issue'));
     });
 
-    it('counts agents by state in numbers', async () => {
+    it('R42: offers paging only for measured overflow and preserves the full count descriptions', async () => {
+        seed([session('worker', '/fixture/scratch')]);
+        const { WorkColumn } = await import('./WorkColumn');
+        const scrollTo = vi.fn();
+        const screen = await renderScreen(<WorkColumn />, {
+            createNodeMock: element => element.type === 'ScrollView' ? { scrollTo } : null,
+        });
+        const frame = () => screen.findByTestId('ip-work-counts-frame')!;
+        const line = () => screen.findByTestId('ip-work-counts')!;
+        expect(frame()).not.toBeNull();
+        act(() => {
+            frame().props.onLayout({ nativeEvent: { layout: { width: 336, height: 20 } } });
+            line().props.onLayout({ nativeEvent: { layout: { width: 336, height: 20 } } });
+            line().props.onContentSizeChange(322, 20);
+        });
+        expect(screen.findByTestId('ip-work-counts-next')).toBeNull();
+        expect(line().props.accessibilityLabel).toContain('Workers: 1');
+        expect(line().props.accessibilityLabel).toContain(`${t('ignorePrevious.countIdle')}: 1`);
+        // Constrained width, larger numbers, translations or font scaling are measured, not guessed.
+        act(() => {
+            line().props.onContentSizeChange(900, 40);
+            line().props.onLayout({ nativeEvent: { layout: { width: 240, height: 48 } } });
+        });
+        expect(screen.findByTestId('ip-work-counts-previous')?.props.accessibilityState.disabled).toBe(true);
+        await screen.pressByTestIdAsync('ip-work-counts-next');
+        expect(scrollTo).toHaveBeenLastCalledWith({ x: 240, animated: false });
+        act(() => line().props.onScroll({ nativeEvent: {
+            contentOffset: { x: 660, y: 0 }, layoutMeasurement: { width: 240, height: 48 }, contentSize: { width: 900, height: 40 },
+        } }));
+        expect(screen.findByTestId('ip-work-counts-next')?.props.accessibilityState.disabled).toBe(true);
+        await screen.pressByTestIdAsync('ip-work-counts-previous');
+        expect(scrollTo).toHaveBeenLastCalledWith({ x: 420, animated: false });
+        act(() => {
+            frame().props.onLayout({ nativeEvent: { layout: { width: 1000, height: 48 } } });
+            line().props.onLayout({ nativeEvent: { layout: { width: 1000, height: 48 } } });
+        });
+        expect(screen.findByTestId('ip-work-counts-next')).toBeNull();
+    });
+
+    it('counts workers rather than requests, with visible and accessible units', async () => {
         seed([
             session('s1', '/home/u/dev/wt/atr-6-a', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev/wt/atr-6-b', { active: true, thinking: true, thinkingAt: Date.now() }),
-            session('s3', '/home/u/dev'),
+            session('s3', '/home/u/dev', { active: true, activeAt: Date.now(), agentState: { requests: {
+                first: { tool: 'Bash', arguments: { command: 'echo first' }, createdAt: 1 },
+                second: { tool: 'Bash', arguments: { command: 'echo second' }, createdAt: 2 },
+            } } }),
             session('s4', '/home/u/dev/wt/atr-6-x', { archivedAt: 5 } as Partial<Session>),
         ]);
         const screen = await renderColumn();
         const count = (id: string) => screen.findByTestId(`ip-count-${id}`)?.props.children;
         expect(count('all')).toBe(3);
         expect(count('working')).toBe(2);
-        expect(count('idle')).toBe(1);
-        expect(count('turn')).toBe(0);
+        expect(count('idle')).toBe(0);
+        expect(count('turn')).toBe(1);
+        const line = screen.findByTestId('ip-work-counts')!;
+        expect(screen.getTextContent()).toContain('Workers');
+        expect(line.props.accessibilityLabel).toContain('Workers: 3');
+        expect(line.props.accessibilityLabel).toContain('Your turn: 1 worker');
+        expect(line.props.accessibilityLabel).toContain('Waiting: 0 workers');
+        for (const id of ['all', 'turn', 'stuck', 'working', 'waiting', 'idle']) {
+            expect(screen.findByTestId(`ip-count-${id}`)).not.toBeNull();
+        }
         expect(count('stuck')).toBe(0);
     });
 
@@ -601,6 +710,7 @@ describe('WorkColumn freshness (F1)', () => {
 describe('N1/N4/F4 WorkColumn wq data', () => {
     let previous: ReturnType<typeof storage.getState>;
     let coordinator: string | null;
+    let previousChatStyle = deskPrefs.get('chatStyle');
     const projects = JSON.stringify({
         ATR: { name: 'Desk Demo', path: '/fixture/a', github: 'example/a' },
         HUB: { name: 'Tools Demo', path: '/fixture/b', github: 'example/b' },
@@ -609,6 +719,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
     const response = (text: string): SessionReadFileResponse => ({ success: true, content: encodeBase64(new TextEncoder().encode(text)) });
     const reads = () => readWqFile.mock.calls.map(([id, path]) => [id, path]);
     beforeEach(() => {
+        previousChatStyle = deskPrefs.get('chatStyle');
         previous = storage.getState();
         coordinator = getStoredCoordinatorId();
         setStoredCoordinatorId('coord');
@@ -620,6 +731,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
     });
     afterEach(() => {
         act(() => {
+            deskPrefs.set('chatStyle', previousChatStyle);
             storage.setState(previous, true);
             setStoredCoordinatorId(coordinator);
         });
@@ -640,6 +752,277 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         expect(screen.getTextContent()).not.toContain('Private body');
         expect(screen.getTextContent()).not.toContain('/fixture/a');
         expect(reads()).toEqual([['coord', '/fixture/wq/projects.json'], ['coord', '/fixture/wq/items/ATR-18.md']]);
+    });
+
+    it.each(['terminal', 'mask'] as const)('R42/N1/L1: %s leads with the issue title and the urgent worker request, above quiet context', async style => {
+        const previousStyle = deskPrefs.get('chatStyle');
+        deskPrefs.set('chatStyle', style);
+        try {
+            const now = Date.now();
+            seed([
+                session('worker', '/fixture/atr-18', { active: true, activeAt: now, updatedAt: now - 1000,
+                    agentState: { requests: { approval: { tool: 'Bash', arguments: { command: 'npm test' }, createdAt: now } } } }),
+                session('newer-idle', '/fixture/atr-18', { active: true, activeAt: now, updatedAt: now }),
+                session('unassigned', '/fixture/scratch'),
+            ]);
+            const screen = await renderColumn();
+            await flushHookEffects();
+            const text = screen.getTextContent();
+            expect(text.indexOf('Demo card title')).toBeLessThan(text.indexOf('ATR-18'));
+            expect(text).toContain('npm test');
+            const label = screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable').props.accessibilityLabel;
+            const card = screen.findByTestId('ip-issue-ATR-18')!;
+            expect(StyleSheet.flatten(card.props.style).borderRadius).toBe(style === 'terminal' ? 0 : 10);
+            expect(StyleSheet.flatten(card.findByType('Pressable').props.style).borderRadius).toBe(style === 'terminal' ? 0 : 8);
+            expect(label.indexOf('Demo card title')).toBeLessThan(label.indexOf('ATR-18'));
+            expect(label).toContain('npm test');
+            expect(label).toContain('Desk Demo');
+            expect(screen.findByTestId(style === 'terminal' ? 'ip-work-project-ATR-18' : 'ip-work-context-ATR-18')?.props.children).toContain('Desk Demo');
+            expect(screen.findByTestId('ip-issue-none')).not.toBeNull();
+            expect(screen.findByTestId('ip-issue-none')!.findByType('Pressable').props.accessibilityState).toEqual({ expanded: false });
+            expect(screen.findByTestId('ip-count-all')?.props.children).toBe(3);
+            expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(1);
+            expect(screen.findByTestId('ip-issue-coord')).toBeNull();
+            const counts = screen.findByTestId('ip-work-counts');
+            expect(counts?.props.horizontal).toBe(true);
+            expect(counts?.props.accessibilityLabel).toBeTruthy();
+            expect(screen.findAllByType(ScrollView).filter(node => node.props.testID === 'ip-work-counts')).toHaveLength(1);
+            await pressTestInstanceAsync(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable'));
+            expect(screen.findByTestId('ip-open-worker-worker')).not.toBeNull();
+            expect(screen.findByTestId('ip-work-worker-count-ATR-18')).not.toBeNull();
+        } finally {
+            act(() => deskPrefs.set('chatStyle', previousStyle));
+        }
+    });
+
+    it.each([
+        ['view', 'permission'], ['edit', 'permission'], ['view', 'user_action'],
+    ] as const)('R10: mixed %s rights for %s stay truthful through list, record and grant changes', async (accessLevel, kind) => {
+        const now = Date.now();
+        const pending = (id: string, path: string, rights: Partial<Session>) => session(id, path, {
+            active: true, activeAt: now, updatedAt: now,
+            pendingPermissionRequestCount: kind === 'permission' ? 1 : 0,
+            pendingUserActionRequestCount: kind === 'user_action' ? 1 : 0,
+            pendingRequestObservedAt: now,
+            agentState: { requests: { [id]: { tool: 'Bash', kind, arguments: { command: `echo ${id}` }, createdAt: now } } },
+            ...rights,
+        });
+        const restricted = pending('restricted', '/fixture/atr-18', { accessLevel, canApprovePermissions: false });
+        const approvable = pending('approvable', '/fixture/atr-19', { accessLevel: 'edit', canApprovePermissions: true });
+        act(() => storage.getState().deleteSessions(['worker']));
+        seedListOnly([restricted, approvable]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        const assertCounts = (turn: number, waiting: number) => {
+            expect(screen.findByTestId('ip-count-all')?.props.children).toBe(2);
+            expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(turn);
+            expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(waiting);
+        };
+        const label = (key: string) => screen.findByTestId(`ip-issue-${key}`)!.findByType('Pressable').props.accessibilityLabel;
+        const disabledText = accessLevel === 'view'
+            ? 'View only · outside request count'
+            : 'Can edit, cannot approve · in request count';
+        assertCounts(1, 1);
+        // Issue attribution waits for full metadata. Both workers remain reachable meanwhile.
+        const unloadedCard = screen.findByTestId('ip-issue-none')!.findByType('Pressable');
+        await pressTestInstanceAsync(unloadedCard);
+        expect(screen.findByTestId('ip-open-worker-restricted')).not.toBeNull();
+        expect(screen.getTextContent()).toContain(disabledText);
+        await pressTestInstanceAsync(unloadedCard);
+        // Full records add request detail, not another decision about whose turn it is.
+        seed([restricted, approvable]);
+        await flushHookEffects();
+        assertCounts(1, 1);
+        expect(label('ATR-18')).toContain(disabledText);
+        expect(label('ATR-18')).not.toContain(t('ignorePrevious.countTurn'));
+        expect(label('ATR-18')).not.toContain('Approval needed');
+        expect(label('ATR-19')).toContain(kind === 'permission' ? 'echo approvable' : t('ignorePrevious.question'));
+        // The Sessions sheet uses the same four-argument row projection.
+        const { selectDeskSessions } = await import('../useDeskSessions');
+        const { toWorkerRows } = await import('./WorkColumn');
+        const desk = selectDeskSessions(storage.getState());
+        const rows = toWorkerRows(desk.list.filter(row => row.id !== 'coord'), desk.lookup, new Map(), now);
+        expect(rows.find(row => row.sessionId === 'restricted')?.bulb).toBe('waiting');
+        expect(rows.find(row => row.sessionId === 'approvable')?.bulb).toBe('turn');
+        // An old request is not settled by age. Live pending requests retain their rights and stale note.
+        const staleRows = toWorkerRows(desk.list.filter(row => row.id !== 'coord'), desk.lookup, new Map(), now + STALE + DESK_TICK_MS);
+        expect(staleRows.find(row => row.sessionId === 'restricted')).toMatchObject({ bulb: 'waiting', unheardMinutes: 2 });
+        expect(staleRows.find(row => row.sessionId === 'approvable')).toMatchObject({ bulb: 'turn', unheardMinutes: 2 });
+        // A list refresh must update the count even while the old full record is retained.
+        seedListOnly([{ ...restricted, accessLevel: 'edit', canApprovePermissions: true }]);
+        assertCounts(2, 0);
+        expect(label('ATR-18')).not.toContain(disabledText);
+        seedListOnly([restricted]);
+        assertCounts(1, 1);
+        expect(label('ATR-18')).toContain(disabledText);
+        seed([{ ...restricted, accessLevel: 'edit', canApprovePermissions: true }]);
+        assertCounts(2, 0);
+        seed([restricted]);
+        assertCounts(1, 1);
+        await screen.unmount();
+    });
+
+    it('R10: an approvable sibling owns a mixed issue, with read-only attention retained on expansion', async () => {
+        const now = Date.now();
+        seed([
+            session('worker', '/fixture/atr-18', { active: true, activeAt: now, accessLevel: 'view', canApprovePermissions: false,
+                agentState: { requests: { watched: { tool: 'Bash', arguments: { command: 'echo watched' }, createdAt: now } } } }),
+            session('approvable', '/fixture/atr-18', { active: true, activeAt: now, accessLevel: 'edit', canApprovePermissions: true,
+                agentState: { requests: { answer: { tool: 'AskUserQuestion', kind: 'user_action', arguments: {}, createdAt: now } } } }),
+        ]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.findByTestId('ip-count-turn')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(1);
+        const card = screen.findByTestId('ip-issue-ATR-18')!;
+        expect(card.findByType('Pressable').props.accessibilityLabel).toContain(t('ignorePrevious.question'));
+        await pressTestInstanceAsync(card.findByType('Pressable'));
+        expect(screen.findByTestId('ip-open-worker-worker')).not.toBeNull();
+        expect(screen.findByTestId('ip-open-worker-approvable')).not.toBeNull();
+        expect(screen.getTextContent()).toContain('View only · outside request count');
+        await screen.unmount();
+    });
+
+    it('R42: a fresh waiting state owner never borrows a stale idle sibling warning', async () => {
+        vi.useFakeTimers({ now: Date.now() });
+        const now = Date.now();
+        seed([
+            session('worker', '/fixture/atr-18', { active: true, activeAt: now, updatedAt: now - 1000,
+                agentState: { requests: { approval: { tool: 'Bash', arguments: { command: 'npm test' }, createdAt: now } } } }),
+            session('newer-idle', '/fixture/atr-18', { active: true, activeAt: now - STALE - 60_000, updatedAt: now }),
+        ]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        const card = screen.findByTestId('ip-issue-ATR-18')!;
+        expect(card.findByType('Pressable').props.accessibilityLabel).toContain('npm test');
+        expect(card.findByType('Pressable').props.accessibilityLabel).not.toContain(t('ignorePrevious.connection.unheard', { minutes: Math.floor((STALE + 60_000) / 60_000) }));
+        expect(screen.findByTestId('ip-worker-stale-newer-idle')).toBeNull();
+        expect(screen.findByTestId('ip-worker-stale-worker')).toBeNull();
+        await pressTestInstanceAsync(card.findByType('Pressable'));
+        expect(screen.findByTestId('ip-worker-stale-newer-idle')).not.toBeNull();
+        expect(screen.findByTestId('ip-worker-stale-worker')).toBeNull();
+        await screen.unmount();
+    });
+
+    it.each([
+        ['terminal', 2], ['terminal', 3], ['terminal', 24],
+        ['mask', 2], ['mask', 3], ['mask', 24],
+    ] as const)('R42: %s, %i limited workers stay in one folded row and retain attributable expanded details', async (style, count) => {
+        act(() => deskPrefs.set('chatStyle', style));
+        // These assertions cover same-day resets, regardless of when the suite runs.
+        vi.useFakeTimers({ now: new Date(2026, 0, 15, 12).getTime() });
+        const now = Date.now();
+        const resetAt = now + 60_000;
+        const laterResetAt = now + 3_600_000;
+        const ids = Array.from({ length: count }, (_, i) => `same-worker-session-${i}`);
+        const limits = ids.map((id, i) => session(id, '/fixture/atr-18', {
+            active: false, updatedAt: now - i - 1, latestTurnStatus: 'failed',
+            metadata: { ...createSessionFixture().metadata!, path: '/fixture/atr-18', summary: { text: 'Same worker title', updatedAt: now } },
+            latestTurnStatusObservedAt: now, lastRuntimeIssue: usageLimitIssue(now, i === 0 ? resetAt : i === 1 ? laterResetAt : null),
+        }));
+        seed([session('worker', '/fixture/atr-18', { active: true, activeAt: now, thinking: true, thinkingAt: now }), ...limits]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        await act(async () => { vi.advanceTimersByTime(DESK_TICK_MS); });
+        const time = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        expect(screen.findByTestId('ip-count-working')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(count);
+        const summary = screen.findByTestId('ip-issue-usage-limits-ATR-18');
+        expect(summary?.props.children).toBe(`${count} at usage limit · next known reset ${time(resetAt)}`);
+        expect(summary?.props.numberOfLines).toBe(1);
+        expect(summary?.props.ellipsizeMode).toBe('tail');
+        expect(screen.getTextContent()).not.toContain('Same worker title');
+        for (const id of ids) expect(screen.findByTestId(`ip-worker-usage-limit-${id}`)).toBeNull();
+
+        // The existing disclosure reveals full per-worker evidence and real unique identities.
+        const disclosure = screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable');
+        expect(disclosure.props.accessibilityLabel).toContain(t('ignorePrevious.countWorking'));
+        expect(disclosure.props.accessibilityLabel).toContain(`${count} at usage limit`);
+        expect(disclosure.props.accessibilityLabel.match(/usage limit/gi)).toHaveLength(1);
+        expect(disclosure.props.accessibilityLabel).not.toContain(time(resetAt));
+        await pressTestInstanceAsync(disclosure);
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')).toBeNull();
+        for (const [i, id] of ids.entries()) {
+            expect(screen.findByTestId(`ip-worker-session-${id}`)?.props.children).toBe(`Session ${id}`);
+            expect(screen.findByTestId(`ip-worker-usage-limit-${id}`)?.props.children)
+                .toBe(i < 2 ? `Usage limit: waits for reset, ${time(i === 0 ? resetAt : laterResetAt)}` : 'Usage limit: waits for reset');
+            expect(screen.findByTestId(`ip-open-worker-${id}`)).not.toBeNull();
+        }
+        expect(screen.findByTestId('ip-worker-session-worker')).toBeNull();
+        await pressTestInstanceAsync(disclosure);
+        await act(async () => { vi.advanceTimersByTime(60_000); });
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} at usage limit · next known reset due`);
+
+        // Clearing the earliest real limit updates only the aggregate, never the other resets.
+        seed([{ ...limits[0], seq: limits[0].seq + 1, latestTurnStatus: 'completed',
+            latestTurnStatusObservedAt: now + 1, lastRuntimeIssue: null }]);
+        if (count > 2) {
+            expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children)
+                .toBe(`${count - 1} at usage limit · next known reset ${time(laterResetAt)}`);
+        } else {
+            expect(screen.findByTestId(`ip-worker-usage-limit-${ids[1]}`)?.props.children)
+                .toBe(`Usage limit: waits for reset, ${time(laterResetAt)}`);
+        }
+        seed(limits.map(limit => {
+            const current = storage.getState().sessions[limit.id];
+            return { ...current, seq: current.seq + 1, updatedAt: Date.now(), latestTurnStatus: 'failed' as const,
+                latestTurnStatusObservedAt: Date.now(), lastRuntimeIssue: usageLimitIssue(Date.now(), null) };
+        }));
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} at usage limit`);
+        await screen.unmount();
+    });
+
+    it.each(['ios', 'android'] as const)('R42: duplicate expanded workers have distinct actionable names on %s', async platform => {
+        const original = Object.getOwnPropertyDescriptor(Platform, 'OS')!;
+        Object.defineProperty(Platform, 'OS', { configurable: true, value: platform });
+        try {
+            const now = Date.now();
+            const workers = ['shared-session-a', 'shared-session-b'].map((id, i) => session(id, '/fixture/atr-18', {
+                active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+                lastRuntimeIssue: usageLimitIssue(now, now + (i + 1) * 60_000),
+                metadata: { ...createSessionFixture().metadata!, path: '/fixture/atr-18', summary: { text: 'Same title', updatedAt: now } },
+            }));
+            seed(workers);
+            const screen = await renderColumn();
+            await pressTestInstanceAsync(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable'));
+            for (const worker of workers) {
+                expect(screen.findByTestId(`ip-worker-session-${worker.id}`)?.props.children).toBe(`Session ${worker.id}`);
+                for (const id of [`ip-open-worker-${worker.id}`, `ip-open-${worker.id}`]) {
+                    const name = screen.findByTestId(id)?.props.accessibilityLabel;
+                    expect(name).toContain('Same title');
+                    expect(name).toContain(worker.id);
+                }
+            }
+        } finally {
+            Object.defineProperty(Platform, 'OS', original);
+        }
+    });
+
+    it('R42: a folded limited issue shows its real reset deadline and never invents one', async () => {
+        const now = Date.now();
+        const resetAt = now + 60_000;
+        const limited = session('worker', '/fixture/atr-18', { active: false, latestTurnStatus: 'failed',
+            latestTurnStatusObservedAt: now, lastRuntimeIssue: usageLimitIssue(now, resetAt) });
+        seed([limited]);
+        const screen = await renderColumn();
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.children).toBe(`Usage limit: waits for reset, ${new Date(resetAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`);
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.numberOfLines).toBe(1);
+        seed([{ ...limited, seq: limited.seq + 1, lastRuntimeIssue: usageLimitIssue(now, null) }]);
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.children).toBe('Usage limit: waits for reset');
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(1);
+    });
+
+    it('R42: a failed turn gives the folded row a reason without inventing an error detail', async () => {
+        const now = Date.now();
+        seed([session('worker', '/fixture/atr-18', { active: true, activeAt: now,
+            latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: { v: 1, scope: 'primary_session', status: 'failed', code: 'provider_exit', source: 'provider_process_exit', occurredAt: now } })]);
+        const screen = await renderColumn();
+        await flushHookEffects();
+        expect(screen.findByTestId('ip-count-stuck')?.props.children).toBe(1);
+        expect(screen.getTextContent()).toContain('Last turn failed');
+        expect(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable').props.accessibilityLabel)
+            .toContain('Last turn failed');
     });
 
     it('F4 leaves the existing card intact until the reads resolve', async () => {
@@ -778,7 +1161,8 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         const screen = await renderColumn();
         await flushHookEffects();
         expect(screen.getTextContent()).not.toContain('Demo card title');
-        expect(screen.getTextContent()).not.toContain('Desk Demo');
+        // The successfully read project inventory remains valid when the issue file fails.
+        expect(screen.getTextContent()).toContain('Desk Demo');
         expect(screen.getTextContent()).toContain('Title worker');
         await flushHookEffects({ advanceTimersMs: 295_000, cycles: 1 });
         expect(reads()).toHaveLength(2);

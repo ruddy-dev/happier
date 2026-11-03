@@ -13,6 +13,7 @@ import { readNowMs } from '@/hooks/time/nowMsClockStore';
 import { deskPrefs } from '../deskPrefs';
 import { DESK_TICK_MS } from './useDeskNow';
 import { DeskBrowserNotifier, useDeskBrowserNotifier } from './useDeskBrowserNotifier';
+import { readDeskWaits } from './useDeskWaits';
 import * as waitingItems from './waitingItems';
 
 const platform = vi.hoisted(() => ({ os: 'web' }));
@@ -65,12 +66,12 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-function worker(id: string, ids: string[] = [], thinking = false) {
+function worker(id: string, ids: string[] = [], thinking = false, access: Pick<NonNullable<Parameters<typeof createSessionFixture>[0]>, 'accessLevel' | 'canApprovePermissions'> = {}) {
     const old = storage.getState().sessions[id];
     const now = Date.now();
     act(() => {
         storage.getState().applySessions([createSessionFixture({
-        id, active: true, activeAt: now, updatedAt: now, thinking, thinkingAt: now,
+        id, active: true, activeAt: now, updatedAt: now, thinking, thinkingAt: now, ...access,
         metadata: { path: '/tmp/desk-worker', host: 'test-host', flavor: 'claude' },
         agentStateVersion: (old?.agentStateVersion ?? 0) + 1,
         agentState: { requests: Object.fromEntries(ids.map(requestId => [requestId, {
@@ -84,9 +85,9 @@ function worker(id: string, ids: string[] = [], thinking = false) {
 function ready() { act(() => storage.getState().applyReady()); }
 function mount() { act(() => root.render(<DeskBrowserNotifier coordinatorId="coordinator" />)); }
 
-function unloadedWorker(id: string) {
+function unloadedWorker(id: string, access: Pick<NonNullable<Parameters<typeof createSessionFixture>[0]>, 'accessLevel' | 'canApprovePermissions'> = {}) {
     act(() => storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(createSessionFixture({
-        id, active: true, activeAt: Date.now(), updatedAt: Date.now(),
+        id, active: true, activeAt: Date.now(), updatedAt: Date.now(), ...access,
         metadata: { path: '/tmp/desk-worker', host: 'test-host', flavor: 'claude' },
         pendingPermissionRequestCount: 1, pendingUserActionRequestCount: 0,
     }))]));
@@ -149,6 +150,35 @@ describe('desk browser notifier', () => {
         act(() => storage.getState().mergeSessionListRenderables([
             buildSessionListRenderableFromSession({ ...viewer, accessLevel: 'edit' }),
         ]));
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
+    it.each([
+        ['every', 'loaded'], ['every', 'unloaded'],
+        ['blocked', 'loaded'], ['blocked', 'unloaded'],
+    ] as const)('R10: %s excludes %s view-only alerts while preserving readable waits and notGranted admission', (setting, source) => {
+        deskPrefs.set('deskNotify', setting);
+        ready();
+        mount();
+        const putWait = (access: { accessLevel: 'view' | 'edit'; canApprovePermissions: boolean }) => {
+            if (source === 'loaded') worker('viewer', ['one'], false, access);
+            else unloadedWorker('viewer', access);
+        };
+        putWait({ accessLevel: 'view', canApprovePermissions: false });
+        const waits = readDeskWaits();
+        expect(waits.count).toBe(0);
+        if (source === 'loaded') {
+            expect(waits.items).toMatchObject([{ sessionId: 'viewer', disabledReason: 'readOnly', detail: 'private work detail' }]);
+        } else {
+            expect(waits.unloaded).toMatchObject([{ sessionId: 'viewer' }]);
+        }
+        expect(BrowserNotification.instances).toHaveLength(0);
+        // R10 excludes readOnly specifically, rather than every disabled approval.
+        putWait({ accessLevel: 'edit', canApprovePermissions: false });
+        expect(readDeskWaits().count).toBe(1);
+        if (source === 'loaded') expect(readDeskWaits().items[0]?.disabledReason).toBe('notGranted');
+        expect(BrowserNotification.instances).toHaveLength(1);
+        putWait({ accessLevel: 'edit', canApprovePermissions: true });
         expect(BrowserNotification.instances).toHaveLength(1);
     });
 

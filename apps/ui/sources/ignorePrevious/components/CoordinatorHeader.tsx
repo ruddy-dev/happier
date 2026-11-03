@@ -84,7 +84,7 @@ export function CoordinatorHeader({ session, onOpenShog, shogOpen = false, shogO
                 aria-controls={Platform.OS === 'web' ? shogPanelId : undefined}
                 onPress={onOpenShog} hitSlop={6} style={{ marginLeft: maskLeft, marginRight: phone ? 8 : narrow ? 18 : 34, flexShrink: 0 }}>
                 <MaskFace testID="ip-coord-mask" size={maskSize}
-                    colours={maskColours} bulb={waits.count === null ? 'idle' : waits.count > 0 ? 'turn' : 'rest'} sleepy={false} />
+                    colours={maskColours} bulb={waits.count === null ? 'idle' : waits.count > 0 ? 'turn' : 'rest'} />
             </Pressable>
             <View style={[scrim, { minWidth: 0, flexShrink: 1, gap: 4, paddingHorizontal: 6, paddingVertical: 2 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>

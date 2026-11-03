@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { useDeskPaint } from '../palette';
+import { useDeskPref } from '../deskPrefs';
 import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
 
 import { DEFAULT_AGENT_ID, resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
@@ -46,7 +47,7 @@ function RowButton({
     disabled?: boolean;
     accessibilityHint?: string;
 }) {
-    const { theme } = useUnistyles();
+    const { text, controlBorder } = useDeskPaint();
     return (
         <Pressable
             testID={testID}
@@ -61,11 +62,11 @@ function RowButton({
                 paddingVertical: 4,
                 borderRadius: 8,
                 borderWidth: 1,
-                borderColor: theme.colors.border.default,
+                borderColor: controlBorder,
                 opacity: disabled ? 0.5 : 1,
             }}
         >
-            <Text style={{ color: theme.colors.text.primary, fontSize: 13 }}>{label}</Text>
+            <Text style={{ color: text.primary, fontSize: 13 }}>{label}</Text>
         </Pressable>
     );
 }
@@ -75,6 +76,7 @@ function RowButton({
  * through `applyPermissionModeSelection`, the same path the session composer uses.
  */
 function PermissionModeControl({ session, canChange }: { session: Session; canChange: boolean }) {
+    const [chatStyle] = useDeskPref('chatStyle');
     const sessionId = session.id;
     const metadata = session.metadata;
     const mode = session.permissionMode ?? 'default';
@@ -83,7 +85,7 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
     const [failed, setFailed] = React.useState(false);
     const [change, setChange] = React.useState<ModeChangeRequests | null>(null);
     const cleared = requestsApprovedAfterModeChange(session, change);
-    const { theme } = useUnistyles();
+    const { text, inset, controlBorder } = useDeskPaint();
     const applyTiming = useSetting('sessionPermissionModeApplyTiming');
     const [open, setOpen] = React.useState(false);
 
@@ -134,13 +136,13 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
         <Text
             testID={`ip-mode-current-${sessionId}`}
             style={{
-                color: theme.colors.text.secondary,
+                color: text.secondary,
                 fontSize: 13,
-                ...Typography.mono(),
+                ...(chatStyle === 'terminal' ? {} : Typography.mono()),
                 paddingHorizontal: 6,
                 paddingVertical: 2,
                 borderRadius: 6,
-                backgroundColor: theme.colors.surface.inset,
+                backgroundColor: inset,
             }}
         >
             {modeText}
@@ -148,9 +150,9 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
     );
 
     const note = <>
-        {difference ? <Text testID={`ip-mode-difference-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>{difference}</Text> : null}
-        {pendingText ? <Text testID={`ip-mode-pending-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>{pendingText}</Text> : null}
-        {cleared.length ? <Text testID={`ip-mode-cleared-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>
+        {difference ? <Text testID={`ip-mode-difference-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: text.secondary }}>{difference}</Text> : null}
+        {pendingText ? <Text testID={`ip-mode-pending-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: text.secondary }}>{pendingText}</Text> : null}
+        {cleared.length ? <Text testID={`ip-mode-cleared-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: text.secondary }}>
             {t('ignorePrevious.workerControl.modeCleared', { requests: cleared.join('; ') })}
         </Text> : null}
     </>;
@@ -183,12 +185,12 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
                                 paddingHorizontal: 8,
                                 paddingVertical: 4,
                                 borderRadius: 8,
-                                backgroundColor: option.value === selected ? theme.colors.surface.inset : 'transparent',
+                                backgroundColor: option.value === selected ? inset : 'transparent',
                                 borderWidth: 1,
-                                borderColor: theme.colors.border.default,
+                                borderColor: controlBorder,
                             }}
                         >
-                            <Text style={{ color: theme.colors.text.primary, fontSize: 13 }}>{option.label}</Text>
+                            <Text style={{ color: text.primary, fontSize: 13 }}>{option.label}</Text>
                         </Pressable>
                     ))}
                 </View>
@@ -200,7 +202,7 @@ function PermissionModeControl({ session, canChange }: { session: Session; canCh
 function StopControl({ sessionId }: { sessionId: string }) {
     const { status } = useSocketStatus();
     const disconnected = status !== 'connected';
-    const { theme } = useUnistyles();
+    const { text } = useDeskPaint();
     const [failure, setFailure] = React.useState<Extract<SessionAbortResult, { ok: false }>['reason'] | null>(null);
     const [stopping, stop] = useHappyAction(async () => {
         if (storage.getState().socketStatus !== 'connected') return;
@@ -218,7 +220,7 @@ function StopControl({ sessionId }: { sessionId: string }) {
             disabled={stopping || disconnected}
             accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
         />
-        {failure ? <Text testID={`ip-stop-error-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: theme.colors.text.secondary }}>
+        {failure ? <Text testID={`ip-stop-error-${sessionId}`} accessibilityLiveRegion="polite" style={{ color: text.secondary }}>
             {failure === 'not_listening' ? t('ignorePrevious.workerControl.stopNotListening')
                 : failure === 'rejected' ? t('ignorePrevious.workerControl.stopRejected')
                     : t('ignorePrevious.workerControl.stopEncryptionUnavailable')}
@@ -232,8 +234,8 @@ function StopControl({ sessionId }: { sessionId: string }) {
  * is offline it says so instead. Whether it can be resumed at all is the session actions' rule
  * (`canResume`), the one the session header menu uses; otherwise it is a plain open.
  */
-function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume: boolean }) {
-    const { theme } = useUnistyles();
+function ResumeControl({ sessionId, title, canResume }: { sessionId: string; title: string; canResume: boolean }) {
+    const { text } = useDeskPaint();
     const target = useSessionMachineTarget(sessionId);
     const originId = storage((state) => resolveSessionMachineId(state.sessions[sessionId]?.metadata));
     // An unusable RPC target must not turn a known revoked/replaced machine into "unknown".
@@ -241,11 +243,12 @@ function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume:
     const nowMs = useDeskNow();
     const machineReachable = resolveSessionMachineReachability({ machineIsKnown: Boolean(machine), machineIsOnline: machine ? isMachineOnline(machine, nowMs) : false });
     const navigateToSession = useDeskSessionNavigation();
+    const identity = `${title}. ${t('ignorePrevious.usageLimit.workerSession', { id: sessionId })}`;
 
     return (
         <View style={{ gap: 6 }}>
             {!machineReachable ? (
-                <Text testID={`ip-offline-${sessionId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
+                <Text testID={`ip-offline-${sessionId}`} style={{ color: text.secondary, fontSize: 13 }}>
                     {t('ignorePrevious.workerControl.machineOffline')}
                 </Text>
             ) : null}
@@ -253,7 +256,7 @@ function ResumeControl({ sessionId, canResume }: { sessionId: string; canResume:
                 <RowButton
                     testID={`${canResume ? 'ip-resume' : 'ip-open'}-${sessionId}`}
                     label={canResume ? t('ignorePrevious.openToResume') : t('ignorePrevious.openSession')}
-                    accessibilityLabel={canResume ? t('ignorePrevious.openToResumeLabel') : t('ignorePrevious.openWorker')}
+                    accessibilityLabel={canResume ? `${t('ignorePrevious.openToResumeLabel')}. ${identity}` : t('message.sessionReferenceOpen', { name: identity })}
                     onPress={() => void navigateToSession(sessionId)}
                 />
             ) : null}
@@ -281,7 +284,7 @@ export function WorkerActions({ worker }: { worker: WorkerRow }) {
                 <PermissionModeControl session={session} canChange={canWrite} />
             ) : null}
             {canStop ? <StopControl sessionId={worker.sessionId} /> : null}
-            {worker.inactive ? <ResumeControl sessionId={worker.sessionId} canResume={canResume} /> : null}
+            {worker.inactive ? <ResumeControl sessionId={worker.sessionId} title={worker.title} canResume={canResume} /> : null}
         </View>
     );
 }

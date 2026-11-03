@@ -13,7 +13,7 @@ export function DeskTopBar({ phone, sessionsRef, onSessions, waiting, settings }
         <View testID="ip-top-brand" style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1, minWidth: 0 }}>
             {terminal && <DeskText accessible={false} aria-hidden style={{ color: paint.user, fontSize: 15, fontWeight: '700' }}>$</DeskText>}
             <View testID="ip-top-brand-mask" aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexShrink: 0 }}>
-                <MaskFace size={26} bulb="rest" sleepy={false} colours={maskColours} />
+                <MaskFace size={26} bulb="rest" colours={maskColours} />
             </View>
             <DeskText numberOfLines={1} style={{ color: paint.ink, fontSize: terminal ? 15 : 18, fontWeight: '700', flexShrink: 1 }}>{t('ignorePrevious.topBar.brand')}</DeskText>
         </View>

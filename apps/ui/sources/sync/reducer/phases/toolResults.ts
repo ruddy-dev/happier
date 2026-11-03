@@ -27,20 +27,9 @@ export function resolveSidechainPermissionMirror(state: ReducerState, toolUseId:
 
 /** Explicit scope selects its child; an unscoped result requires one current sidechain owner. */
 export function resolveSidechainToolMessage(state: ReducerState, toolUseId: string, explicitSidechainId?: string): Readonly<{ messageId: string; sidechainId: string }> | null {
-    const candidate = state.sidechainToolIdToMessageId.get(toolUseId);
-    if (!candidate && !explicitSidechainId) return null;
-    let owner: string | null = null;
-    let ownerSidechainId: string | null = null;
-    for (const [sidechainId, sidechain] of state.sidechains) {
-        if (explicitSidechainId && sidechainId !== explicitSidechainId) continue;
-        for (const message of sidechain) {
-            if (message.tool?.id !== toolUseId) continue;
-            if (owner && owner !== message.id) return null;
-            owner = message.id;
-            ownerSidechainId = sidechainId;
-        }
-    }
-    return owner && ownerSidechainId ? { messageId: owner, sidechainId: ownerSidechainId } : null;
+    const candidates = state.sidechainToolIdToMessageId.get(toolUseId) ?? [];
+    const owners = explicitSidechainId ? candidates.filter(candidate => candidate.sidechainId === explicitSidechainId) : candidates;
+    return owners.length === 1 ? owners[0] : null;
 }
 
 export function runToolResultsPhase(params: Readonly<{

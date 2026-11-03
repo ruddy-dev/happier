@@ -24,7 +24,12 @@ import { toWaitingItems, unloadedWaitKey, waitingItemKey, type WaitingDisabledRe
  * has everything the app could read of it and found no request there (metadata it can't read, or a
  * pending count with no parsable request).
  */
-export type UnloadedWait = Readonly<{ sessionId: string; sessionTitle: string; reason: 'notLoaded' | 'unreadable' }>;
+export type UnloadedWait = Readonly<{
+    sessionId: string;
+    sessionTitle: string;
+    reason: 'notLoaded' | 'unreadable';
+    disabledReason: WaitingDisabledReason;
+}>;
 
 /** What the desk has of a session's transcript: its messages so far, and whether the full load finished. */
 export type DeskTranscript = Readonly<{ messages: readonly Message[]; isLoaded: boolean }>;
@@ -36,7 +41,7 @@ export type DeskWaits = Readonly<{ items: WaitingItem[]; unloaded: UnloadedWait[
  * Only live sessions' requests reach the desk, so activity is not the question here. Fails closed:
  * a refusal with no reason the desk can name reads as "not granted".
  */
-function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisabledReason {
+export function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisabledReason {
     const interaction = deriveTranscriptInteraction({
         kind: 'session',
         accessLevel: row.accessLevel,
@@ -150,11 +155,15 @@ function selectWaitSnapshot(state: State): WaitSnapshot {
         if (cached.value.unloaded) unloaded.push(cached.value.unloaded);
         if (cached.value.unloaded || (cached.value.input.requests.length > 0 && cached.value.stillLoading)) loadingSessionIds.push(row.id);
     }
-    for (const row of desk.unreadable) {
-        const value: UnloadedInput = { row, reason: 'unreadable' };
-        const previous = snapshot?.unloaded.find((item) => item.row.id === row.id);
-        unloaded.push(previous && shallow(previous, value) ? previous : value);
-        loadingSessionIds.push(row.id);
+    if (desk.unreadable.length > 0) {
+        // Index once, including readable placeholders that have just become unreadable.
+        const previousUnloaded = new Map(snapshot?.unloaded.map(item => [item.row.id, item]));
+        for (const row of desk.unreadable) {
+            const value: UnloadedInput = { row, reason: 'unreadable' };
+            const previous = previousUnloaded.get(row.id);
+            unloaded.push(previous && shallow(previous, value) ? previous : value);
+            loadingSessionIds.push(row.id);
+        }
     }
     sessionCache = nextCache;
     lastState = state;
@@ -212,6 +221,7 @@ function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
     if (!projection.details) {
         const previous = projection.previousDetails;
         const oldItems = new Map(previous?.items.map((item) => [item.key, item]));
+        const oldUnloaded = new Map(previous?.unloaded.map((item) => [item.sessionId, item]));
         const items = toWaitingItems(projection.inputs.map(({ row, requests }) => ({
             sessionId: row.id,
             sessionTitle: getSessionName(row),
@@ -222,8 +232,8 @@ function selectDetails(state: State, excludeSessionId?: string): DeskWaits {
             return old && shallow(old, item) ? old : item;
         });
         const unloaded = projection.unloaded.map(({ row, reason }) => {
-            const item: UnloadedWait = { sessionId: row.id, sessionTitle: getSessionName(row), reason };
-            const old = previous?.unloaded.find((value) => value.sessionId === row.id);
+            const item: UnloadedWait = { sessionId: row.id, sessionTitle: getSessionName(row), reason, disabledReason: approvalDisabledReason(row) };
+            const old = oldUnloaded.get(row.id);
             return old && shallow(old, item) ? old : item;
         });
         const next = {

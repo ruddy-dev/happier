@@ -10,6 +10,7 @@ import { Typography } from '@/constants/Typography';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { t } from '@/text';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
+import { useActiveServerAccountScope } from '@/sync/store/hooks';
 
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
 import { CoordinatorPane } from '../components/CoordinatorPane';
@@ -17,6 +18,7 @@ import { ApprovalsButton, ApprovalsDrawer } from '../components/Approvals';
 import { createWaitingHistory } from '../components/WaitingPanel';
 import { DeskConnectionBanner } from '../components/DeskConnectionBanner';
 import { WorkColumn } from '../components/WorkColumn';
+import { useWorkPaint } from '../components/WorkAppearance';
 import { CoordinatorCard } from '../components/CoordinatorCard';
 import {
     getApprovalsOpen,
@@ -33,6 +35,7 @@ import { SessionsSheet } from '../components/SessionsSheet';
 import { useDeskSessions } from '../useDeskSessions';
 import { isIssueArchiveTarget, useIssueArchiveTargets } from '../model/issueArchiveOperation';
 import { DeskBrowserNotifier } from '../model/useDeskBrowserNotifier';
+import { usePhoneControlPaint } from '../components/usePhoneControlPaint';
 
 const WIDE = 1100;
 
@@ -122,6 +125,18 @@ function PhoneTabBarContent({ children, bottom }: React.PropsWithChildren<{ bott
     return <View accessibilityRole="tablist" style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', minWidth: 0, borderTopWidth: 1, borderTopColor: theme.colors.border.default, paddingBottom: bottom }}>{children}</View>;
 }
 
+function PhoneTab({ id, label, selected, onPress }: { id: string; label: string; selected: boolean; onPress: () => void }) {
+    const { terminal, paint } = usePhoneControlPaint();
+    const [focused, setFocused] = React.useState(false);
+    return <Pressable testID={id} accessibilityRole="tab" aria-selected={selected} accessibilityState={{ selected }}
+        onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        style={{ flex: 1, minWidth: 0, minHeight: 48, alignItems: 'center', justifyContent: 'center',
+            borderWidth: focused ? 2 : 1, borderColor: focused ? (selected ? paint.bg : paint.ink) : paint.rule, borderRadius: terminal ? 0 : 8,
+            backgroundColor: selected ? paint.ink : paint.panel }}>
+        <DeskText style={{ color: selected ? paint.bg : paint.ink, fontSize: 12.5, letterSpacing: -0.25 }}>{label}</DeskText>
+    </Pressable>;
+}
+
 /** One open state across all placements, persisted only on explicit dismissal or opening. */
 function useApprovalsDrawer(width: number) {
     const [{ open, focusOnOpen }, setState] = React.useState(() => ({
@@ -144,12 +159,21 @@ function useApprovalsDrawer(width: number) {
  */
 export function DeskScreen() {
     const { theme } = useUnistyles();
+    const workPaint = useWorkPaint();
+    const [chatStyle] = useDeskPref('chatStyle');
+    const workSurface = chatStyle === 'terminal' ? { backgroundColor: workPaint.paint.panel } : {};
     const router = useRouter();
     const { width, height } = useWindowDimensions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const { list: sessions, ready: dataReady } = useDeskSessions();
     const [workCollapsed, collapseWork] = useDeskPref('workCollapsed');
-    const [waitingHistory] = React.useState(createWaitingHistory);
+    const scope = useActiveServerAccountScope();
+    const waitingScope = JSON.stringify([scope?.serverId, scope?.accountId]);
+    const waitingHistory = React.useMemo(createWaitingHistory, [waitingScope]);
+    React.useLayoutEffect(() => () => {
+        // Retire feedback from this desk scope; the transport guard still owns pending calls.
+        waitingHistory.setState({ previous: [], answered: [], actions: new Map(), departed: new Set() });
+    }, [waitingHistory]);
     const [hasHalfAnsweredCard, setHasHalfAnsweredCard] = React.useState(false);
     const approvals = useApprovalsDrawer(width);
     const phone = isDeskPhoneWidth(width);
@@ -222,6 +246,7 @@ export function DeskScreen() {
     const collapse = (
         <PanelToggle
             testID="ip-work-collapse"
+            colour={workPaint.text.secondary}
             icon={wide ? 'sidebar-left-close' : 'caret-up'}
             label={t('ignorePrevious.collapseWork')}
             onPress={() => collapseWork(true)}
@@ -230,14 +255,15 @@ export function DeskScreen() {
     const expand = (
         <PanelToggle
             testID="ip-work-expand"
+            colour={workPaint.text.secondary}
             icon={wide ? 'sidebar-left-open' : 'caret-down'}
             label={t('ignorePrevious.expandWork')}
             onPress={() => collapseWork(false)}
         />
     );
     const divider = wide
-        ? { borderRightWidth: 1, borderRightColor: theme.colors.border.default }
-        : { borderBottomWidth: 1, borderBottomColor: theme.colors.border.default };
+        ? { borderRightWidth: 1, borderRightColor: workPaint.controlBorder }
+        : { borderBottomWidth: 1, borderBottomColor: workPaint.controlBorder };
 
     let work: React.ReactNode;
     if (wide) {
@@ -246,7 +272,7 @@ export function DeskScreen() {
                 testID="ip-work-rail"
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ width: 76, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...divider }}
+                style={{ width: 76, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }}
                 contentContainerStyle={{ gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }}
             >
                 {expand}
@@ -254,7 +280,7 @@ export function DeskScreen() {
                 <WorkColumn compact="column" />
             </ScrollView>
         ) : (
-            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
+            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
                 <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
                 {coordinatorCard('slim')}
                 <WorkColumn />
@@ -262,7 +288,7 @@ export function DeskScreen() {
         );
     } else {
         work = workCollapsed && !phone ? (
-            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...divider }}>
+            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...workSurface, ...divider }}>
                 <ScrollView horizontal={false} showsHorizontalScrollIndicator={false} style={{ flex: 1, minWidth: 0, maxHeight: Math.max(0, Math.round(height * 0.45) - 16), overflow: 'hidden' }} contentContainerStyle={{ minWidth: 0 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4, minWidth: 0 }}>
                         {coordinatorCard('rail')}
@@ -276,7 +302,7 @@ export function DeskScreen() {
                 testID="ip-work"
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...divider }}
+                style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...workSurface, ...divider }}
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
                 {!phone && <View style={{ alignItems: 'flex-end' }}>{collapse}</View>}
@@ -302,13 +328,13 @@ export function DeskScreen() {
                     <DeskConnectionBanner />
                     {main}
                     {phone && <PhoneTabBar>
-                        <Pressable testID="ip-tab-work" accessibilityRole="tab" aria-selected={phonePane === 'work' && !approvals.open} accessibilityState={{ selected: phonePane === 'work' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('work'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.work')}</DeskText></Pressable>
-                        <Pressable testID="ip-tab-shog" accessibilityRole="tab" aria-selected={phonePane === 'shog' && !approvals.open} accessibilityState={{ selected: phonePane === 'shog' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('shog'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.topBar.shog')}</DeskText></Pressable>
+                        <PhoneTab id="ip-tab-work" label={t('ignorePrevious.work')} selected={phonePane === 'work' && !approvals.open} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('work'); }} />
+                        <PhoneTab id="ip-tab-shog" label={t('ignorePrevious.topBar.shog')} selected={phonePane === 'shog' && !approvals.open} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('shog'); }} />
                         {approvalsButton}
                     </PhoneTabBar>}
                     {sessionsOpen && <SessionsSheet openerRef={sessionsRef} onClose={() => setSessionsOpen(false)} />}
                 </View>
-                <ApprovalsDrawer open={approvals.open} width={width} openerRef={approvalsOpenerRef} focusOnOpen={approvals.focusOnOpen}
+                <ApprovalsDrawer key={waitingScope} open={approvals.open} width={width} openerRef={approvalsOpenerRef} focusOnOpen={approvals.focusOnOpen}
                     hasHalfAnsweredCard={hasHalfAnsweredCard} onDirtyChange={setHasHalfAnsweredCard}
                     onClose={approvals.close} history={waitingHistory} />
             </View>

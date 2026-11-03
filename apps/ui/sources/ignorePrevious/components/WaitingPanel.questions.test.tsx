@@ -1,3 +1,4 @@
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { renderScreen, pressTestInstanceAsync, createSessionFixture, createDeferred, makeToolCall, makeToolViewProps } from '@/dev/testkit';
@@ -60,7 +61,7 @@ function seed(session = worker()) {
 const sendId = 'ip-waiting-send-request';
 const optionId = (q = 0, o = 0) => `ip-waiting-option-request-${q}-${o}`;
 const otherId = (q = 0) => `ip-waiting-other-request-${q}`;
-async function render(onDirtyChange?: (dirty: boolean) => void) { return renderScreen(<WaitingPanel onDirtyChange={onDirtyChange} />); }
+async function render(onDirtyChange?: (dirty: boolean) => void) { const screen = await renderScreen(<WaitingPanel onDirtyChange={onDirtyChange} />); await revealWaitingDetails(screen); return screen; }
 type Screen = Awaited<ReturnType<typeof render>>;
 async function pick(screen: Screen, q = 0, o = 0) { await pressTestInstanceAsync(screen.findByTestId(optionId(q, o)), 'question option'); }
 async function send(screen: Screen) { await pressTestInstanceAsync(screen.findByTestId(sendId), 'Send'); }
@@ -116,6 +117,8 @@ describe('Waiting worker questions', () => {
         act(() => screen.tree.changeTextByTestId(otherId(1), 'old draft'));
         const replacement = { ...question, question: 'Which channel?', options: [{ label: 'Nightly', value: 'nightly-id' }] };
         act(() => storage.getState().applySessions([{ ...original, agentStateVersion: 2, agentState: worker({ questions: [replacement, multi] }).agentState }]));
+        expect(screen.findByTestId('ip-waiting-changed-request')).not.toBeNull();
+        await revealWaitingDetails(screen);
         expect(screen.getTextContent()).toContain(replacement.question);
         expect(screen.findByTestId(optionId())?.props.accessibilityState.selected).toBe(false);
         expect(screen.findByTestId(otherId(1))?.props.value).toBe('');

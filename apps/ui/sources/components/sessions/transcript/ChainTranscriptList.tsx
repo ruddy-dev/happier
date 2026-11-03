@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TranscriptToolCallsGroupingContext } from './TranscriptAppearanceContext';
 import { Platform, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
 
@@ -211,6 +212,7 @@ function doesHeaderUnitContainMessageId(item: ChainTranscriptListItem, messageId
 }
 
 export const ChainTranscriptList = React.memo(function ChainTranscriptList(props: ChainTranscriptListProps) {
+    const collapseToolCallsPerTurn = React.useContext(TranscriptToolCallsGroupingContext) === 'collapsed-per-turn';
     const transcriptGroupingMode = useSetting('transcriptGroupingMode');
     const transcriptGroupToolCalls = useSetting('transcriptGroupToolCalls');
     const transcriptTurnToolCallsGroupStrategy = useSetting('transcriptTurnToolCallsGroupStrategy');
@@ -225,12 +227,14 @@ export const ChainTranscriptList = React.memo(function ChainTranscriptList(props
     const messageIdsOldestFirst = React.useMemo(() => props.messages.map((message) => message.id), [props.messages]);
     const messagesById = React.useMemo(() => buildMessagesById(props.messages), [props.messages]);
 
-    const groupingMode = transcriptGroupingMode === 'turns' ? 'turns' : 'linear';
+    const groupingMode = collapseToolCallsPerTurn || transcriptGroupingMode === 'turns' ? 'turns' : 'linear';
     const groupToolCalls =
-        transcriptGroupToolCalls === true &&
-        toolViewTimelineChromeMode === 'activity_feed';
+        collapseToolCallsPerTurn || (
+            transcriptGroupToolCalls === true &&
+            toolViewTimelineChromeMode === 'activity_feed'
+        );
     const toolCallsGroupStrategy =
-        transcriptTurnToolCallsGroupStrategy === 'all_tools_in_turn' ? 'all_tools_in_turn' : 'consecutive_tools';
+        collapseToolCallsPerTurn || transcriptTurnToolCallsGroupStrategy === 'all_tools_in_turn' ? 'all_tools_in_turn' : 'consecutive_tools';
 
     const linearItemsCacheRef = React.useRef<ChatListItemsBuildCache | null>(null);
     const turnsCacheRef = React.useRef<TranscriptTurnsBuildCache | null>(null);
@@ -241,9 +245,10 @@ export const ChainTranscriptList = React.memo(function ChainTranscriptList(props
             messageIdsOldestFirst,
             messagesById,
             groupToolCalls,
+            keepPendingPermissions: collapseToolCallsPerTurn,
             toolCallsGroupStrategy,
         });
-    }, [groupToolCalls, groupingMode, messageIdsOldestFirst, messagesById, toolCallsGroupStrategy]);
+    }, [collapseToolCallsPerTurn, groupToolCalls, groupingMode, messageIdsOldestFirst, messagesById, toolCallsGroupStrategy]);
 
     React.useEffect(() => {
         turnsCacheRef.current = turnsCache;
@@ -308,7 +313,7 @@ export const ChainTranscriptList = React.memo(function ChainTranscriptList(props
                 items: turns.map((turn) => ({ kind: 'turn', id: turn.id, turn })),
                 getMessageById: (messageId) => messagesById[messageId] ?? null,
                 isGroupExpanded: (toolMessageIds) => toolMessageIds.some((id) => expandedToolCallsAnchorMessageIds.has(id)),
-                collapsedPreviewCount: resolveTranscriptToolCallsCollapsedPreviewCount(transcriptToolCallsCollapsedPreviewCountSetting),
+                collapsedPreviewCount: collapseToolCallsPerTurn ? 0 : resolveTranscriptToolCallsCollapsedPreviewCount(transcriptToolCallsCollapsedPreviewCountSetting),
             });
         }
         return linearCache?.items ?? buildChatListItems({
@@ -319,7 +324,7 @@ export const ChainTranscriptList = React.memo(function ChainTranscriptList(props
             actionDrafts: [],
             groupConsecutiveToolCalls: groupToolCalls,
         });
-    }, [expandedToolCallsAnchorMessageIds, groupToolCalls, groupingMode, linearCache, messageIdsOldestFirst, messagesById, transcriptToolCallsCollapsedPreviewCountSetting, turnsCache]);
+    }, [collapseToolCallsPerTurn, expandedToolCallsAnchorMessageIds, groupToolCalls, groupingMode, linearCache, messageIdsOldestFirst, messagesById, transcriptToolCallsCollapsedPreviewCountSetting, turnsCache]);
     const renderedItems = React.useMemo<ChainTranscriptListItem[]>(() => {
         if (shellFrame.dataOrder === 'newest-first') {
             return [...items].reverse();

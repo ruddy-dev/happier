@@ -11,6 +11,8 @@ import { MarkdownBlockView } from '@/components/markdown/MarkdownBlockView';
 import type { Message } from '@/sync/domains/messages/messageTypes';
 import { Typography } from '@/constants/Typography';
 import { storage } from '@/sync/domains/state/storage';
+import { deskPrefs } from './deskPrefs';
+import { useCoordinatorTranscriptAppearance } from './useCoordinatorTranscriptAppearance';
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -37,6 +39,10 @@ const appearance: TranscriptAppearance = {
         border: { default: '#444444' },
     },
 };
+function CoordinatorRows() {
+    const appearance = useCoordinatorTranscriptAppearance();
+    return <TranscriptAppearanceContext.Provider value={appearance}><Rows /></TranscriptAppearanceContext.Provider>;
+}
 function Rows() {
     return <>{messages.map(message => <MessageView key={message.id} message={message} sessionId="chat" metadata={null} />)}</>;
 }
@@ -120,6 +126,24 @@ describe('C15/C16 transcript appearance', () => {
             const text = screen.tree.findAll(node => typeof node.type === 'string' && node.children.includes(words))[0];
             expect(StyleSheet.flatten(text.props.style)).toMatchObject({ fontFamily: 'Test Mono', color: '#eeeeee' });
         }
+    });
+
+    it('uses the prompt only for the Terminal coordinator style', async () => {
+        deskPrefs.set('chatStyle', 'terminal');
+        const screen = await renderScreen(<CoordinatorRows />);
+        expect(screen.tree.findAll(node => typeof node.type === 'string' && node.children.includes('> '))).toHaveLength(1);
+        deskPrefs.set('chatStyle', 'mask');
+        await screen.update(<CoordinatorRows />);
+        expect(screen.tree.findAll(node => typeof node.type === 'string' && node.children.includes('> '))).toHaveLength(0);
+    });
+
+    it('shows a terminal prompt on user messages only, without changing normal transcripts', async () => {
+        const screen = await renderScreen(<Rows />);
+        expect(screen.tree.findAllByType('terminal-prompt')).toHaveLength(0);
+        await screen.update(<TranscriptAppearanceContext.Provider value={{ userLeading: React.createElement('terminal-prompt') }}><Rows /></TranscriptAppearanceContext.Provider>);
+        expect(screen.tree.findAllByType(TranscriptJumpAttention).map(row => row.findAllByType('terminal-prompt').length)).toEqual([1, 0, 0]);
+        await screen.update(<Rows />);
+        expect(screen.tree.findAllByType('terminal-prompt')).toHaveLength(0);
     });
 
     it('shows a leading slot on agent messages only and removes it when the appearance changes', async () => {

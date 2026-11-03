@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import raw from '../testkit/scripts/F4-cold-load.json';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -72,8 +73,9 @@ describe('DeskScreen cold load (F4)', () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
         await scenario.openApprovals();
         await scenario.ready();
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
         expect(scenario.screen.findByTestId('ip-waiting')).toBeTruthy();
+        await revealWaitingDetails(scenario.screen);
         expect(scenario.textOf('ip-waiting')).toContain('Fix the login form');
     });
 
@@ -93,14 +95,14 @@ describe('DeskScreen cold load (F4)', () => {
     it('A2: before the first sync the approvals badge shows no count and its label does not say 0', async () => {
         scenario = await startDeskScenario({ script, coordinator: 'c1', dataReady: false });
         const badge = () => scenario!.screen.findByTestId('ip-approvals-open');
-        expect(scenario.textOf('ip-approvals-count')).toBe('–');
+        expect(scenario.textOf('ip-approvals-count')).toBe('– requests');
         expect(badge()?.props.accessibilityLabel).not.toMatch(/\b0\b/);
         expect(badge()?.props.accessibilityLabel).toContain('connecting');
 
         // After the first sync it counts again, as before.
         await scenario.ready();
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
-        expect(badge()?.props.accessibilityLabel).toBe('Show what waits on you, 1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
+        expect(badge()?.props.accessibilityLabel).toBe('Show what waits on you, 1 request');
     });
 
     it('F4: after ready() the Work counts are numbers again and Connecting… is gone', async () => {
