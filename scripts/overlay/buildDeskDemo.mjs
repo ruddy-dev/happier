@@ -1,11 +1,23 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, join, relative, resolve, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { demoFiles, reportDeskDemo, scanDeskDemo } from './deskDemoGuard.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const protectedTrees = ['apps', 'packages', 'scripts', 'node_modules', '.git', '.agents'];
+
+function resolveDestination(path) {
+    let ancestor = path;
+    while (!existsSync(ancestor)) ancestor = dirname(ancestor);
+    return resolve(realpathSync(ancestor), relative(ancestor, path));
+}
+
+function containsPath(parent, path) {
+    const rel = relative(parent, path);
+    return !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`);
+}
 
 export function parseArgs(args, root = ROOT) {
     if (args.length > 2) throw new Error('usage: buildDeskDemo.mjs [output-folder] [base-path]');
@@ -17,7 +29,13 @@ export function parseArgs(args, root = ROOT) {
     const outdir = resolve(root, args[0] ?? '.project/tmp/desk-demo');
     const rel = relative(root, outdir);
     // Never let Expo overwrite a checkout or source folder. External output folders must also be new.
-    if (!rel || rel === '..' || outdir === resolve(sep) || ['apps', 'packages', 'scripts', 'node_modules', '.git', '.agents'].includes(rel.split(sep)[0])) {
+    if (!rel || rel === '..' || outdir === resolve(sep) || protectedTrees.includes(rel.split(sep)[0])) {
+        throw new Error('output must be a new export folder outside source directories');
+    }
+    const destination = resolveDestination(outdir);
+    const repo = resolveDestination(root);
+    if (destination === repo || destination === dirname(repo) || destination === resolve(sep) ||
+        protectedTrees.some(tree => containsPath(resolveDestination(join(root, tree)), destination))) {
         throw new Error('output must be a new export folder outside source directories');
     }
     return { outdir, basePath };
@@ -34,7 +52,7 @@ export function resolveWatchFolders(root) {
 export function demoEnvironment(inherited, basePath, cache, watchFolders) {
     const env = Object.fromEntries(Object.entries(inherited).filter(([key]) => !/^(?:HAPPIER_|HAPPY_|EXPO_|RCT_METRO|METRO_|SENTRY_)/.test(key)));
     return { ...env, CI: '1', NODE_ENV: 'production', EXPO_NO_TELEMETRY: '1', EXPO_NO_DOTENV: '1', EXPO_OFFLINE: '1',
-        EXPO_UNSTABLE_WEB_MODAL: '1', EXPO_PUBLIC_DEBUG: '1', EXPO_PUBLIC_IP_FIXTURES: '1',
+        EXPO_UNSTABLE_WEB_MODAL: '1', EXPO_PUBLIC_IP_FIXTURES: '1',
         EXPO_BASE_URL: basePath === '/' ? '' : basePath.slice(0, -1),
         EXPO_APP_LOCAL_CONFIG_PATH: join(cache, 'app.local.cjs'),
         EXPO_PUBLIC_HAPPIER_SERVER_URL: '', EXPO_PUBLIC_HAPPY_SERVER_URL: '', EXPO_PUBLIC_SERVER_URL: '',
@@ -73,13 +91,13 @@ export function postProcessExport(dir, basePath) {
 export function buildDeskDemo(args = process.argv.slice(2)) {
     const { outdir, basePath } = parseArgs(args);
     if (existsSync(outdir)) throw new Error('output folder already exists; choose a new folder to preserve previous work');
+    const watchFolders = resolveWatchFolders(ROOT);
     const tmp = join(ROOT, '.project/tmp');
     mkdirSync(tmp, { recursive: true });
     const cache = mkdtempSync(join(tmp, 'desk-demo-metro-'));
-    // Bypass optional machine-local app overrides as well as dotenv.
-    writeFileSync(join(cache, 'app.local.cjs'), 'module.exports = {};\n');
-    const watchFolders = resolveWatchFolders(ROOT);
     try {
+        // Bypass optional machine-local app overrides as well as dotenv.
+        writeFileSync(join(cache, 'app.local.cjs'), 'module.exports = {};\n');
         const result = spawnSync(process.execPath, [join(ROOT, 'apps/ui/node_modules/expo/bin/cli'), 'export', '--platform', 'web', '--clear', '--output-dir', outdir], {
             cwd: join(ROOT, 'apps/ui'), env: demoEnvironment(process.env, basePath, cache, watchFolders), stdio: 'inherit',
         });
