@@ -142,6 +142,54 @@ describe('CoordinatorPrompts', () => {
         expect(text).toContain('Title s2');
     });
 
+    it('walks the counted mixed grants with full restricted context, excluding view-only details', async () => {
+        const longCommand = 'edit-command-' + 'x'.repeat(180);
+        seed([
+            session('coord', null),
+            session('owner', { tool: 'Bash', arguments: { command: 'owner-command' }, createdAt: 10 }),
+            { ...session('editor', { tool: 'Bash', arguments: { command: longCommand }, createdAt: 20 }), accessLevel: 'edit', canApprovePermissions: false },
+            { ...session('viewer', { tool: 'Bash', arguments: { command: 'view-secret-command' }, createdAt: 30 }), accessLevel: 'view', canApprovePermissions: false },
+        ]);
+        const screen = await renderPrompts();
+        expect(screen.getTextContent()).toContain("Go through what's waiting (2)");
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+        const text = String(readComposerText('coord'));
+        expect(text).toContain('owner-command');
+        expect(text).toContain(longCommand);
+        expect(text).toMatch(/cannot approve.*owner/i);
+        expect(text).not.toContain('view-secret-command');
+        expect(text).not.toContain('Title viewer');
+        expect(text).not.toContain('session viewer');
+    });
+
+    it.each([false, true])('excludes view-only placeholders and retains restricted edit placeholders, unreadable=%s', async unreadable => {
+        seed([session('coord', null)]);
+        const rows = [
+            createSessionFixture({ id: 'edit-placeholder', active: true, accessLevel: 'edit', canApprovePermissions: false, pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now() }),
+            createSessionFixture({ id: 'view-placeholder', active: true, accessLevel: 'view', canApprovePermissions: false, pendingPermissionRequestCount: 1, pendingRequestObservedAt: Date.now() }),
+        ].map(value => ({ ...buildSessionListRenderableFromSession(value), ...(unreadable ? { metadata: null, metadataUnavailable: true } : {}) }));
+        act(() => storage.getState().mergeSessionListRenderables(rows));
+        const screen = await renderPrompts();
+        expect(screen.getTextContent()).toContain("Go through what's waiting (1)");
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+        const text = String(readComposerText('coord'));
+        expect(text).toContain('edit-placeholder');
+        expect(text).toMatch(/cannot approve.*owner/i);
+        expect(text).not.toContain('view-placeholder');
+    });
+
+    it('keeps questions as questions and hides the shortcut for view-only waits', async () => {
+        seed([session('coord', null), { ...session('viewer', { tool: 'Bash', arguments: { command: 'private' }, createdAt: 1 }), accessLevel: 'view', canApprovePermissions: false }]);
+        const screen = await renderPrompts();
+        expect(screen.findByTestId('ip-walk-waiting')).toBeNull();
+        seed([session('question', { tool: 'AskUserQuestion', kind: 'user_action', arguments: { questions: [] }, createdAt: 2 })]);
+        await screen.pressByTestIdAsync('ip-walk-waiting');
+        const text = String(readComposerText('coord'));
+        expect(text).toContain('Title question (session question) has a question');
+        expect(text).not.toContain('session viewer');
+        expect(text).toContain('For questions, help me understand');
+    });
+
     it('L2: the walk-through includes worker requests but never its own coordinator request', async () => {
         seed([
             session('coord', { tool: 'Bash', arguments: { command: 'coordinator-command' }, createdAt: 10 }),
