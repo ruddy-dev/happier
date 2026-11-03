@@ -205,8 +205,8 @@ describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible nam
             expect(name).toContain(t(stateKey));
             if (scenario === 'question sibling') expect(name).toContain(t('ignorePrevious.question'));
             if (scenario === 'failed sibling') expect(name).toContain(t('ignorePrevious.workList.failed'));
-            if (scenario.startsWith('view-only')) expect(name).toContain(t('session.sharing.permissionApprovalsDisabledReadOnly'));
-            if (scenario === 'ungranted limited worker') expect(name).toContain(t('session.sharing.permissionApprovalsDisabledNotGranted'));
+            if (scenario.startsWith('view-only')) expect(name).toContain(t('ignorePrevious.waiting.viewOnly'));
+            if (scenario === 'ungranted limited worker') expect(name).toContain(t('ignorePrevious.waiting.cannotApprove'));
             const time = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
             expect(name).not.toContain(time(now + 60_000));
             expect(name).not.toContain(time(now + 120_000));
@@ -228,8 +228,8 @@ describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible nam
 
     it.each([
         { scenario: 'question', bulb: 'turn', stateKey: 'ignorePrevious.countTurn', reasonKey: 'ignorePrevious.question' },
-        { scenario: 'view-only approval', bulb: 'waiting', stateKey: 'ignorePrevious.usageLimit.waiting', reasonKey: 'session.sharing.permissionApprovalsDisabledReadOnly' },
-        { scenario: 'approval not granted', bulb: 'waiting', stateKey: 'ignorePrevious.usageLimit.waiting', reasonKey: 'session.sharing.permissionApprovalsDisabledNotGranted' },
+        { scenario: 'view-only approval', bulb: 'waiting', stateKey: 'ignorePrevious.usageLimit.waiting', reasonKey: 'ignorePrevious.waiting.viewOnly' },
+        { scenario: 'approval not granted', bulb: 'waiting', stateKey: 'ignorePrevious.usageLimit.waiting', reasonKey: 'ignorePrevious.waiting.cannotApprove' },
         { scenario: 'failed turn', bulb: 'stuck', stateKey: 'ignorePrevious.countStuck', reasonKey: 'ignorePrevious.workList.failed' },
         { scenario: 'idle without attention', bulb: 'idle', stateKey: 'ignorePrevious.countIdle', reasonKey: null },
     ] as const)('retains the visible state and reason for $scenario', async ({ bulb, stateKey, reasonKey }) => {

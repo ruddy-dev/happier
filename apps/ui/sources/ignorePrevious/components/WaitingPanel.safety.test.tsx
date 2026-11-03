@@ -605,14 +605,14 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-allow-r13')).toBeNull();
         expect(screen.findByTestId('ip-waiting-deny-r13')).toBeNull();
         const waiting = textUnder(screen.findByTestId('ip-waiting'));
-        expect(waiting).toContain('You have view-only access to this session.');
+        expect(waiting).toContain('View only · outside request count');
         expect(waiting).toContain('npm test');
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session'), 'Open session');
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
         expect(permissionCalls()).toHaveLength(0);
     });
 
-    it('W9: edit access without approval rights says the owner did not allow it', async () => {
+    it('W9: edit access without approval rights explains inclusion without offering approval', async () => {
         seed([
             sessionWithRequest('s1', 'r14', { tool: 'Bash', arguments: { command: 'npm test' } }, { accessLevel: 'edit', canApprovePermissions: false }),
         ]);
@@ -620,7 +620,7 @@ describe('WaitingPanel safety', () => {
         expect(screen.findByTestId('ip-waiting-allow-r14')).toBeNull();
         expect(screen.findByTestId('ip-waiting-deny-r14')).toBeNull();
         expect(textUnder(screen.findByTestId('ip-waiting'))).toContain(
-            'The owner did not allow you to approve permissions for this session.',
+            'Can edit, cannot approve · in request count',
         );
     });
 

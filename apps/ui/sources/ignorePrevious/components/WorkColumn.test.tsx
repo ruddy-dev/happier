@@ -375,7 +375,7 @@ describe('WorkColumn', () => {
             line().props.onContentSizeChange(322, 20);
         });
         expect(screen.findByTestId('ip-work-counts-next')).toBeNull();
-        expect(line().props.accessibilityLabel).toContain(`${t('ignorePrevious.countAll')}: 1`);
+        expect(line().props.accessibilityLabel).toContain('Workers: 1');
         expect(line().props.accessibilityLabel).toContain(`${t('ignorePrevious.countIdle')}: 1`);
         // Constrained width, larger numbers, translations or font scaling are measured, not guessed.
         act(() => {
@@ -398,19 +398,30 @@ describe('WorkColumn', () => {
         expect(screen.findByTestId('ip-work-counts-next')).toBeNull();
     });
 
-    it('counts agents by state in numbers', async () => {
+    it('counts workers rather than requests, with visible and accessible units', async () => {
         seed([
             session('s1', '/home/u/dev/wt/atr-6-a', { active: true, thinking: true, thinkingAt: Date.now() }),
             session('s2', '/home/u/dev/wt/atr-6-b', { active: true, thinking: true, thinkingAt: Date.now() }),
-            session('s3', '/home/u/dev'),
+            session('s3', '/home/u/dev', { active: true, activeAt: Date.now(), agentState: { requests: {
+                first: { tool: 'Bash', arguments: { command: 'echo first' }, createdAt: 1 },
+                second: { tool: 'Bash', arguments: { command: 'echo second' }, createdAt: 2 },
+            } } }),
             session('s4', '/home/u/dev/wt/atr-6-x', { archivedAt: 5 } as Partial<Session>),
         ]);
         const screen = await renderColumn();
         const count = (id: string) => screen.findByTestId(`ip-count-${id}`)?.props.children;
         expect(count('all')).toBe(3);
         expect(count('working')).toBe(2);
-        expect(count('idle')).toBe(1);
-        expect(count('turn')).toBe(0);
+        expect(count('idle')).toBe(0);
+        expect(count('turn')).toBe(1);
+        const line = screen.findByTestId('ip-work-counts')!;
+        expect(screen.getTextContent()).toContain('Workers');
+        expect(line.props.accessibilityLabel).toContain('Workers: 3');
+        expect(line.props.accessibilityLabel).toContain('Your turn: 1 worker');
+        expect(line.props.accessibilityLabel).toContain('Waiting: 0 workers');
+        for (const id of ['all', 'turn', 'stuck', 'working', 'waiting', 'idle']) {
+            expect(screen.findByTestId(`ip-count-${id}`)).not.toBeNull();
+        }
         expect(count('stuck')).toBe(0);
     });
 
@@ -750,9 +761,9 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
             expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(waiting);
         };
         const label = (key: string) => screen.findByTestId(`ip-issue-${key}`)!.findByType('Pressable').props.accessibilityLabel;
-        const disabledText = t(accessLevel === 'view'
-            ? 'session.sharing.permissionApprovalsDisabledReadOnly'
-            : 'session.sharing.permissionApprovalsDisabledNotGranted');
+        const disabledText = accessLevel === 'view'
+            ? 'View only · outside request count'
+            : 'Can edit, cannot approve · in request count';
         assertCounts(1, 1);
         // Issue attribution waits for full metadata. Both workers remain reachable meanwhile.
         const unloadedCard = screen.findByTestId('ip-issue-none')!.findByType('Pressable');
@@ -810,7 +821,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         await pressTestInstanceAsync(card.findByType('Pressable'));
         expect(screen.findByTestId('ip-open-worker-worker')).not.toBeNull();
         expect(screen.findByTestId('ip-open-worker-approvable')).not.toBeNull();
-        expect(screen.getTextContent()).toContain(t('session.sharing.permissionApprovalsDisabledReadOnly'));
+        expect(screen.getTextContent()).toContain('View only · outside request count');
         await screen.unmount();
     });
 

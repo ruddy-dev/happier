@@ -177,7 +177,7 @@ it('shows desk chrome and phone panes at the agreed boundary', async () => {
     expect(container.querySelectorAll('[data-testid="ip-approvals-open"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
     expect(element('ip-top-usage').textContent).toBe('Usage');
-    expect(element('ip-approvals-count').textContent).toBe('0');
+    expect(element('ip-approvals-count').textContent).toBe('0 requests');
     await render(390);
     expect(element('ip-top-sessions')).toBeTruthy();
     expect(getComputedStyle(element('ip-work').parentElement!).display).toBe('none');
@@ -268,10 +268,10 @@ it('uses a muted zero while preserving the waiting label', async () => {
     const zero = getComputedStyle(element('ip-approvals-count')).color;
     const token = document.createElement('span'); token.style.color = lightTheme.colors.text.secondary; document.body.append(token);
     expect(zero).toBe(getComputedStyle(token).color); token.remove();
-    const label = element('ip-approvals-open').textContent!.replace('0', '');
+    const label = element('ip-approvals-open').textContent!.replace(element('ip-approvals-count').textContent!, '');
     await act(async () => seedCards(['first']));
     expect(getComputedStyle(element('ip-approvals-count')).color).not.toBe(zero);
-    expect(element('ip-approvals-open').textContent!.replace('1', '')).toBe(label);
+    expect(element('ip-approvals-open').textContent!.replace(element('ip-approvals-count').textContent!, '')).toBe(label);
 });
 it('returns focus to the current waiting opener after crossing the boundary', async () => {
     await render(1000); await click('ip-approvals-open'); await render(820); await escape();
