@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { TranscriptAppearanceContext, type TranscriptQuestionColors } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { DeskQuestionCard } from '@/ignorePrevious/components/DeskQuestionCard';
-import { QuestionControlBracket, terminalQuestionControlStyles } from '@/ignorePrevious/components/TerminalQuestionControls';
+import { QuestionControlBracket, QuestionOptionButton, terminalQuestionControlStyles } from '@/ignorePrevious/components/TerminalQuestionControls';
 import { View, TouchableOpacity, type GestureResponderEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { ToolViewProps } from '../core/_registry';
@@ -751,8 +751,9 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
                                     ] : null;
 
                                     return (
-                                        <TouchableOpacity
+                                        <QuestionOptionButton
                                             key={oIndex}
+                                            terminal={controlStyles != null}
                                             testID={testID}
                                             accessibilityRole="button"
                                             accessibilityLabel={option.label}
@@ -798,7 +799,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
                                                     <Text style={[styles.optionDescription, terminalTextStyle]}>{option.description}</Text>
                                                 )}
                                             </View>
-                                        </TouchableOpacity>
+                                        </QuestionOptionButton>
                                     );
                                 })}
                             </View>
