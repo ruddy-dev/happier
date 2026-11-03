@@ -2,6 +2,7 @@ import {
     collectTranscriptRequestStates,
     mergeTranscriptRequestState,
     type TranscriptRequestState,
+    type TranscriptRequestProjection,
 } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { resolveLatestUnreadAffectingCommittedMessageSeq } from '@/sync/domains/session/readCursor/resolveSessionReadableSeq';
 import { buildStableJsonSignature } from '@/sync/domains/session/metadata/sessionMetadataStability';
@@ -16,7 +17,8 @@ import type { Message } from './messageTypes';
  * The full transcript walk lives ONLY in `buildTranscriptRenderableAggregate`
  * (cold start / fallback). On the streaming hot path the store applies each
  * changed message through `applyMessageChangeToTranscriptRenderableAggregate`,
- * which costs O(changed messages) instead of O(transcript length).
+ * which avoids full history walks except when a contribution invalidates the
+ * aggregate or retracting the newest terminal requires repairing its watermark.
  *
  * OWNERSHIP / MUTABILITY: like `SessionMessages.reducerState`, an aggregate is
  * mutated in place by its owning store entry. Do not rely on its referential
@@ -38,6 +40,8 @@ export type TranscriptRenderableAggregate = {
     messageCount: number;
     /** Canonical transcript contributions before agent-completion coverage, keyed by request id. */
     requestStates: Map<string, TranscriptRequestState>;
+    /** List iteration visits pending contributions only; updated with requestStates. */
+    requestProjection: TranscriptRequestProjection;
     /**
      * Identity of the `agentState.completedRequests` record the request states
      * are published for. Coverage is applied by the pending-request owner at consumption,
@@ -84,11 +88,18 @@ export function buildTranscriptRenderableAggregate(params: Readonly<{
     const requestStates = new Map<string, TranscriptRequestState>();
     collectTranscriptRequestStates(params.messages, requestStates);
 
+    const requestProjection: TranscriptRequestProjection = { pendingStates: new Map(), newestTerminalCreatedAt: 0 };
+    for (const [id, state] of requestStates) {
+        if (state.status === 'pending') requestProjection.pendingStates.set(id, state);
+        else requestProjection.newestTerminalCreatedAt = Math.max(requestProjection.newestTerminalCreatedAt, state.createdAt);
+    }
+
     return {
         latestCommittedMessageCreatedAt,
         latestUnreadAffectingMessageSeq: resolveLatestUnreadAffectingCommittedMessageSeq(params.messages),
         messageCount: params.messages.length,
         requestStates,
+        requestProjection,
         completedRequestsRef: params.completedRequests,
     };
 }
@@ -166,12 +177,30 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
         : null;
     const nextStates = collectMessageRequestStates(next);
 
+    let refreshTerminalClock = false;
+    const writeRequestState = (requestId: string, state: TranscriptRequestState | undefined) => {
+        const old = aggregate.requestStates.get(requestId);
+        if (old?.status === 'terminal' && old.createdAt === aggregate.requestProjection.newestTerminalCreatedAt
+            && (state?.status !== 'terminal' || state.createdAt < old.createdAt)) {
+            refreshTerminalClock = true;
+        }
+        if (state) aggregate.requestStates.set(requestId, state);
+        else aggregate.requestStates.delete(requestId);
+        if (state?.status === 'pending') aggregate.requestProjection.pendingStates.set(requestId, state);
+        else aggregate.requestProjection.pendingStates.delete(requestId);
+        if (state?.status === 'terminal') {
+            aggregate.requestProjection.newestTerminalCreatedAt = Math.max(
+                aggregate.requestProjection.newestTerminalCreatedAt, state.createdAt,
+            );
+        }
+    };
+
     if (previousStates) {
         for (const [requestId, previousState] of previousStates) {
             const nextState = nextStates.get(requestId);
             if (!nextState) {
                 if (params.isSoleRequestStateContributor?.(requestId) === true) {
-                    aggregate.requestStates.delete(requestId);
+                    writeRequestState(requestId, undefined);
                     continue;
                 }
                 // The message stopped contributing this request id; the merged
@@ -183,7 +212,7 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
                 && !areTerminalStatesInterchangeable(previousState, nextState)
             ) {
                 if (params.isSoleRequestStateContributor?.(requestId) === true) {
-                    aggregate.requestStates.delete(requestId);
+                    writeRequestState(requestId, undefined);
                     continue;
                 }
                 // The new contribution would lose the merge against the old
@@ -194,12 +223,21 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
     }
 
     for (const [requestId, nextState] of nextStates) {
-        aggregate.requestStates.set(
+        writeRequestState(
             requestId,
             mergeTranscriptRequestState(aggregate.requestStates.get(requestId), nextState),
         );
     }
 
+    if (refreshTerminalClock) {
+        // A real retraction of the newest terminal can lower the watermark. Scan
+        // only on that mutation, never on an ordinary snapshot or a pending read.
+        let newestTerminalCreatedAt = 0;
+        for (const state of aggregate.requestStates.values()) {
+            if (state.status === 'terminal') newestTerminalCreatedAt = Math.max(newestTerminalCreatedAt, state.createdAt);
+        }
+        aggregate.requestProjection.newestTerminalCreatedAt = newestTerminalCreatedAt;
+    }
     return true;
 }
 
@@ -223,6 +261,8 @@ export function isTranscriptRenderableAggregate(value: unknown): value is Transc
     if (!value || typeof value !== 'object') return false;
     const candidate = value as Partial<TranscriptRenderableAggregate>;
     return candidate.requestStates instanceof Map
+        && candidate.requestProjection?.pendingStates instanceof Map
+        && typeof candidate.requestProjection.newestTerminalCreatedAt === 'number'
         && typeof candidate.messageCount === 'number'
         && Number.isFinite(candidate.messageCount)
         && (candidate.latestCommittedMessageCreatedAt === null || typeof candidate.latestCommittedMessageCreatedAt === 'number')

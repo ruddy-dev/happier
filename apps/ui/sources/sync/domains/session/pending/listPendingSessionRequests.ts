@@ -69,6 +69,13 @@ export type TranscriptRequestState = (
  */
 export type TranscriptRequestStatesCache = {
     states?: Map<string, TranscriptRequestState>;
+    projection?: TranscriptRequestProjection;
+};
+
+/** Only pending transcript contributions; terminal history stays in the canonical map for keyed reads. */
+export type TranscriptRequestProjection = {
+    pendingStates: Map<string, TranscriptRequestState>;
+    newestTerminalCreatedAt: number;
 };
 
 const EMPTY_PENDING_REQUEST_FLAGS: PendingRequestFlags = {
@@ -284,13 +291,20 @@ function getTranscriptRequestStates(
     if (statesCache?.states) {
         return statesCache.states;
     }
-    const transcriptMessages = (() => {
-        if (messages) {
-            return messages;
-        }
+    let transcriptMessages = messages;
+    if (!transcriptMessages) {
         const storageState = readRegisteredStorageState();
-        return storageState ? (readStoredSessionMessages(storageState, session.id) ?? []) : [];
-    })();
+        const aggregate = storageState?.sessionMessages[session.id]?.renderableAggregate;
+        if (statesCache && aggregate?.requestProjection) {
+            // Implicit readers (including snapshot hydration) consume the same
+            // store-owned index. Completion coverage is applied below against
+            // the supplied session, not the aggregate's prior completion basis.
+            statesCache.states = aggregate.requestStates;
+            statesCache.projection = aggregate.requestProjection;
+            return aggregate.requestStates;
+        }
+        transcriptMessages = storageState ? readStoredSessionMessages(storageState, session.id) : [];
+    }
     const states = new Map<string, TranscriptRequestState>();
     collectTranscriptRequestStates(transcriptMessages, states);
     if (statesCache) {
@@ -400,7 +414,11 @@ export function derivePendingRequestFlagsFromAgentState(agentState: AgentState |
     };
 }
 
-function shouldUseProjectedPendingRequestCounts(session: Session, transcriptStates: Map<string, TranscriptRequestState>): boolean {
+function shouldUseProjectedPendingRequestCounts(
+    session: Session,
+    transcriptStates: Map<string, TranscriptRequestState>,
+    projection?: TranscriptRequestProjection,
+): boolean {
     if (
         typeof session.pendingPermissionRequestCount !== 'number'
         && typeof session.pendingUserActionRequestCount !== 'number'
@@ -409,8 +427,8 @@ function shouldUseProjectedPendingRequestCounts(session: Session, transcriptStat
     }
 
     let hasPendingTranscriptRequests = false;
-    let newestTerminalTranscriptCreatedAt = 0;
-    for (const state of transcriptStates.values()) {
+    let newestTerminalTranscriptCreatedAt = projection?.newestTerminalCreatedAt ?? 0;
+    for (const state of (projection?.pendingStates ?? transcriptStates).values()) {
         if (state.status === 'pending') {
             if (readUncoveredTranscriptRequest(session, state)) hasPendingTranscriptRequests = true;
             continue;
@@ -518,7 +536,7 @@ export function listPendingSessionRequests(
 
     const transcriptStates = getTranscriptRequestStates(session, messages, statesCache);
     const pending = new Map<string, SessionPendingRequest>();
-    const pendingTranscriptRequests = listUncoveredTranscriptRequests(session, transcriptStates);
+    const pendingTranscriptRequests = listUncoveredTranscriptRequests(session, statesCache?.projection?.pendingStates ?? transcriptStates);
 
     for (const request of pendingTranscriptRequests) {
         pending.set(request.id, request);
@@ -639,7 +657,7 @@ export function derivePendingRequestFlagsFromSession(
 
     if (hasProjectedPendingRequestCounts(session)) {
         const transcriptStates = getTranscriptRequestStates(session, messages, statesCache);
-        if (shouldUseProjectedPendingRequestCounts(session, transcriptStates)) {
+        if (shouldUseProjectedPendingRequestCounts(session, transcriptStates, statesCache?.projection)) {
             const projectedFlags = readProjectedPendingRequestFlags(session);
             const agentStateFlags = derivePendingRequestFlagsFromAgentState(session.agentState);
             return {
@@ -648,7 +666,7 @@ export function derivePendingRequestFlagsFromSession(
                     projectedFlags.hasPendingUserActionRequests || agentStateFlags.hasPendingUserActionRequests,
             };
         }
-        const pendingTranscriptRequests = listUncoveredTranscriptRequests(session, transcriptStates);
+        const pendingTranscriptRequests = listUncoveredTranscriptRequests(session, statesCache?.projection?.pendingStates ?? transcriptStates);
         if (pendingTranscriptRequests.length === 0) {
             return EMPTY_PENDING_REQUEST_FLAGS;
         }
@@ -659,7 +677,7 @@ export function derivePendingRequestFlagsFromSession(
     }
 
     const transcriptStates = getTranscriptRequestStates(session, messages, statesCache);
-    if (shouldUseProjectedPendingRequestCounts(session, transcriptStates)) {
+    if (shouldUseProjectedPendingRequestCounts(session, transcriptStates, statesCache?.projection)) {
         return readProjectedPendingRequestFlags(session);
     }
 

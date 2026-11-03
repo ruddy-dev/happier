@@ -306,7 +306,7 @@ export function buildSessionListRenderableFromSession(
     // Partial history can establish pending/terminal evidence without establishing the
     // committed-message unread/activity projection. Reuse its maintained request map only.
     const statesCache: TranscriptRequestStatesCache = partialTranscriptRequestStates
-        ?? (aggregate ? { states: aggregate.requestStates } : {});
+        ?? (aggregate ? { states: aggregate.requestStates, projection: aggregate.requestProjection } : {});
     const pending = derivePendingRequestFlagsFromSession(session, messages, statesCache);
     const latestCommittedMessageCreatedAt = aggregate ? aggregate.latestCommittedMessageCreatedAt : null;
     const latestTurnStatus = readSessionLatestTurnStatus(session);

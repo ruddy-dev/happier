@@ -970,7 +970,8 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
                         : undefined,
                     sessionMessagesForRenderable?.isLoaded !== true
                     && isTranscriptRenderableAggregate(sessionMessagesForRenderable?.renderableAggregate)
-                        ? { states: sessionMessagesForRenderable.renderableAggregate.requestStates }
+                        ? { states: sessionMessagesForRenderable.renderableAggregate.requestStates,
+                            projection: sessionMessagesForRenderable.renderableAggregate.requestProjection }
                         : undefined,
                 );
                 const previousRenderable = state.sessionListRenderables?.[session.id];
