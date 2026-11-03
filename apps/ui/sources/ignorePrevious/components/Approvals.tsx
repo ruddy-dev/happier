@@ -12,6 +12,7 @@ import { useDeskPopup } from '../popups/useDeskPopup';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { DeskText as Text } from '../typography/DeskText';
 import { WaitingPanel, type WaitingHistory } from './WaitingPanel';
+import { usePhoneControlPaint } from './usePhoneControlPaint';
 import { MaskFace } from './MaskFace';
 import { createWaitingHistory } from '../model/waitingHistory';
 import { observeWaitingActions } from '../model/observeWaitingActions';
@@ -21,6 +22,8 @@ import { DESK_FONT_STACK } from '../fonts/deskFont';
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null>; phone?: boolean }) {
     const { theme } = useUnistyles();
+    const { terminal, paint } = usePhoneControlPaint();
+    const [focused, setFocused] = React.useState(false);
     const { count, ready } = useDeskWaitsSummary();
     const waiting = ready && count > 0;
     // Before the first sync the count is not known yet; 0 would say nothing waits (F4).
@@ -37,24 +40,30 @@ export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { o
             accessibilityLabel={label}
             accessibilityHint={phone ? t('ignorePrevious.topBar.waitingHint') : undefined}
             onPress={onPress}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             hitSlop={6}
             style={{
-                flexDirection: 'row',
+                flexDirection: phone ? 'column' : 'row',
                 alignItems: 'center',
-                gap: 6,
+                gap: phone ? 0 : 6,
+                flex: phone ? 1 : undefined,
+                minWidth: phone ? 0 : undefined,
+                minHeight: phone ? 48 : undefined,
+                justifyContent: phone ? 'center' : undefined,
                 paddingHorizontal: 10,
                 paddingVertical: 5,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: theme.colors.border.default,
-                backgroundColor: waiting ? theme.colors.surface.inset : 'transparent',
+                borderRadius: phone ? (terminal ? 0 : 8) : 999,
+                borderWidth: phone && focused ? 2 : 1,
+                borderColor: phone ? (focused ? (open ? paint.bg : paint.ink) : paint.rule) : theme.colors.border.default,
+                backgroundColor: phone ? (open ? paint.ink : paint.panel) : waiting ? theme.colors.surface.inset : 'transparent',
             }}
         >
-            <Text style={{ color: theme.colors.text.primary, fontSize: phone ? 12.5 : 13, letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.waiting.heading')}</Text>
-            <Text testID="ip-approvals-count" style={{ color: waiting ? theme.colors.text.primary : theme.colors.text.secondary, fontSize: 13, ...Typography.default('semiBold') }}>
+            <Text style={{ color: phone ? (open ? paint.bg : paint.ink) : theme.colors.text.primary, fontSize: phone ? 12.5 : 13, letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.waiting.heading')}</Text>
+            <Text testID="ip-approvals-count" style={{ color: phone ? (open ? paint.bg : paint.ink) : waiting ? theme.colors.text.primary : theme.colors.text.secondary, fontSize: 13, ...Typography.default('semiBold') }}>
                 {ready ? t('ignorePrevious.waiting.requestCount', { count }) : t('ignorePrevious.waiting.unknownRequestCount')}
             </Text>
-            <Icon name={phone ? 'caret-up' : 'sidebar-right-open'} size={16} color={theme.colors.text.secondary} />
+            {!phone && <Icon name="sidebar-right-open" size={16} color={theme.colors.text.secondary} />}
         </Pressable>
     );
 }

@@ -11111,10 +11111,11 @@ settingsSession: {
         shogReplay: 'Replay',
         walkWaiting: ({ count }: { count: number }) => `Go through what's waiting (${count})`,
         walkWaitingPrompt: ({ list }: { list: string }) =>
-            `Go through what's waiting on me, one at a time, in this order. For each one, tell me what it does and why the worker wants it, reading the worker's session if you need more context. Then rate it: safe to allow, fairly safe, or check first. For "check first", say what to check or which tests to run. End each one with allow or deny. Don't answer any request yourself: I press Allow or Deny on the desk.\n\n${list}`,
+            `Go through what's waiting on me, one at a time, in this order. For each one, tell me what it does and why the worker wants it, reading the worker's session if you need more context. For requests I can approve, rate them safe to allow, fairly safe, or check first; say what to check or which tests to run, and recommend allow or deny. For restricted requests, inspect and refer to the owner instead of treating it as my Allow or Deny decision. For questions, help me understand what is being asked. Don't answer any request yourself: I decide on the desk where permitted.\n\n${list}`,
         walkItem: ({ n, session, id, tool, summary }: { n: number; session: string; id: string; tool: string; summary: string }) =>
             `${n}. ${session} (session ${id}) wants ${tool}: ${summary}`,
         walkItemNote: ({ note }: { note: string }) => `   The agent describes it as: ${note}`,
+        walkItemRestricted: '   I cannot approve this request. Inspect it and refer it to the session owner for a decision.',
         walkItemQuestion: ({ n, session, id }: { n: number; session: string; id: string }) =>
             `${n}. ${session} (session ${id}) has a question waiting in its session.`,
         walkItemUnloaded: ({ n, session, id }: { n: number; session: string; id: string }) =>

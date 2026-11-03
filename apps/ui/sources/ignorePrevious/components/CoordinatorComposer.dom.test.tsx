@@ -20,6 +20,7 @@ import { getDemoConversation } from '../fixtures/demoConversation';
 import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { deskPrefs } from '../deskPrefs';
 import { CoordinatorComposer } from './CoordinatorComposer';
+import { deskThemes } from '../palette';
 
 // Keep the real web hosts and Animated.Value; RN Web lacks RN's hook.
 vi.mock('react-native', async () => {
@@ -73,6 +74,7 @@ afterEach(async () => {
     await act(async () => { await root.unmount(); releaseFixture?.(); });
     container.remove(); releaseFixture = undefined; storage.setState(before, true);
     deskPrefs.set('chatStyle', 'mask');
+    deskPrefs.set('terminalPalette', 'tokyo');
     vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
@@ -204,11 +206,11 @@ it('R45 appends status after real controls inside the actual composer box, leavi
     expect(find('agent-input-action-footer')).not.toBeNull();
 });
 
-async function renderFixture(demoRoute = false) {
+async function renderFixture(demoRoute = false, phone = false) {
     storage.getState().applySettingsLocal({ agentInputEnterToSend: true });
     await installAgentAssetLoader();
     const { CoordinatorBodyStub } = await import('../fixtures/CoordinatorBodyStub');
-    await act(async () => root.render(<AppPaneProvider><DeskDemoContext.Provider value={demoRoute}><SafeAreaInsetsContext.Provider value={safeArea}><CoordinatorComposer><CoordinatorBodyStub
+    await act(async () => root.render(<AppPaneProvider><DeskDemoContext.Provider value={demoRoute}><SafeAreaInsetsContext.Provider value={safeArea}><CoordinatorComposer coordinatorId="fx-coord" phone={phone}><CoordinatorBodyStub
         footerLeadingActions={<RunSettingsMenu />}
         statusTrailingActions={<span data-testid="fixture-context">Context</span>} />
     </CoordinatorComposer></SafeAreaInsetsContext.Provider></DeskDemoContext.Provider></AppPaneProvider>));
@@ -362,4 +364,63 @@ it('R45 follows cancelled IME text', async () => {
         input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
     });
     expect(position()).toBe(t('ignorePrevious.composer.position', { line: 1, column: 1 }));
+});
+
+
+it('R49 places phone shortcuts before the input and restores them when the real draft clears', async () => {
+    await act(async () => root.render(<CoordinatorComposer coordinatorId="coordinator" phone><Input /></CoordinatorComposer>));
+    const row = () => find('ip-phone-shortcuts');
+    expect(row()).not.toBeNull();
+    expect(row()!.querySelectorAll('button').length).toBeGreaterThanOrEqual(3);
+    expect(row()!.compareDocumentPosition(handle.current!.getInputElement()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await act(async () => handle.current!.setTextAndSelection(' ', { start: 1, end: 1 }));
+    expect(row()).toBeNull();
+    await act(async () => handle.current!.setTextAndSelection('', { start: 0, end: 0 }));
+    expect(row()!.querySelectorAll('button').length).toBeGreaterThanOrEqual(3);
+});
+
+it('uses the chosen Terminal palette and bracketed labels for the shared phone shortcuts', async () => {
+    deskPrefs.set('terminalPalette', 'gruvbox');
+    await act(async () => root.render(<CoordinatorComposer coordinatorId="coordinator" phone><Input /></CoordinatorComposer>));
+    const button = find('ip-brief-first')!;
+    expect(button.textContent).toMatch(/^\[ .+ \]$/);
+    expect(getComputedStyle(button).borderTopLeftRadius).toBe('0px');
+    const sample = document.createElement('span'); sample.style.color = deskThemes.gruvbox.mute;
+    expect(getComputedStyle(button.firstElementChild!).color).toBe(sample.style.color);
+    await act(async () => button.focus());
+    expect(getComputedStyle(button).borderTopWidth).toBe('2px');
+    await act(async () => deskPrefs.set('chatStyle', 'mask'));
+    expect(button.textContent).not.toMatch(/^\[ /);
+    expect(getComputedStyle(button).borderTopLeftRadius).toBe('10px');
+    deskPrefs.set('terminalPalette', 'tokyo');
+});
+
+
+it('R49 offline shortcut fills the fixture without sending and clearing restores the row', async () => {
+    releaseFixture = applyDeskFixture();
+    await renderFixture(false, true);
+    await act(async () => find('ip-brief-first')!.click());
+    const input = container.querySelector<HTMLTextAreaElement>('[data-testid="session-composer-input"]')!;
+    expect(input.value).toBe(t('ignorePrevious.composer.briefPrompt'));
+    expect(find('ip-phone-shortcuts')).toBeNull();
+    expect(find('session-composer-send')?.getAttribute('aria-disabled')).toBe('true');
+    await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '');
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+    });
+    expect(find('ip-phone-shortcuts')).not.toBeNull();
+});
+
+
+it('R49 phone rows follow their own pane and reset on a session replacement', async () => {
+    const panes = (session: string) => <>
+        <section data-pane="one"><CoordinatorComposer key={session} coordinatorId={session} phone><Input /></CoordinatorComposer></section>
+        <section data-pane="two"><CoordinatorComposer coordinatorId="second" phone><Input inputRef={secondHandle} /></CoordinatorComposer></section>
+    </>;
+    await act(async () => root.render(panes('first')));
+    await act(async () => handle.current!.setTextAndSelection('draft', { start: 5, end: 5 }));
+    expect(container.querySelector('[data-pane="one"] [data-testid="ip-phone-shortcuts"]')).toBeNull();
+    expect(container.querySelector('[data-pane="two"] [data-testid="ip-phone-shortcuts"]')).not.toBeNull();
+    await act(async () => root.render(panes('replacement')));
+    expect(container.querySelector('[data-pane="one"] [data-testid="ip-phone-shortcuts"]')).not.toBeNull();
 });

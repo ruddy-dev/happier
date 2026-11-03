@@ -35,6 +35,7 @@ import { SessionsSheet } from '../components/SessionsSheet';
 import { useDeskSessions } from '../useDeskSessions';
 import { isIssueArchiveTarget, useIssueArchiveTargets } from '../model/issueArchiveOperation';
 import { DeskBrowserNotifier } from '../model/useDeskBrowserNotifier';
+import { usePhoneControlPaint } from '../components/usePhoneControlPaint';
 
 const WIDE = 1100;
 
@@ -122,6 +123,18 @@ function NativePhoneTabBar({ children }: React.PropsWithChildren) {
 function PhoneTabBarContent({ children, bottom }: React.PropsWithChildren<{ bottom: number }>) {
     const { theme } = useUnistyles();
     return <View accessibilityRole="tablist" style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', minWidth: 0, borderTopWidth: 1, borderTopColor: theme.colors.border.default, paddingBottom: bottom }}>{children}</View>;
+}
+
+function PhoneTab({ id, label, selected, onPress }: { id: string; label: string; selected: boolean; onPress: () => void }) {
+    const { terminal, paint } = usePhoneControlPaint();
+    const [focused, setFocused] = React.useState(false);
+    return <Pressable testID={id} accessibilityRole="tab" aria-selected={selected} accessibilityState={{ selected }}
+        onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        style={{ flex: 1, minWidth: 0, minHeight: 48, alignItems: 'center', justifyContent: 'center',
+            borderWidth: focused ? 2 : 1, borderColor: focused ? (selected ? paint.bg : paint.ink) : paint.rule, borderRadius: terminal ? 0 : 8,
+            backgroundColor: selected ? paint.ink : paint.panel }}>
+        <DeskText style={{ color: selected ? paint.bg : paint.ink, fontSize: 12.5, letterSpacing: -0.25 }}>{label}</DeskText>
+    </Pressable>;
 }
 
 /** One open state across all placements, persisted only on explicit dismissal or opening. */
@@ -315,8 +328,8 @@ export function DeskScreen() {
                     <DeskConnectionBanner />
                     {main}
                     {phone && <PhoneTabBar>
-                        <Pressable testID="ip-tab-work" accessibilityRole="tab" aria-selected={phonePane === 'work' && !approvals.open} accessibilityState={{ selected: phonePane === 'work' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('work'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.work')}</DeskText></Pressable>
-                        <Pressable testID="ip-tab-shog" accessibilityRole="tab" aria-selected={phonePane === 'shog' && !approvals.open} accessibilityState={{ selected: phonePane === 'shog' && !approvals.open }} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('shog'); }} style={{ padding: 8 }}><DeskText style={{ color: theme.colors.text.primary, fontSize: 12.5, letterSpacing: -0.25 }}>{t('ignorePrevious.topBar.shog')}</DeskText></Pressable>
+                        <PhoneTab id="ip-tab-work" label={t('ignorePrevious.work')} selected={phonePane === 'work' && !approvals.open} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('work'); }} />
+                        <PhoneTab id="ip-tab-shog" label={t('ignorePrevious.topBar.shog')} selected={phonePane === 'shog' && !approvals.open} onPress={() => { if (approvals.open) approvals.close(); setPhonePane('shog'); }} />
                         {approvalsButton}
                     </PhoneTabBar>}
                     {sessionsOpen && <SessionsSheet openerRef={sessionsRef} onClose={() => setSessionsOpen(false)} />}
