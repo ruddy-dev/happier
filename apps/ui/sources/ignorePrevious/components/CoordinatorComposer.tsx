@@ -12,13 +12,13 @@ import { DeskText } from '../typography/DeskText';
 /** Per-composer opt-in around the real SessionView and the synthetic screenshot body alike. */
 export function CoordinatorComposer({ children, coordinatorId, phone = false }: React.PropsWithChildren<{ coordinatorId?: string; phone?: boolean }>) {
     return Platform.OS === 'web' ? <WebCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</WebCoordinatorComposer> :
-        phone && coordinatorId ? <NativeCoordinatorComposer coordinatorId={coordinatorId}>{children}</NativeCoordinatorComposer> : <>{children}</>;
+        <NativeCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</NativeCoordinatorComposer>;
 }
 
-function NativeCoordinatorComposer({ children, coordinatorId }: React.PropsWithChildren<{ coordinatorId: string }>) {
+function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {
     const [observer] = React.useState(createCoordinatorComposerObserver);
-    const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null,
-        panelLeading: <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> }), [observer, coordinatorId]);
+    const context = React.useMemo(() => phone && coordinatorId ? ({ observer, prompt: null, panelFooter: null,
+        panelLeading: <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> }) : null, [observer, coordinatorId, phone]);
     return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
 }
 
