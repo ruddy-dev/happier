@@ -75,6 +75,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
             <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded: open }}
+                aria-expanded={open}
                 accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: title, state: attention ?? bulbWord(group.bulb), count, summary, unheard: unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: unheardMinutes }) : '' })}
                 onPress={onToggle}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8, paddingLeft: 12, paddingRight: 8, minWidth: 0, borderRadius: terminal ? 0 : 8 }}
