@@ -18,6 +18,10 @@ import type { SessionReadFileResponse } from '@/sync/ops/sessionFileSystem/fileR
 import { encodeBase64 } from '@/encryption/base64';
 import { getStoredCoordinatorId, setStoredCoordinatorId } from '../deskPrefs';
 import { armedUsageLimitRecovery, usageLimitIssue } from '../testkit/usageLimitFixtures';
+import { apiSocket } from '@/sync/api/session/apiSocket';
+import { upsertAndActivateServer } from '@/sync/domains/server/serverRuntime';
+import { projectManager } from '@/sync/runtime/orchestration/projectManager';
+import { prSnapshot } from '../testkit/prSnapshot';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -904,5 +908,140 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         } else if (label) {
             expect(screen.findByTestId('ip-work-stage-ATR-18')?.props.accessibilityLabel).toContain(label);
         } else expect(screen.findByTestId('ip-work-stage-ATR-18')).toBeNull();
+    });
+});
+
+describe('L4/N issue Archive on the real store', () => {
+    let previous: ReturnType<typeof storage.getState>;
+    let coordinator: string | null;
+    const archivedAt = 1_800_000_000_000;
+    const response = vi.fn<(path: string) => Promise<Response>>();
+
+    function merged(id: string) {
+        const snapshot = prSnapshot({ fetchedAt: Date.now() });
+        snapshot.pullRequest = { ...snapshot.pullRequest!, state: 'merged' };
+        act(() => storage.getState().updateSessionProjectScmSnapshot(id, snapshot));
+    }
+
+    async function openIssue() {
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        return screen;
+    }
+
+    beforeEach(() => {
+        previous = storage.getState();
+        coordinator = getStoredCoordinatorId();
+        upsertAndActivateServer({ serverUrl: 'http://localhost:53289', scope: 'tab' });
+        projectManager.clear();
+        storage.setState(storage.getInitialState(), true);
+        setStoredCoordinatorId('coord');
+        vi.stubEnv('EXPO_PUBLIC_IP_WQ_DIR', '');
+        response.mockReset();
+        response.mockImplementation(async () => new Response(JSON.stringify({ success: true, archivedAt })));
+        // HTTP is the only archive boundary. The direct archive operation, pending guard and
+        // store patch all run unchanged, so this also catches accidental stop/RPC dispatch.
+        function request(path: string, init?: RequestInit): Promise<Response>;
+        function request<T>(path: string, init: RequestInit | undefined, consume: (result: Response) => Promise<T>): Promise<T>;
+        async function request<T>(path: string, _init?: RequestInit, consume?: (result: Response) => Promise<T>): Promise<Response | T> {
+            const result = await response(path);
+            return consume ? consume(result) : result;
+        }
+        vi.spyOn(apiSocket, 'request').mockImplementation(request);
+        vi.spyOn(apiSocket, 'sessionRPC').mockRejectedValue(new Error('Archive must never stop a worker'));
+    });
+
+    afterEach(() => {
+        act(() => {
+            storage.setState(previous, true);
+            setStoredCoordinatorId(coordinator);
+        });
+        vi.restoreAllMocks();
+        vi.unstubAllEnvs();
+        projectManager.clear();
+    });
+
+    it('L4: merge is button-only; stopped sessions archive while an idle running session and its card stay', async () => {
+        const running = session('running', '/fixture/atr-6', { active: true, activeAt: Date.now() });
+        const stopped = session('stopped', '/fixture/atr-6');
+        seed([session('coord', '/fixture/atr-6'), running, stopped]);
+        merged('stopped');
+        const screen = await openIssue();
+        expect(response).not.toHaveBeenCalled();
+        const archive = screen.findByTestId('ip-issue-archive-ATR-6');
+        expect(archive).not.toBeNull();
+        await pressTestInstanceAsync(archive!);
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/stopped/archive']);
+        expect(apiSocket.sessionRPC).not.toHaveBeenCalled();
+        expect(storage.getState().sessions.running.archivedAt).toBeFalsy();
+        expect(storage.getState().sessions.stopped.archivedAt).toBe(archivedAt);
+        expect(storage.getState().sessions.coord.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+        // The merged evidence stays on the archived session. No new PR lookup is needed.
+        seed([{ ...running, seq: 2, updatedAt: Date.now(), active: false }]);
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        response.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, archivedAt })));
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+        expect(screen.findByTestId('ip-count-all')?.props.children).toBe(0);
+        expect(storage.getState().sessionListRenderables.stopped.archivedAt).toBe(archivedAt);
+    });
+
+    it('L4: partial failure names the failed worker, keeps Work and allows retry', async () => {
+        seed([session('good', '/fixture/atr-6'), session('failed', '/fixture/atr-6')]);
+        merged('good');
+        response.mockImplementation(async path => new Response(JSON.stringify(path.includes('/failed/')
+            ? { error: 'unavailable' } : { success: true, archivedAt }), { status: path.includes('/failed/') ? 503 : 200 }));
+        const screen = await openIssue();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(storage.getState().sessions.good.archivedAt).toBe(archivedAt);
+        expect(storage.getState().sessions.failed.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+        expect(screen.findByTestId('ip-issue-archive-error-ATR-6')).not.toBeNull();
+        expect(screen.getTextContent()).toContain('Title failed');
+        response.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, archivedAt })));
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-archive-ATR-6')!);
+        expect(screen.findByTestId('ip-issue-ATR-6')).toBeNull();
+    });
+
+    it('L4: busy state disables repeated presses and rechecks inactivity before the next archive', async () => {
+        const first = session('first', '/fixture/atr-6', { updatedAt: 20 });
+        const second = session('second', '/fixture/atr-6');
+        seed([first, second]);
+        merged('first');
+        const deferred = createDeferred<Response>();
+        response.mockReturnValueOnce(deferred.promise);
+        const screen = await openIssue();
+        const archive = screen.findByTestId('ip-issue-archive-ATR-6')!;
+        let pending: Promise<unknown>;
+        await act(async () => { pending = archive.props.onPress(); });
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')?.props.accessibilityState).toMatchObject({ busy: true, disabled: true });
+        await act(async () => { await archive.props.onPress(); });
+        expect(response).toHaveBeenCalledTimes(1);
+        seed([{ ...second, seq: 2, updatedAt: Date.now(), active: true, activeAt: Date.now() }]);
+        await act(async () => {
+            deferred.resolve(new Response(JSON.stringify({ success: true, archivedAt })));
+            await pending!;
+        });
+        expect(response.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions/first/archive']);
+        expect(storage.getState().sessions.second.archivedAt).toBeFalsy();
+        expect(screen.findByTestId('ip-issue-ATR-6')).not.toBeNull();
+    });
+
+    it.each(['working', 'request', 'unknown-pr'] as const)('N: hides Archive for %s and follows a new merged snapshot', async kind => {
+        const now = Date.now();
+        seed([session('stopped', '/fixture/atr-6'), session('other', '/fixture/atr-6', {
+            active: true, activeAt: now,
+            ...(kind === 'working' ? { thinking: true, thinkingAt: now } : {}),
+            ...(kind === 'request' ? { agentState: { requests: { req: { tool: 'Bash', arguments: {}, createdAt: now } } } } : {}),
+        })]);
+        if (kind !== 'unknown-pr') merged('stopped');
+        const screen = await openIssue();
+        expect(screen.findByTestId('ip-issue-archive-ATR-6')).toBeNull();
+        expect(response).not.toHaveBeenCalled();
+        if (kind === 'unknown-pr') {
+            merged('stopped');
+            expect(screen.findByTestId('ip-issue-archive-ATR-6')).not.toBeNull();
+        }
     });
 });
