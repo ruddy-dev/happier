@@ -10,7 +10,7 @@ import type { NormalizedMessage } from '@/sync/typesRaw';
 import * as waitingItems from './waitingItems';
 import * as sessionUtils from '@/utils/sessions/sessionUtils';
 import * as transcriptReader from '@/sync/domains/messages/readStoredSessionMessages';
-import { readDeskWaits, useDeskWaits, useDeskWaitsSummary, useDeskWaitsActivity, useWaitingCount } from './useDeskWaits';
+import { readDeskWaits, selectDeskNotificationWaits, useDeskWaits, useDeskWaitsSummary, useDeskWaitsActivity, useWaitingCount } from './useDeskWaits';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root;
@@ -109,6 +109,33 @@ it('reuses the badge summary identity when details change at the same count', ()
     expect(summaries.at(-1)).toBe(initial);
     expect(summaries).toHaveLength(1);
     expect(readDeskWaits().items[0]?.sessionTitle).toBe('Renamed worker');
+});
+
+it('R10/R24: lists view-only waits without counting or signalling them, including unloaded waits', () => {
+    const values: ReturnType<typeof useDeskWaitsActivity>[] = [];
+    const viewer = createSessionFixture({ id: 'viewer', active: true, accessLevel: 'view', canApprovePermissions: false,
+        agentState: { requests: { request: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: 1 } } } });
+    act(() => storage.getState().applySessions([
+        viewer,
+        createSessionFixture({ id: 'viewer-unloaded', active: true, accessLevel: 'view', canApprovePermissions: false,
+            pendingPermissionRequestCount: 1 }),
+        createSessionFixture({ id: 'owner-unloaded', active: true, pendingPermissionRequestCount: 1 }),
+    ]));
+    function Badge() {
+        const activity = useDeskWaitsActivity();
+        values.push(activity);
+        return <span>{activity.count}</span>;
+    }
+    act(() => root.render(<Badge />));
+    expect(container.textContent).toBe('1');
+    expect(readDeskWaits().items).toMatchObject([{ sessionId: 'viewer', disabledReason: 'readOnly' }]);
+    expect(readDeskWaits().unloaded.map(item => item.sessionId).sort()).toEqual(['owner-unloaded', 'viewer-unloaded']);
+    expect(values.at(-1)).toMatchObject({ requests: [], unloadedSessionIds: ['owner-unloaded'] });
+    expect(Object.values(selectDeskNotificationWaits(storage.getState()).waitSessionIds)).toEqual(['owner-unloaded']);
+    act(() => storage.getState().applySessions([{ ...viewer, accessLevel: 'edit', canApprovePermissions: true }]));
+    expect(container.textContent).toBe('2');
+    expect(values.at(-1)?.requests).toEqual([{ sessionId: 'viewer', requestId: 'request' }]);
+    expect(readDeskWaits().items[0]?.disabledReason).toBeNull();
 });
 
 it('scopes summaries to one session while sharing classification, readiness and stable summaries', () => {

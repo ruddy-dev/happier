@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { lightTheme } from '@/theme';
+import { t } from '@/text';
 import type { WaitingItem } from '../model/waitingItems';
 import { getApprovalsOpen, setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
 import { DeskScreen } from './DeskScreen';
@@ -173,10 +174,11 @@ it('Medium 2: explicit close clears dirty state before the drawer is opened agai
 it('shows desk chrome and phone panes at the agreed boundary', async () => {
     await render(1440);
     const bar = element('ip-top-bar');
-    expect([...bar.children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-sessions', 'ip-top-usage', 'ip-top-waiting', 'ip-top-settings']);
+    expect([...bar.children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-brand', 'ip-top-sessions', 'ip-top-usage', 'ip-top-waiting', 'ip-top-settings']);
+    expect(element('ip-top-brand').textContent).toContain('Ignore Previous');
     expect(container.querySelectorAll('[data-testid="ip-approvals-open"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
-    expect(element('ip-top-usage').textContent).toBe('Usage');
+    expect(element('ip-top-usage-inline').textContent).toBe('Not available');
     expect(element('ip-approvals-count').textContent).toBe('0');
     await render(390);
     expect(element('ip-top-sessions')).toBeTruthy();
@@ -249,19 +251,66 @@ it('closes the sheet and navigates when a session is selected', async () => {
 it.each([390, 820])('keeps phone top bar controls and accessible tabs at %i', async width => {
     await render(width);
     expect([...element('ip-top-bar').children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-brand', 'ip-top-sessions', 'ip-top-usage', 'ip-top-settings']);
-    expect(element('ip-top-brand').textContent).toContain('Sleeper Agents');
+    expect(element('ip-top-brand').textContent).toContain('Ignore Previous');
     expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
     expect(element('ip-tab-work').getAttribute('role')).toBe('tab');
     expect(element('ip-tab-waiting').getAttribute('role')).toBe('tab');
     expect(element('ip-tab-waiting').closest('[role="tablist"]')).not.toBeNull();
     expect(element('ip-tab-shog').getAttribute('aria-selected')).toBe('true');
 });
-it('M12: gives Usage the same visible and accessible text without a percentage', async () => {
+it('R41: gives unavailable Usage an accessible status without a percentage', async () => {
     await render(1440);
     const usage = element('ip-top-usage');
-    expect(usage.getAttribute('aria-label')).toBe(usage.textContent);
-    expect(usage.textContent).toBe('Usage');
+    expect(usage.getAttribute('aria-label')).toContain('Usage');
+    expect(usage.getAttribute('aria-label')).toContain('Not available');
+    expect(element('ip-top-usage-inline').textContent).toBe('Not available');
     expect(element('ip-top-bar').textContent).not.toContain('%');
+});
+it('R41: changing the selected session never attributes its context reading to account usage', async () => {
+    const reported = createSessionFixture({ id: 'reported-worker', active: true, latestUsage: {
+        inputTokens: 1200, outputTokens: 300, cacheCreation: 0, cacheRead: 0,
+        contextSize: 1500, contextSizeIsReported: true, contextWindowTokens: 200_000, timestamp: 1,
+    } });
+    const unreported = createSessionFixture({ id: 'unreported-worker', active: true });
+    storage.getState().applySessions([reported, unreported]);
+    setStoredCoordinatorId(reported.id);
+    await render(1440);
+    expect(element('ip-top-usage-inline').textContent).toBe('Not available');
+    await click('ip-top-usage');
+    const panel = document.querySelector<HTMLElement>('[data-testid="ip-usage-popover"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent).not.toMatch(/[\d%]/);
+    await act(async () => setStoredCoordinatorId(unreported.id));
+    expect(element('ip-top-usage-inline').textContent).toBe('Not available');
+    expect(document.querySelector('[data-testid="ip-usage-popover"]')).toBe(panel);
+    expect(panel?.textContent).not.toMatch(/[\d%]/);
+    expect(storage.getState().sessions[reported.id]?.latestUsage?.contextSize).toBe(1500);
+    expect(storage.getState().sessions[unreported.id]?.latestUsage).toBeFalsy();
+});
+it.each([320, 390, 821, 1100, 1440])('R41: Sessions, Waiting and Settings remain operable at %i', async width => {
+    await render(width);
+    await click('ip-top-sessions');
+    expect(element('ip-sessions-sheet')).toBeTruthy();
+    await escape();
+    const waitingId = width <= 820 ? 'ip-tab-waiting' : 'ip-approvals-open';
+    expect(element(waitingId).getAttribute('aria-label')).toBe(t('ignorePrevious.openApprovals', { count: 0 }));
+    await click(waitingId);
+    expect(drawer()).not.toBeNull();
+    await escape();
+    await click('ip-settings-open');
+    expect(routerHandle.navigate).toHaveBeenCalledWith('/desk/settings');
+});
+it('R10/R24: top-bar Waiting excludes view-only requests and counts unloaded details', async () => {
+    seedCards(['first']);
+    storage.getState().applySessions([
+        createSessionFixture({ id: 'viewer', active: true, accessLevel: 'view', canApprovePermissions: false,
+            agentState: { requests: { hidden: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: 1 } } } }),
+        createSessionFixture({ id: 'unloaded', active: true, pendingPermissionRequestCount: 1 }),
+    ]);
+    await render(1440);
+    expect(element('ip-approvals-count').textContent).toBe('2');
+    await click('ip-approvals-open');
+    expect(drawer()).not.toBeNull();
 });
 it('uses a muted zero while preserving the waiting label', async () => {
     await render(1440);
