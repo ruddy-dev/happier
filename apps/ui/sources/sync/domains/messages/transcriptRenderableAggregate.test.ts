@@ -270,6 +270,28 @@ describe('applyMessageChangeToTranscriptRenderableAggregate', () => {
             next: withoutPermission,
         })).toBe(false);
     });
+
+    it('requires a rebuild when a nested hard outcome disappears behind an unchanged interruption', () => {
+        const hard = toolCall({ id: 'old', createdAt: 200, permissionId: 'request', permissionStatus: 'approved' });
+        const interrupted = toolCall({ id: 'latest', createdAt: 500, permissionId: 'request',
+            permissionStatus: 'canceled', children: [hard] });
+        if (interrupted.kind !== 'tool-call') throw new Error('Expected tool call fixture');
+        interrupted.tool.permission = { ...interrupted.tool.permission!, reason: 'Request interrupted' };
+        const session = createSessionFixture({ active: true, agentState: { requests: {
+            request: { tool: 'bash', arguments: { command: 'ls' }, createdAt: 100 },
+        }, completedRequests: null } });
+        const aggregate = buildTranscriptRenderableAggregate({ messages: [interrupted], completedRequests: null });
+        expect(listPendingSessionRequests(session, [], { states: aggregate.requestStates })).toEqual([]);
+
+        const withoutHard = { ...interrupted, children: [] };
+        expect(applyMessageChangeToTranscriptRenderableAggregate({
+            aggregate, previous: interrupted, next: withoutHard,
+        })).toBe(false);
+        const rebuilt = buildTranscriptRenderableAggregate({ messages: [withoutHard], completedRequests: null });
+        expect(listPendingSessionRequests(session, [], { states: rebuilt.requestStates })).toEqual([
+            { id: 'request', tool: 'bash', kind: 'permission', arguments: { command: 'ls' }, createdAt: 100 },
+        ]);
+    });
 });
 
 describe('canReuseTranscriptRenderableAggregateRequestStates', () => {

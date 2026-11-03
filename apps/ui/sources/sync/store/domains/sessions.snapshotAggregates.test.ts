@@ -5,6 +5,7 @@ import type { Message } from '@/sync/domains/messages/messageTypes';
 import { buildTranscriptRenderableAggregate } from '@/sync/domains/messages/transcriptRenderableAggregate';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import type { NormalizedMessage } from '@/sync/typesRaw';
+import { listPendingPermissionRequests } from '@/utils/sessions/sessionUtils';
 import { readDeskWaits } from '@/ignorePrevious/model/useDeskWaits';
 import { buildSessionListRowModel } from '@/components/sessions/shell/row/buildSessionListRowModel';
 import { buildSessionListRenderableFromSession, type SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
@@ -203,6 +204,98 @@ describe('session snapshots: transcript aggregates', () => {
         expect(listPendingSessionRequests(session)).toEqual([]);
         expect(observePendingSessionRequest(session, 'r', entry.renderableAggregate?.requestStates.get('r')).status).toBe('terminal');
     });
+
+    it.each([
+        ['stale A behind completed B', 100, 400, 'echo A', null],
+        ['uncovered A after terminal', 250, 400, 'echo A', 250],
+        ['unknown A behind terminal', undefined, 400, 'echo A', null],
+        ['B newer than its completion', 100, 250, 'echo A', 300],
+        ['B exactly at completion', 100, 300, 'echo A', null],
+        ['no terminal leaves agent authority intact', 100, null, 'echo A', 100],
+        ['new B after completed B', 500, 400, 'echo B', 500],
+        ['new same-ID A reopen', 500, 400, 'echo A', 500],
+    ] as const)('reconciles nested same-ID requests across ordinary, full and incremental readers: %s',
+        (scenario, agentCreatedAt, completedAt, agentCommand, expectedAt) => {
+            storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true,
+                agentState: { requests: { r: { tool: 'Bash', arguments: { command: 'echo A' }, createdAt: 200 } } } })]);
+            const parent = pendingMessage('Task', 'task', 250);
+            if (parent.role !== 'agent' || parent.content[0].type !== 'tool-call') throw new Error('Expected tool call');
+            parent.content[0].input = { prompt: 'Nested work' };
+            storage.getState().applyMessages(sessionId, [parent]);
+            const child = pendingMessage('Bash', 'r', 300);
+            if (child.role !== 'agent' || child.content[0].type !== 'tool-call') throw new Error('Expected tool call');
+            child.content[0].input = { command: 'echo B' };
+            storage.getState().applyMessages(sessionId, [{ ...child, isSidechain: true, sidechainId: 'task' }]);
+            const current = storage.getState().sessions[sessionId];
+            storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 1,
+                agentState: { requests: { r: { tool: 'Bash', arguments: { command: agentCommand }, createdAt: agentCreatedAt } },
+                    completedRequests: completedAt === null ? null : { r: { tool: 'Bash', arguments: { command: 'echo B' },
+                        createdAt: Math.min(300, completedAt), completedAt, status: 'approved' } } } }]);
+            const entry = storage.getState().sessionMessages[sessionId];
+            const session = storage.getState().sessions[sessionId];
+            const roots = entry.messageIdsOldestFirst.map(id => entry.messagesById[id]);
+            expect(roots).toHaveLength(2);
+            if (scenario === 'stale A behind completed B') {
+                expect(roots[0]).toMatchObject({ kind: 'tool-call', createdAt: 200,
+                    tool: { input: { command: 'echo A' }, permission: { id: 'r', status: 'approved' } } });
+                expect(roots[1]).toMatchObject({ kind: 'tool-call', createdAt: 250,
+                    children: [{ createdAt: 300, tool: { input: { command: 'echo B' }, permission: { id: 'r', status: 'pending' } } }] });
+            }
+            const expected = expectedAt === null ? [] : [{ id: 'r', tool: 'Bash', kind: 'permission',
+                arguments: { command: expectedAt === 300 ? 'echo B' : agentCommand }, createdAt: expectedAt }];
+            // The real ordinary helper is used by Inbox and voice, not only Desk.
+            expect(listPendingPermissionRequests(session, roots)).toEqual(expected);
+            expect(listPendingSessionRequests(session)).toEqual(expected);
+            const incremental = entry.renderableAggregate!.requestStates;
+            for (const messages of [roots, [...roots].reverse()]) {
+                const full = buildTranscriptRenderableAggregate({ messages,
+                    completedRequests: session.agentState?.completedRequests ?? null });
+                expect(full.requestStates.get('r')).toEqual(incremental.get('r'));
+                expect(listPendingPermissionRequests(session, messages)).toEqual(expected);
+                for (const states of [incremental, full.requestStates]) {
+                    expect(listPendingSessionRequests(session, [], { states })).toEqual(expected);
+                    expect(observePendingSessionRequest(session, 'r', states.get('r'))).toEqual(
+                        expected.length ? { status: 'pending', request: expected[0] } : { status: 'terminal' });
+                }
+            }
+            const addDisplayMetadata = (message: Message): Message => message.kind === 'tool-call'
+                ? { ...message, tool: { ...message.tool, description: 'Transcript display detail',
+                    ...(message.tool.permission ? { permission: { ...message.tool.permission,
+                        suggestions: [{ type: 'toolAlwaysAllow', tool: 'Bash' }] } } : {}) },
+                    children: message.children.map(addDisplayMetadata) }
+                : message;
+            const metadataRoots = roots.map(addDisplayMetadata);
+            for (const messages of [metadataRoots, [...metadataRoots].reverse()]) {
+                const full = buildTranscriptRenderableAggregate({ messages,
+                    completedRequests: session.agentState?.completedRequests ?? null });
+                for (const requests of [listPendingPermissionRequests(session, messages),
+                    listPendingSessionRequests(session, [], { states: full.requestStates })]) {
+                    expect(requests).toHaveLength(expected.length);
+                    expect(requests).toMatchObject(expected);
+                }
+                const observed = observePendingSessionRequest(session, 'r', full.requestStates.get('r'));
+                expect(observed).toMatchObject(expected.length
+                    ? { status: 'pending', request: expected[0] } : { status: 'terminal' });
+            }
+            storage.getState().applyReady();
+            expect(readDeskWaits().items.filter(item => item.sessionId === sessionId).map(item => item.requestId))
+                .toEqual(expected.map(request => request.id));
+            if (expectedAt === 500 && agentCommand === 'echo B') {
+                // Answer the same-payload reopen while requests still lag behind completion.
+                storage.getState().applySessions([{ ...session, agentStateVersion: session.agentStateVersion + 1,
+                    agentState: { requests: session.agentState!.requests,
+                        completedRequests: { r: { tool: 'Bash', arguments: { command: agentCommand },
+                            createdAt: 500, completedAt: 600, status: 'approved' } } } }]);
+                const answered = storage.getState().sessions[sessionId];
+                const answeredEntry = storage.getState().sessionMessages[sessionId];
+                const answeredRoots = answeredEntry.messageIdsOldestFirst.map(id => answeredEntry.messagesById[id]);
+                expect(listPendingPermissionRequests(answered, answeredRoots)).toEqual([]);
+                expect(listPendingSessionRequests(answered, [], { states: answeredEntry.renderableAggregate!.requestStates })).toEqual([]);
+                expect(observePendingSessionRequest(answered, 'r', answeredEntry.renderableAggregate!.requestStates.get('r')).status)
+                    .toBe('terminal');
+                expect(readDeskWaits().items.filter(item => item.sessionId === sessionId)).toEqual([]);
+            }
+        });
 
     it.each(['missing aggregate', 'unchanged completions', 'completion identity', 'completion contents',
         'removed completions', 'transcript identity'] as const)(
