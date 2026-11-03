@@ -18,7 +18,7 @@ vi.mock('react-native', async () => {
     return createReactNativeWebMock(
         {
                     Platform: {
-                        OS: shared.platformOS,
+                        get OS() { return shared.platformOS; },
                     },
                     ScrollView: (props: Record<string, unknown> & { children?: React.ReactNode }) =>
                         React.createElement('ScrollView', props, props.children),
@@ -286,4 +286,27 @@ describe('FloatingOverlay', () => {
         });
         expect(clipStyleEntries[1]).toEqual({ maxHeight: 200 });
     });
+});
+
+
+it.each([
+    ['deskPageTokyo', true, 'web', 2],
+    ['deskPageDark', true, 'web', 12],
+    ['deskPageTokyo', false, 'web', 12],
+    ['deskPageTokyo', true, 'ios', 12],
+] as const)('scopes overlay geometry for %s voice=%s platform=%s', async (name, voice, platform, radius) => {
+    shared.platformOS = platform;
+    const { FloatingOverlay } = await import('./FloatingOverlay');
+    const { DeskVoicePageContext, DeskPageThemeContext } = await import('@/ignorePrevious/appearance/deskPageThemeContext');
+    const screen = await renderScreen(
+        React.createElement(DeskPageThemeContext.Provider, { value: name },
+            React.createElement(DeskVoicePageContext.Provider, { value: voice },
+                React.createElement(FloatingOverlay, { maxHeight: 200, containerStyle: { borderTopLeftRadius: 0, borderTopRightRadius: 0 }, children: React.createElement(Child) }))),
+    );
+    const styles = findAnimatedViewStyles(screen).map((node) => node.style);
+    const frame = styles.find((style) => style.maxHeight === 200 && style.overflow !== 'hidden' && style.borderTopLeftRadius === 0)!;
+    const clip = styles.find((style) => style.overflow === 'hidden')!;
+    expect(frame.borderRadius).toBe(radius);
+    expect(frame.borderTopRightRadius).toBe(0);
+    expect(clip.borderRadius).toBe(radius);
 });

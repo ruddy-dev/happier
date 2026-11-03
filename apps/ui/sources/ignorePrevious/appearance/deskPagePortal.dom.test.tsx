@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Pressable } from 'react-native';
 import { expect, it, vi } from 'vitest';
 
 vi.mock('react-native', async () => vi.importActual('react-native-web'));
@@ -102,6 +103,54 @@ it('keeps the local font installed for the lifetime of a page or dialog scope', 
         expect(document.getElementById('ip-desk-font')).not.toBeNull();
         await act(async () => root.render(<Text>Ordinary page</Text>));
         expect(document.getElementById('ip-desk-font')).toBeNull();
+    } finally {
+        await act(async () => root.unmount());
+        container.remove();
+    }
+});
+
+
+it('carries Voice identity into the body portal without leaking it to siblings', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+        await act(async () => root.render(<DeskPageScope name="deskPageTokyo" page="voice"><Portal /></DeskPageScope>));
+        const menu = document.querySelector('[data-testid="menu"]')!;
+        expect(container.contains(menu)).toBe(false);
+        expect(menu.closest('[data-ip-voice]')).not.toBeNull();
+        expect(menu.closest('[data-ip-terminal]')).not.toBeNull();
+        const input = menu.querySelector('input')!;
+        const rules = Array.from(document.querySelector<HTMLStyleElement>('#ip-desk-font')!.sheet!.cssRules)
+            .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule);
+        expect(rules.some(rule => rule.style.getPropertyValue('border-radius') === '2px' && input.matches(rule.selectorText))).toBe(true);
+        expect(rules.some(rule => rule.style.getPropertyValue('outline').includes('3px') && input.matches(rule.selectorText.replace(':focus-visible', ':is(*)')))).toBe(true);
+        expect(container.closest('[data-ip-voice]')).toBeNull();
+    } finally {
+        await act(async () => root.unmount());
+        container.remove();
+    }
+});
+
+
+it('targets the actual web Item host hook while preserving focus on other controls', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+        await act(async () => root.render(<DeskPageScope name="deskPageTokyo" page="voice">
+            <Pressable accessibilityRole="button" {...({ dataSet: { ipItemFocus: '' } })}><Text>Row</Text></Pressable>
+            <button>Other control</button>
+        </DeskPageScope>));
+        const row = container.querySelector('[data-ip-item-focus]')!;
+        const other = container.querySelectorAll('button')[1]!;
+        const rules = Array.from(document.querySelector<HTMLStyleElement>('#ip-desk-font')!.sheet!.cssRules)
+            .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule);
+        const reset = rules.find(rule => rule.style.getPropertyValue('outline-style') === 'none')!;
+        const focus = rules.find(rule => rule.style.getPropertyValue('outline').includes('3px'))!;
+        expect(row.matches(reset.selectorText.replace(':focus-visible', ':is(*)'))).toBe(true);
+        expect(other.matches(reset.selectorText.replace(':focus-visible', ':is(*)'))).toBe(false);
+        expect(other.matches(focus.selectorText.replace(':focus-visible', ':is(*)'))).toBe(true);
     } finally {
         await act(async () => root.unmount());
         container.remove();
