@@ -173,16 +173,55 @@ it.each(['terminal', 'mask'] as const)('R41: %s renders scoped known values and 
     expect(document.querySelector('[data-testid="ip-usage-popover"]')).toBeNull();
     expect(document.activeElement).toBe(button);
 });
-it('R41: phone announces the supplied known status and drops it when the input disappears', async () => {
+it.each(['terminal', 'mask'] as const)('R41: %s phone paints qualified supplied values and withdraws them with the open panel', async style => {
+    deskPrefs.set('chatStyle', style);
     const scope = { sourceId: 'synthetic-authority', accountId: 'synthetic-max-account' };
-    await renderContent(<DeskUsageButton phone usage={{ scope, snapshot: { scope, maxWeek: 0, lastFiveHours: null, fableShare: null } }} />, true);
-    expect(element('ip-top-usage').getAttribute('aria-label')).toBe('Usage: Max week 0%');
-    expect(document.querySelector('[data-testid="ip-top-usage-inline"]')).toBeNull();
+    const snapshot = { scope, maxWeek: 38, lastFiveHours: 63, fableShare: 12 };
+    const renderInput = (usage?: DeskUsageInput) => renderContent(<DeskUsageButton phone usage={usage} />, true);
+    await renderInput({ scope, snapshot });
+    const button = element('ip-top-usage');
+    expect(button.textContent).toBe('Max 38%');
+    expect(element('ip-top-usage-inline').textContent).toBe('Max 38%');
+    expect(button.getAttribute('aria-label')).toBe('Usage: Max week 38%');
     await click('ip-top-usage');
-    expect(element('ip-usage-row-maxWeek').textContent).toBe('Max week0%');
-    await renderContent(<DeskUsageButton phone />, true);
-    expect(element('ip-top-usage').getAttribute('aria-label')).toBe('Usage: Not available');
-    expect(element('ip-usage-row-maxWeek').textContent).toBe('Max weekNot available');
+    const panel = element('ip-usage-popover');
+    expect(element('ip-usage-row-maxWeek').textContent).toBe('Max week38%');
+    // A real zero remains known. Other windows keep their own compact labels,
+    // and Fable retains a visible estimate qualifier as well as its full name.
+    for (const [values, inline, status, panelText] of [
+        [{ maxWeek: 0, lastFiveHours: null, fableShare: null }, 'Max 0%', 'Max week 0%', 'Max week0%'],
+        [{ maxWeek: null, lastFiveHours: 63, fableShare: null }, '5h 63%', 'Last five hours 63%', 'Last five hours63%'],
+        [{ maxWeek: null, lastFiveHours: null, fableShare: 12 }, 'Fable\nest. 12%', 'Fable share (estimate) 12%', 'Fable share (estimate)12%'],
+    ] as const) {
+        await renderInput({ scope, snapshot: { scope, ...values } });
+        expect(button.textContent).toBe(inline);
+        expect(element('ip-top-usage-inline').textContent).toBe(inline);
+        expect(button.getAttribute('aria-label')).toBe(`Usage: ${status}`);
+        expect(panel.textContent).toContain(panelText);
+        expect(button.getAttribute('aria-expanded')).toBe('true');
+    }
+    for (const usage of [
+        { scope, snapshot: { ...snapshot, maxWeek: null, lastFiveHours: null, fableShare: null } },
+        { scope: { ...scope, sourceId: 'synthetic-other-source' }, snapshot },
+        { scope: { ...scope, accountId: 'synthetic-other-account' }, snapshot },
+        { scope: null, snapshot },
+        { scope, snapshot: null },
+        undefined,
+    ]) {
+        // Restore a known value before every withdrawal to catch stale text.
+        await renderInput({ scope, snapshot });
+        expect(button.textContent).toBe('Max 38%');
+        await renderInput(usage);
+        expect(element('ip-top-usage')).toBe(button);
+        expect(element('ip-usage-popover')).toBe(panel);
+        expect(button.textContent).toBe('Usage');
+        expect(document.querySelector('[data-testid="ip-top-usage-inline"]')).toBeNull();
+        expect(button.getAttribute('aria-label')).toBe('Usage: Not available');
+        expect([...panel.querySelectorAll('[data-testid^="ip-usage-row-"]')].every(row => row.textContent?.endsWith('Not available'))).toBe(true);
+        expect(panel.textContent).not.toMatch(/[\d%]/);
+    }
+    await click('ip-usage-close');
+    expect(document.activeElement).toBe(button);
 });
 it.each([
     ['terminal', false, 'close'], ['terminal', true, 'escape'],

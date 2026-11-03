@@ -106,7 +106,8 @@ async function typeAnswer(value: string) {
     });
 }
 
-it('R10/R24: mixed desktop and phone badges count editable waits without granting approval or hiding view-only rows', async () => {
+it.each(['terminal', 'mask'] as const)('R10/R24: %s desktop and phone keep Waiting on you and count editable waits without granting approval or hiding view-only rows', async style => {
+    deskPrefs.set('chatStyle', style);
     const loaded = (id: string, accessLevel?: 'edit' | 'view') => createSessionFixture({
         id, active: true, accessLevel, canApprovePermissions: false,
         agentState: { requests: { [id]: { tool: 'Bash', arguments: { command: `${id}-command` }, createdAt: 1 } } },
@@ -120,8 +121,14 @@ it('R10/R24: mixed desktop and phone badges count editable waits without grantin
     });
     await act(async () => root.render(<><ApprovalsButton open={false} onPress={() => {}} /><ApprovalsButton phone open={false} onPress={() => {}} /></>));
     expect([...container.querySelectorAll('[data-testid="ip-approvals-count"]')].map(node => node.textContent)).toEqual(['3 requests', '3 requests']);
+    for (const id of ['ip-approvals-open', 'ip-tab-waiting']) {
+        expect(element(id).textContent).toBe('Waiting on you3 requests');
+        expect(element(id).getAttribute('aria-label')).toBe('Show what waits on you, 3 requests');
+    }
     await render(1440);
     await click('ip-approvals-open');
+    expect(element('ip-approvals-open').textContent).toBe('Waiting on you3 requests');
+    expect(element('ip-approvals-open').getAttribute('aria-label')).toBe('Hide what waits on you, 3 requests');
     expect(element('ip-approvals-count').textContent).toBe('3 requests');
     const listing = element('ip-waiting');
     expect(listing.textContent).toContain('editor-command');
