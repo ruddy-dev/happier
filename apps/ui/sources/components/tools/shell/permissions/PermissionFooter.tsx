@@ -14,12 +14,16 @@ import { Text } from '@/components/ui/text/Text';
 import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
 import { createPermissionActionDispatchGuard } from './permissionActionDispatchGuard';
 import { useHistoricalTranscriptAgentId } from '@/components/sessions/transcript/attribution/SessionTranscriptAgentAttributionContext';
-
+import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { usePendingRequestActionability } from './usePendingRequestActionability';
+import { resolveAgentRequestKind } from '@/utils/sessions/permissions/permissionPromptPolicy';
 
 interface PermissionFooterProps {
     permission: {
         id: string;
         status: "pending" | "approved" | "denied" | "canceled";
+        kind?: string;
+        requiresInspection?: true;
         reason?: string;
         mode?: string;
         allowedTools?: string[];
@@ -30,6 +34,8 @@ interface PermissionFooterProps {
     sessionId: string;
     toolName: string;
     toolInput?: any;
+    permissionRequest?: SessionPendingRequest;
+    requestCreatedAt?: number | null;
     metadata?: any;
     canApprovePermissions?: boolean;
     disabledReason?: 'public' | 'readOnly' | 'notGranted' | 'inactive';
@@ -158,6 +164,8 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({
     sessionId,
     toolName,
     toolInput,
+    permissionRequest,
+    requestCreatedAt = null,
     metadata,
     canApprovePermissions = true,
     disabledReason,
@@ -174,6 +182,12 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({
     const [loadingForSessionPrefix, setLoadingForSessionPrefix] = useState(false);
     const [loadingForSessionCommandName, setLoadingForSessionCommandName] = useState(false);
     const [loadingExecPolicy, setLoadingExecPolicy] = useState(false);
+    const { actionable, isActionable } = usePendingRequestActionability(sessionId, permissionRequest ?? {
+        id: permission.id, tool: toolName,
+        kind: resolveAgentRequestKind({ toolName, requestKind: permission.kind }),
+        arguments: toolInput, createdAt: requestCreatedAt,
+        ...(permission.requiresInspection ? { requiresInspection: true } : {}),
+    });
     const requestKey = `${sessionId}\u0000${permission.id}`;
     const actionDispatchGuardRef = React.useRef<ReturnType<typeof createPermissionActionDispatchGuard> | null>(null);
     if (actionDispatchGuardRef.current === null) {
@@ -187,9 +201,10 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({
         actionDispatchGuard.retainRequest(requestKey);
         return () => actionDispatchGuard.releaseRequest(requestKey);
     }, [actionDispatchGuard, permission.status, requestKey]);
-    const dispatchPermissionAction = (action: () => Promise<void>) => (
-        actionDispatchGuard.dispatch(requestKey, action)
-    );
+    const dispatchPermissionAction = async (action: () => Promise<void>) => {
+        if (!canApprovePermissions || permission.status !== 'pending' || !isActionable()) return false;
+        return actionDispatchGuard.dispatch(requestKey, action);
+    };
     
     // A terminal outcome was decided by whoever was running at the time, so a
     // Session that later switched Agent must not re-label its history. A
@@ -213,6 +228,8 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({
     })();
     const canApproveExecPolicy = permissionFooterBehavior?.supportsExecPolicyAmendment === true && execPolicyCommand.length > 0;
     const shouldHandleStopWithoutSessionAbort = permissionFooterBehavior?.stopHandling === 'denyOnly';
+
+    if (permission.status === 'pending' && !actionable) return null;
 
     if (disabledReason === 'inactive') {
         return null;

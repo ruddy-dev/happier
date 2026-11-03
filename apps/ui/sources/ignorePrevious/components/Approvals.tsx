@@ -12,6 +12,11 @@ import { useDeskPopup } from '../popups/useDeskPopup';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { DeskText as Text } from '../typography/DeskText';
 import { WaitingPanel, type WaitingHistory } from './WaitingPanel';
+import { MaskFace } from './MaskFace';
+import { createWaitingHistory } from '../model/waitingHistory';
+import { observeWaitingActions } from '../model/observeWaitingActions';
+import { useWaitingAppearance } from './waitingAppearance';
+import { DESK_FONT_STACK } from '../fonts/deskFont';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null>; phone?: boolean }) {
@@ -41,11 +46,11 @@ export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { o
                 paddingVertical: 5,
                 borderRadius: 999,
                 borderWidth: 1,
-                borderColor: waiting ? theme.colors.state.warning.border : theme.colors.border.default,
-                backgroundColor: waiting ? theme.colors.state.warning.background : 'transparent',
+                borderColor: theme.colors.border.default,
+                backgroundColor: waiting ? theme.colors.surface.inset : 'transparent',
             }}
         >
-            <Text style={{ color: theme.colors.text.primary, fontSize: phone ? 12.5 : 13, letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.title')}</Text>
+            <Text style={{ color: theme.colors.text.primary, fontSize: phone ? 12.5 : 13, letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.waiting.heading')}</Text>
             <Text testID="ip-approvals-count" style={{ color: waiting ? theme.colors.text.primary : theme.colors.text.secondary, fontSize: 13, ...Typography.default('semiBold') }}>
                 {ready ? count : '–'}
             </Text>
@@ -69,9 +74,16 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
     children?: React.ReactNode;
 }) {
     const { theme } = useUnistyles();
+    const { terminal, paint, ink, mute, rule } = useWaitingAppearance();
     const placement = drawerPlacement(width);
+    const [ownHistory] = React.useState(createWaitingHistory);
+    const currentHistory = history ?? ownHistory;
+    React.useLayoutEffect(() => observeWaitingActions(currentHistory), [currentHistory]);
     const contentRef = React.useRef<View>(null);
     const closeRef = React.useRef<View>(null);
+    const focusClose = React.useCallback(() => {
+        if (Platform.OS === 'web' && typeof HTMLElement !== 'undefined' && closeRef.current instanceof HTMLElement) closeRef.current.focus();
+    }, []);
     const reducedMotion = useReducedMotionPreference();
     const [entrance] = React.useState(() => new Animated.Value(1));
     useDeskPopup({ open, onClose, openerRef, contentRef, hasHalfAnsweredCard,
@@ -103,17 +115,22 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
             },
             { opacity: entrance, transform: [{ translateX: entrance.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }] },
         ]}>
-            <View ref={contentRef} testID="ip-approvals-drawer" accessibilityLabel={t('ignorePrevious.title')}
-                style={{ flex: 1, minHeight: 0, backgroundColor: theme.colors.surface.base,
-                    borderLeftWidth: placement === 'fullscreen' ? 0 : 1, borderLeftColor: theme.colors.border.default }}>
+            <View ref={contentRef} testID="ip-approvals-drawer" accessibilityLabel={t('ignorePrevious.waiting.heading')}
+                style={{ flex: 1, minHeight: 0, backgroundColor: terminal ? paint.panel : theme.colors.surface.base,
+                    borderLeftWidth: placement === 'fullscreen' ? 0 : 1, borderLeftColor: rule }}>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: terminal ? 7 : 12, gap: 8,
+                    ...(terminal ? { borderBottomWidth: 1, borderBottomColor: rule, marginBottom: 8 } : {}) }}>
+                    <MaskFace testID="ip-waiting-mask" size={22} bulb="rest" />
                     <Text
+                        testID="ip-waiting-heading"
                         accessibilityRole="header"
-                        style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}
+                        style={{ color: terminal ? mute : ink, fontSize: terminal ? 12 : 14, flexShrink: 1,
+                            ...(terminal ? { fontFamily: DESK_FONT_STACK, fontWeight: '700', letterSpacing: 0.5, textTransform: 'lowercase' } : Typography.default('semiBold')) }}
                     >
-                        {t('ignorePrevious.title')}
+                        {t('ignorePrevious.waiting.heading')}
                     </Text>
+                    <WaitingHeadingCount />
                     <Pressable
                         ref={closeRef}
                         testID="ip-approvals-close"
@@ -121,16 +138,27 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
                         accessibilityLabel={t('common.close')}
                         onPress={onClose}
                         hitSlop={8}
-                        style={{ marginLeft: 'auto', padding: 6, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 8 }}
+                        style={{ padding: 6, minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: terminal ? 2 : 8,
+                            ...(terminal ? { borderWidth: 1, borderColor: rule, paddingHorizontal: 10 } : {}) }}
                     >
-                        <Icon name="x" size={18} color={theme.colors.text.secondary} />
+                        {terminal ? <Text style={{ color: mute, fontSize: 12.5 }}>{`[ ${t('common.close')} ]`}</Text>
+                            : <Icon name="x" size={18} color={theme.colors.text.secondary} />}
                     </Pressable>
                 </View>
                 <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-                    <WaitingPanel history={history} onDirtyChange={onDirtyChange} onOpenSession={placement === 'fullscreen' ? onClose : undefined} />
+                    <WaitingPanel history={currentHistory} onDirtyChange={onDirtyChange} onFocusFallback={focusClose} onOpenSession={placement === 'fullscreen' ? onClose : undefined} />
                     {children}
                 </ScrollView>
             </View>
         </Animated.View>
     );
+}
+
+/** Reuses the chrome summary, including unloaded waits and excluding view-only requests. */
+function WaitingHeadingCount() {
+    const { count, ready } = useDeskWaitsSummary();
+    const { terminal, mute } = useWaitingAppearance();
+    return <Text testID="ip-waiting-count" style={{ marginLeft: 'auto', color: mute,
+        ...(terminal ? { fontWeight: '700' } : {}),
+        fontSize: 13, fontVariant: ['tabular-nums'] }}>{ready ? count : '–'}</Text>;
 }

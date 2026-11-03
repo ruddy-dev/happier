@@ -57,7 +57,7 @@ export function ShogView({ onClose, contentRef, panelId, height = 360 }: {
                     anchor={PANEL_ANCHOR} scale={PANEL_SCALE} playback={!calm && playback === 'playing' ? 'playing' : 'paused'} />
                 {maskSize > 0 ? <View pointerEvents="none" accessible={false}
                     style={{ position: 'absolute', left: (width - maskSize) / 2, top: (stageHeight - maskSize * 1.08) / 2 }}>
-                    <MaskFace size={maskSize} bulb={redEyes > 0 ? 'turn' : 'rest'} sleepy={false} />
+                    <MaskFace size={maskSize} bulb={redEyes > 0 ? 'turn' : 'rest'} />
                 </View> : null}
             </View>
             <View style={{ padding: 12, gap: 10, borderTopWidth: 1, borderTopColor: paint.rule }}>

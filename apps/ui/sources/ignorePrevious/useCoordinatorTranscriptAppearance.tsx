@@ -11,7 +11,7 @@ import { terminalPalettes } from './palette';
 
 const maskAppearance: TranscriptAppearance = {
     fontFamily: DESK_FONT_STACK,
-    agentLeading: <MaskFace size={28} bulb="rest" sleepy={false} testID="ip-coordinator-message-mask" />,
+    agentLeading: <MaskFace size={28} bulb="rest" testID="ip-coordinator-message-mask" />,
 };
 
 export function CoordinatorTranscriptAppearanceProvider({ children }: React.PropsWithChildren) {

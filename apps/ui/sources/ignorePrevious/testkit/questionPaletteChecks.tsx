@@ -46,7 +46,7 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         deskPrefs.set('chatStyle', 'terminal');
         deskPrefs.set('terminalPalette', palette);
         storage.setState({ sessions: { ...originalSessions, 'palette-session': createSessionFixture({ id: 'palette-session', agentState: {
-            requests: { 'palette-question': { tool: 'AskUserQuestion', kind: 'user_action', arguments: {}, createdAt: 1 } },
+            requests: { 'palette-question': { tool: 'AskUserQuestion', kind: 'user_action', arguments: tool.input, createdAt: 1 } },
         } }) } });
     });
     afterEach(() => {

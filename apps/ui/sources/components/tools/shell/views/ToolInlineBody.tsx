@@ -21,6 +21,7 @@ import { resolveToolPermissionTerminalErrorMessage } from '@/components/tools/sh
 import { useSetting } from '@/sync/domains/state/storage';
 import { settingsDefaults } from '@/sync/domains/settings/settings';
 import type { TranscriptInteraction } from '@/utils/sessions/deriveTranscriptInteraction';
+import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { useHistoricalTranscriptAgentId } from '@/components/sessions/transcript/attribution/SessionTranscriptAgentAttributionContext';
 
 type ToolInlineBodyMode = 'card' | 'timeline';
@@ -173,6 +174,7 @@ const ToolPayloadCodeView = React.memo(function ToolPayloadCodeView(props: {
 export const ToolInlineBody = React.memo(function ToolInlineBody(props: {
     mode: ToolInlineBodyMode;
     tool: ToolCall;
+    permissionRequest?: SessionPendingRequest;
     normalizedToolName: string;
     metadata: Metadata | null;
     messages: Message[];
@@ -266,6 +268,7 @@ export const ToolInlineBody = React.memo(function ToolInlineBody(props: {
                     <ToolHeaderActionsContext.Provider value={{ setHeaderActions: props.setHeaderActions }}>
                         <SpecificToolView
                             tool={tool}
+                            permissionRequest={props.permissionRequest}
                             metadata={props.metadata}
                             messages={props.messages}
                             sessionId={props.sessionId}

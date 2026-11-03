@@ -2,8 +2,10 @@ import {
     collectTranscriptRequestStates,
     mergeTranscriptRequestState,
     type TranscriptRequestState,
+    type TranscriptRequestProjection,
 } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { resolveLatestUnreadAffectingCommittedMessageSeq } from '@/sync/domains/session/readCursor/resolveSessionReadableSeq';
+import { buildStableJsonSignature } from '@/sync/domains/session/metadata/sessionMetadataStability';
 
 import { messageAttentionImpact } from './messageUserAttention';
 import type { Message } from './messageTypes';
@@ -15,7 +17,8 @@ import type { Message } from './messageTypes';
  * The full transcript walk lives ONLY in `buildTranscriptRenderableAggregate`
  * (cold start / fallback). On the streaming hot path the store applies each
  * changed message through `applyMessageChangeToTranscriptRenderableAggregate`,
- * which costs O(changed messages) instead of O(transcript length).
+ * which avoids full history walks except when a contribution invalidates the
+ * aggregate or retracting the newest terminal requires repairing its watermark.
  *
  * OWNERSHIP / MUTABILITY: like `SessionMessages.reducerState`, an aggregate is
  * mutated in place by its owning store entry. Do not rely on its referential
@@ -35,12 +38,14 @@ export type TranscriptRenderableAggregate = {
     latestUnreadAffectingMessageSeq: number | null;
     /** Number of transcript messages folded into the aggregate. */
     messageCount: number;
-    /** Canonical transcript request states keyed by request id. */
+    /** Canonical transcript contributions before agent-completion coverage, keyed by request id. */
     requestStates: Map<string, TranscriptRequestState>;
+    /** List iteration visits pending contributions only; updated with requestStates. */
+    requestProjection: TranscriptRequestProjection;
     /**
      * Identity of the `agentState.completedRequests` record the request states
-     * were folded with. When it changes, `requestStates` must be rebuilt
-     * (pending coverage depends on it) — see
+     * are published for. Coverage is applied by the pending-request owner at consumption,
+     * so a new completion basis can reuse the transcript contributions. See
      * `canReuseTranscriptRenderableAggregateRequestStates`.
      */
     completedRequestsRef: Record<string, unknown> | null;
@@ -57,10 +62,9 @@ function latestMeaningfulActivityCreatedAtContribution(message: Message): number
 
 function collectMessageRequestStates(
     message: Message,
-    completedRequests: CompletedRequests,
 ): Map<string, TranscriptRequestState> {
     const states = new Map<string, TranscriptRequestState>();
-    collectTranscriptRequestStates([message], completedRequests, states);
+    collectTranscriptRequestStates([message], states);
     return states;
 }
 
@@ -82,13 +86,20 @@ export function buildTranscriptRenderableAggregate(params: Readonly<{
     }
 
     const requestStates = new Map<string, TranscriptRequestState>();
-    collectTranscriptRequestStates(params.messages, params.completedRequests, requestStates);
+    collectTranscriptRequestStates(params.messages, requestStates);
+
+    const requestProjection: TranscriptRequestProjection = { pendingStates: new Map(), newestTerminalCreatedAt: 0 };
+    for (const [id, state] of requestStates) {
+        if (state.status === 'pending') requestProjection.pendingStates.set(id, state);
+        else requestProjection.newestTerminalCreatedAt = Math.max(requestProjection.newestTerminalCreatedAt, state.createdAt);
+    }
 
     return {
         latestCommittedMessageCreatedAt,
         latestUnreadAffectingMessageSeq: resolveLatestUnreadAffectingCommittedMessageSeq(params.messages),
         messageCount: params.messages.length,
         requestStates,
+        requestProjection,
         completedRequestsRef: params.completedRequests,
     };
 }
@@ -100,14 +111,17 @@ function areTerminalStatesInterchangeable(
     return previous.status === 'terminal'
         && next.status === 'terminal'
         && previous.createdAt === next.createdAt
-        && previous.terminalKind === next.terminalKind;
+        && previous.terminalKind === next.terminalKind
+        && previous.hardTerminalCreatedAt === next.hardTerminalCreatedAt
+        && previous.hardTerminalAmbiguous === next.hardTerminalAmbiguous
+        && buildStableJsonSignature(previous.hardTerminalRequest) === buildStableJsonSignature(next.hardTerminalRequest);
 }
 
 /**
  * Applies one changed message to the aggregate in place.
  *
- * Returns `false` when the change is not expressible as a monotone update
- * (a contribution weakened or disappeared); the caller MUST then discard the
+ * A producer-proven sole contributor can be retracted exactly. Otherwise returns
+ * `false` when a contribution weakened or disappeared; the caller MUST discard the
  * aggregate — it may have been partially mutated — and rebuild it via
  * `buildTranscriptRenderableAggregate` before its next use.
  */
@@ -115,6 +129,8 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
     aggregate: TranscriptRenderableAggregate;
     previous: Message | null;
     next: Message;
+    /** Existing producer indexes must prove this message is the only contributor for the id. */
+    isSoleRequestStateContributor?: (requestId: string) => boolean;
 }>): boolean {
     const { aggregate, previous, next } = params;
 
@@ -157,14 +173,36 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
         return true;
     }
     const previousStates = previous
-        ? collectMessageRequestStates(previous, aggregate.completedRequestsRef)
+        ? collectMessageRequestStates(previous)
         : null;
-    const nextStates = collectMessageRequestStates(next, aggregate.completedRequestsRef);
+    const nextStates = collectMessageRequestStates(next);
+
+    let refreshTerminalClock = false;
+    const writeRequestState = (requestId: string, state: TranscriptRequestState | undefined) => {
+        const old = aggregate.requestStates.get(requestId);
+        if (old?.status === 'terminal' && old.createdAt === aggregate.requestProjection.newestTerminalCreatedAt
+            && (state?.status !== 'terminal' || state.createdAt < old.createdAt)) {
+            refreshTerminalClock = true;
+        }
+        if (state) aggregate.requestStates.set(requestId, state);
+        else aggregate.requestStates.delete(requestId);
+        if (state?.status === 'pending') aggregate.requestProjection.pendingStates.set(requestId, state);
+        else aggregate.requestProjection.pendingStates.delete(requestId);
+        if (state?.status === 'terminal') {
+            aggregate.requestProjection.newestTerminalCreatedAt = Math.max(
+                aggregate.requestProjection.newestTerminalCreatedAt, state.createdAt,
+            );
+        }
+    };
 
     if (previousStates) {
         for (const [requestId, previousState] of previousStates) {
             const nextState = nextStates.get(requestId);
             if (!nextState) {
+                if (params.isSoleRequestStateContributor?.(requestId) === true) {
+                    writeRequestState(requestId, undefined);
+                    continue;
+                }
                 // The message stopped contributing this request id; the merged
                 // map cannot un-learn it, so a full rebuild is required.
                 return false;
@@ -173,6 +211,10 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
                 mergeTranscriptRequestState(previousState, nextState) !== nextState
                 && !areTerminalStatesInterchangeable(previousState, nextState)
             ) {
+                if (params.isSoleRequestStateContributor?.(requestId) === true) {
+                    writeRequestState(requestId, undefined);
+                    continue;
+                }
                 // The new contribution would lose the merge against the old
                 // one — a non-monotone downgrade the merge cannot express.
                 return false;
@@ -181,12 +223,21 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
     }
 
     for (const [requestId, nextState] of nextStates) {
-        aggregate.requestStates.set(
+        writeRequestState(
             requestId,
             mergeTranscriptRequestState(aggregate.requestStates.get(requestId), nextState),
         );
     }
 
+    if (refreshTerminalClock) {
+        // A real retraction of the newest terminal can lower the watermark. Scan
+        // only on that mutation, never on an ordinary snapshot or a pending read.
+        let newestTerminalCreatedAt = 0;
+        for (const state of aggregate.requestStates.values()) {
+            if (state.status === 'terminal') newestTerminalCreatedAt = Math.max(newestTerminalCreatedAt, state.createdAt);
+        }
+        aggregate.requestProjection.newestTerminalCreatedAt = newestTerminalCreatedAt;
+    }
     return true;
 }
 
@@ -197,10 +248,21 @@ export function canReuseTranscriptRenderableAggregateRequestStates(
     return aggregate.completedRequestsRef === completedRequests;
 }
 
+/** Publish a current completion basis without re-reading completion-independent contributions. */
+export function withTranscriptRenderableAggregateCompletedRequests(
+    aggregate: TranscriptRenderableAggregate,
+    completedRequests: CompletedRequests,
+): TranscriptRenderableAggregate {
+    return canReuseTranscriptRenderableAggregateRequestStates(aggregate, completedRequests)
+        ? aggregate : { ...aggregate, completedRequestsRef: completedRequests };
+}
+
 export function isTranscriptRenderableAggregate(value: unknown): value is TranscriptRenderableAggregate {
     if (!value || typeof value !== 'object') return false;
     const candidate = value as Partial<TranscriptRenderableAggregate>;
     return candidate.requestStates instanceof Map
+        && candidate.requestProjection?.pendingStates instanceof Map
+        && typeof candidate.requestProjection.newestTerminalCreatedAt === 'number'
         && typeof candidate.messageCount === 'number'
         && Number.isFinite(candidate.messageCount)
         && (candidate.latestCommittedMessageCreatedAt === null || typeof candidate.latestCommittedMessageCreatedAt === 'number')

@@ -1,18 +1,22 @@
 import * as React from 'react';
-import { View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { useStore } from 'zustand';
+import { Platform, View } from 'react-native';
 
-import { Text } from '@/components/ui/text/Text';
+import { DeskText as Text } from '../typography/DeskText';
 import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
 import { useSocketStatus } from '@/sync/store/hooks';
+import { storage } from '@/sync/domains/state/storage';
 import { t } from '@/text';
 
 import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskWaits } from '../model/useDeskWaits';
+import { createWaitingHistory, waitingActionOutcome, type WaitingHistory } from '../model/waitingHistory';
+import { observeWaitingActions } from '../model/observeWaitingActions';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { useDeskSessions } from '../useDeskSessions';
-import { unloadedWaitKey, type WaitingItem } from '../model/waitingItems';
-import { WaitingCard, cardStyles, OpenSessionButton } from './WaitingCard';
+import { unloadedWaitKey, waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
+import { WaitingCard, OpenSessionButton } from './WaitingCard';
+import { useWaitingAppearance } from './waitingAppearance';
 
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
@@ -20,24 +24,25 @@ import { WaitingCard, cardStyles, OpenSessionButton } from './WaitingCard';
  * Approving here is the same call the session's own footer makes. `onOpenSession` runs after it
  * opens a session, so a card holding the panel can get out of the way.
  */
-type AnsweredItem = { item: WaitingItem; outcome: 'allowed' | 'denied' | 'elsewhere' | 'noLongerWaiting'; remoteOutcome?: 'allowed' | 'denied' };
-export type WaitingHistory = { previous: WaitingItem[]; answered: AnsweredItem[]; local: Map<string, 'allowed' | 'denied'> };
-export function createWaitingHistory(): WaitingHistory { return { previous: [], answered: [], local: new Map() }; }
+export { createWaitingHistory, type WaitingHistory } from '../model/waitingHistory';
 
 /** Keeps each card's callback stable while the panel aggregates dirty cards by request key. */
-function WaitingRow({ item, onDirtyChange, ...props }: Omit<React.ComponentProps<typeof WaitingCard>, 'onDirtyChange'> & {
+function WaitingRow({ item, onDirtyChange, onFocusedRemoval, ...props }: Omit<React.ComponentProps<typeof WaitingCard>, 'onDirtyChange' | 'onFocusedRemoval'> & {
     onDirtyChange: (key: string, dirty: boolean) => void;
+    onFocusedRemoval: (key: string) => void;
 }) {
     const reportDirty = React.useCallback((dirty: boolean) => onDirtyChange(item.key, dirty), [item.key, onDirtyChange]);
+    const reportFocusedRemoval = React.useCallback(() => onFocusedRemoval(item.key), [item.key, onFocusedRemoval]);
     React.useEffect(() => () => reportDirty(false), [reportDirty]);
-    return <WaitingCard {...props} item={item} onDirtyChange={reportDirty} />;
+    return <WaitingCard {...props} item={item} onDirtyChange={reportDirty} onFocusedRemoval={reportFocusedRemoval} />;
 }
 
-export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
+export function WaitingPanel({ onOpenSession, history, onDirtyChange, onFocusFallback }: {
     onOpenSession?: () => void;
     history?: WaitingHistory;
     /** Reports whether any card has an unsent pick or text; clears when the panel unmounts. */
     onDirtyChange?: (dirty: boolean) => void;
+    onFocusFallback?: () => void;
 } = {}) {
     const [dirtyCards, setDirtyCards] = React.useState<ReadonlySet<string>>(() => new Set());
     const reportCardDirty = React.useCallback((key: string, dirty: boolean) => {
@@ -53,39 +58,72 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
     React.useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
     const { items, unloaded, ready } = useDeskWaits();
     const desk = useDeskSessions();
+    // Readiness hides the canonical projection. Retain mounted drafts only while their exact
+    // session records remain loaded; a server reset clears those records and must drop old rows.
+    const refreshingSessions = storage(state => state.isDataReady ? null : state.sessions);
+    const retained = React.useRef({ items, lookup: desk.lookup });
+    const visibleItems = ready ? items : retained.current.items.filter(item =>
+        refreshingSessions?.[item.sessionId] === retained.current.lookup.get(item.sessionId));
+    React.useLayoutEffect(() => {
+        retained.current = { items: visibleItems, lookup: ready ? desk.lookup : retained.current.lookup };
+    }, [ready, visibleItems, desk.lookup]);
+    const panelRef = React.useRef<View>(null);
+    const previousOrder = React.useRef<readonly string[]>([]);
+    const removedFocusIndex = React.useRef<number | null>(null);
+    const reportFocusedRemoval = React.useCallback((key: string) => {
+        removedFocusIndex.current = previousOrder.current.indexOf(key);
+    }, []);
+    React.useLayoutEffect(() => {
+        const index = removedFocusIndex.current;
+        removedFocusIndex.current = null;
+        if (index !== null && Platform.OS === 'web' && typeof HTMLElement !== 'undefined') {
+            const toggles = panelRef.current instanceof HTMLElement
+                ? panelRef.current.querySelectorAll<HTMLElement>('[data-testid^="ip-waiting-toggle-"]') : [];
+            const next = toggles[Math.max(0, Math.min(index, toggles.length - 1))];
+            if (next) next.focus(); else onFocusFallback?.();
+        }
+        previousOrder.current = visibleItems.map(item => item.key);
+    });
     const issueKeys = useIssueKeys(desk);
     const coordinatorId = useCoordinatorId(desk.list);
     const { status } = useSocketStatus();
     const ownHistory = React.useRef<WaitingHistory | null>(null);
     if (!ownHistory.current) ownHistory.current = createWaitingHistory();
     const currentHistory = history ?? ownHistory.current;
-    const [, refreshHistory] = React.useReducer((n: number) => n + 1, 0);
+    React.useLayoutEffect(() => observeWaitingActions(currentHistory), [currentHistory]);
+    const answered = useStore(currentHistory, state => state.answered);
     React.useEffect(() => {
         if (!ready || status !== 'connected') return;
+        const previous = currentHistory.getState();
         const currentKeys = new Set(items.map((item) => item.key));
+        const currentGenerations = new Set(items.map(waitingItemGenerationKey));
         const availableSessions = new Set(desk.list.filter((row) => desk.lookup.get(row.id)?.active).map((row) => row.id));
         const unreadableSessions = new Set(unloaded.map((row) => row.sessionId));
-        const disappeared = currentHistory.previous.filter((item) => !currentKeys.has(item.key)
+        const disappeared = previous.previous.filter((item) => !currentKeys.has(item.key)
             && availableSessions.has(item.sessionId) && !unreadableSessions.has(item.sessionId));
-        const retained = currentHistory.answered.filter((entry) => !currentKeys.has(entry.item.key));
-        if (disappeared.length || retained.length !== currentHistory.answered.length) {
-            const entries: AnsweredItem[] = disappeared.map((item) => {
+        const retained = previous.answered.filter((entry) => !currentKeys.has(entry.item.key));
+        let nextAnswered = previous.answered;
+        if (disappeared.length || retained.length !== previous.answered.length) {
+            const entries = disappeared.map((item): typeof answered[number] => {
                 const completion = desk.lookup.get(item.sessionId)?.agentState?.completedRequests?.[item.requestId];
-                const localOutcome = currentHistory.local.get(item.key);
+                const localOutcome = waitingActionOutcome(previous.actions.get(waitingItemGenerationKey(item)));
                 const remoteOutcome = completion?.status === 'approved' ? 'allowed' : completion?.status === 'denied' ? 'denied' : undefined;
-                return { item, outcome: localOutcome ?? (remoteOutcome ? 'elsewhere' : 'noLongerWaiting'),
+                return { item, outcome: localOutcome === 'unavailable' ? 'noLongerWaiting' : localOutcome ?? (remoteOutcome ? 'elsewhere' : 'noLongerWaiting'),
                     remoteOutcome: localOutcome ? undefined : remoteOutcome };
             });
             // Mockup 12 displays four recent answers; retain only those four for this page session.
-            currentHistory.answered = [...entries.reverse(), ...retained.filter((entry) => !disappeared.some((item) => item.key === entry.item.key))].slice(0, 4);
-            refreshHistory();
+            nextAnswered = [...entries.reverse(), ...retained.filter((entry) => !disappeared.some((item) => item.key === entry.item.key))].slice(0, 4);
         }
-        for (const key of currentHistory.local.keys()) if (!currentKeys.has(key)) currentHistory.local.delete(key);
-        currentHistory.previous = items;
-    }, [items, unloaded, ready, status, desk.list, desk.lookup, currentHistory]);
-    const { theme } = useUnistyles();
+        const actions = previous.actions;
+        // A removed row may still settle into Answered; a later occurrence starts fresh.
+        const reappeared = new Set(previous.answered.filter(entry => currentKeys.has(entry.item.key)).map(entry => waitingItemGenerationKey(entry.item)));
+        const kept = new Map([...actions].filter(([key, action]) => action.phase === 'sending'
+            || (action.phase === 'changed' && currentKeys.has(action.requestKey))
+            || (!reappeared.has(key) && currentGenerations.has(key))));
+        currentHistory.setState({ previous: items, answered: nextAnswered, actions: kept.size === actions.size ? actions : kept });
+    }, [items, unloaded, ready, status, desk.list, desk.lookup, currentHistory, answered]);
     const navigateToSession = useDeskSessionNavigation();
-    const styles = cardStyles(theme);
+    const { styles } = useWaitingAppearance();
 
     const open = React.useCallback((sessionId: string) => {
         void navigateToSession(sessionId);
@@ -93,7 +131,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
     }, [navigateToSession, onOpenSession]);
 
     // Before the first sync the desk doesn't know what waits; saying nothing waits would be false.
-    if (!ready) {
+    if (!ready && visibleItems.length === 0) {
         return (
             <Text testID="ip-waiting-connecting" style={styles.secondary}>
                 {t('ignorePrevious.connecting')}
@@ -101,7 +139,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
         );
     }
 
-    if (items.length === 0 && unloaded.length === 0 && currentHistory.answered.length === 0) {
+    if (ready && items.length === 0 && unloaded.length === 0 && answered.length === 0) {
         return (
             <Text testID="ip-waiting-empty" style={styles.secondary}>
                 {t('ignorePrevious.nothingWaits')}
@@ -110,16 +148,13 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
     }
 
     return (
-        <View testID="ip-waiting" style={{ gap: 12 }}>
-            {items.map((item) => (
-                <WaitingRow key={item.key} item={item} isCoordinator={coordinatorId === item.sessionId} onDirtyChange={reportCardDirty} issueKey={issueKeys.get(item.sessionId) ?? null} onOpen={open} onAnswered={(outcome) => {
-                    const entry = currentHistory.answered.find((answer) => answer.item.key === item.key);
-                    if (entry) { entry.outcome = outcome; entry.remoteOutcome = undefined; refreshHistory(); }
-                    else currentHistory.local.set(item.key, outcome);
-                }} />
+        <View ref={panelRef} testID="ip-waiting">
+            {!ready ? <Text style={styles.secondary}>{t('ignorePrevious.connecting')}</Text> : null}
+            {visibleItems.map((item) => (
+                <WaitingRow key={item.key} item={item} actions={currentHistory} refreshing={!ready} onFocusedRemoval={reportFocusedRemoval} isCoordinator={coordinatorId === item.sessionId} onDirtyChange={reportCardDirty} issueKey={issueKeys.get(item.sessionId) ?? null} onOpen={open} />
             ))}
             {unloaded.map((wait) => (
-                <View key={unloadedWaitKey(wait.sessionId)} style={styles.card}>
+                <View key={unloadedWaitKey(wait.sessionId)} testID={`ip-waiting-unloaded-${wait.sessionId}`} style={styles.card}>
                     <Text style={styles.title}>{wait.sessionTitle}</Text>
                     <Text style={styles.secondary}>
                         {wait.reason === 'unreadable' ? t('ignorePrevious.waiting.unreadable') : t('ignorePrevious.needsLook')}
@@ -129,10 +164,10 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange }: {
                     </View>
                 </View>
             ))}
-            {currentHistory.answered.length ? (
+            {answered.length ? (
                 <View style={{ gap: 6 }}>
                     <Text accessibilityRole="header" style={styles.title}>{t('ignorePrevious.waiting.answered')}</Text>
-                    {currentHistory.answered.map(({ item, outcome, remoteOutcome }) => (
+                    {answered.map(({ item, outcome, remoteOutcome }) => (
                         <View key={item.key} testID={`ip-answered-${item.requestId}`} style={styles.card}>
                             <Text style={styles.title}>{item.sessionTitle}</Text>
                             <Text style={styles.secondary}>{item.summary}</Text>

@@ -1,3 +1,5 @@
+import { isAgentStateRequestCoveredByCompletedRequests } from '@happier-dev/agents';
+import { getCompletedAllowedTools, permissionPayloadMatches } from '../helpers/sidechainPermissions';
 import { compareToolCalls } from '../../../utils/tools/toolComparison';
 import type { AgentState } from '../../domains/state/storageTypes';
 import type { ToolCall } from '../../domains/messages/messageTypes';
@@ -111,36 +113,6 @@ export function runAgentStatePermissionsPhase(params: Readonly<{
     // Phase 0: Process AgentState permissions
     //
 
-    const getCompletedAllowedTools = (completed: any): string[] | undefined => {
-        const list = completed?.allowedTools ?? completed?.allowTools;
-        if (Array.isArray(list)) return list;
-
-        const updatedPermissions = completed?.updatedPermissions;
-        if (!Array.isArray(updatedPermissions) || updatedPermissions.length === 0) return undefined;
-
-        const derived = new Set<string>();
-        for (const update of updatedPermissions) {
-            if (!update || typeof update !== 'object' || Array.isArray(update)) continue;
-            const rec = update as Record<string, unknown>;
-            if (rec.type !== 'addRules' || rec.behavior !== 'allow') continue;
-            const rules = rec.rules;
-            if (!Array.isArray(rules) || rules.length === 0) continue;
-            for (const rule of rules) {
-                if (!rule || typeof rule !== 'object' || Array.isArray(rule)) continue;
-                const toolName = (rule as any).toolName;
-                if (typeof toolName !== 'string' || toolName.length === 0) continue;
-                const ruleContent = (rule as any).ruleContent;
-                if (typeof ruleContent === 'string' && ruleContent.length > 0) {
-                    derived.add(`${toolName}(${ruleContent})`);
-                } else {
-                    derived.add(toolName);
-                }
-            }
-        }
-
-        return derived.size > 0 ? Array.from(derived) : undefined;
-    };
-
     if (enableLogging) {
         console.log(`[REDUCER] Phase 0: Processing AgentState`);
     }
@@ -156,17 +128,24 @@ export function runAgentStatePermissionsPhase(params: Readonly<{
                 // a previous approval was recorded; in that case we must surface the new pending request.
                 const existingCompleted = agentState.completedRequests?.[permId];
                 if (existingCompleted) {
-                    const pendingCreatedAt = request.createdAt ?? 0;
-                    const completedAt = existingCompleted.completedAt ?? existingCompleted.createdAt ?? 0;
-                    const isNewerPending = pendingCreatedAt > completedAt;
-                    if (!isNewerPending) {
-                        continue;
-                    }
+                    if (isAgentStateRequestCoveredByCompletedRequests({ requestId: permId, request,
+                        completedRequests: { [permId]: existingCompleted } })) continue;
                     pendingOverridesCompleted.add(permId);
                 }
 
                 // Check if we already have a message for this permission ID
-                const existingMessageId = state.toolIdToMessageId.get(permId);
+                let existingMessageId = state.toolIdToMessageId.get(permId);
+                const existing = existingMessageId != null ? state.messages.get(existingMessageId) : undefined;
+                const differentPayload = existing?.tool ? !permissionPayloadMatches(existing.tool, request) : false;
+                const reopened = existing?.tool && existing.tool.permission?.status !== 'pending'
+                    && typeof request.createdAt === 'number'
+                    && request.createdAt > (existing.tool.completedAt ?? existing.tool.permission?.date
+                        ?? state.permissions.get(permId)?.completedAt ?? Infinity);
+                if (existing?.realID != null && (differentPayload || reopened)) {
+                    // A transcript execution owns its history and result. Reuse the ID lookup
+                    // for the new permission mirror, leaving the original row and raw-ID mapping intact.
+                    existingMessageId = undefined;
+                }
                 if (existingMessageId != null) {
                     // Update existing tool message with permission info and latest arguments
                     const message = state.messages.get(existingMessageId);
@@ -175,6 +154,15 @@ export function runAgentStatePermissionsPhase(params: Readonly<{
                             console.log(`[REDUCER] Updating existing tool ${permId} with permission`);
                         }
                         let hasChanged = false;
+                        if (differentPayload || reopened) {
+                            message.tool.name = request.tool;
+                            message.tool.createdAt = request.createdAt ?? message.tool.createdAt;
+                            message.tool.permission = { id: permId, status: 'pending', kind: request.kind, suggestions: request.permissionSuggestions };
+                            message.tool.state = 'running';
+                            message.tool.completedAt = null;
+                            message.tool.result = undefined;
+                            hasChanged = true;
+                        }
                         if (message.tool.id !== permId) {
                             message.tool.id = permId;
                             hasChanged = true;
@@ -321,6 +309,10 @@ export function runAgentStatePermissionsPhase(params: Readonly<{
                 if (messageId != null) {
                     const message = state.messages.get(messageId);
                     if (message?.tool) {
+                        if (!permissionPayloadMatches(message.tool, completed)) continue;
+                        if (message.tool.permission && !isAgentStateRequestCoveredByCompletedRequests({ requestId: permId,
+                            request: { tool: message.tool.name, arguments: message.tool.input, createdAt: message.tool.createdAt, kind: message.tool.permission.kind },
+                            completedRequests: { [permId]: completed } })) continue;
                         // Skip if tool has already started actual execution with approval
                         if (message.tool.startedAt && message.tool.permission?.status === 'approved') {
                             continue;

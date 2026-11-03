@@ -1,3 +1,4 @@
+import { revealWaitingDetails } from '../testkit/revealWaitingDetails';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createRef } from 'react';
 import { findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
@@ -64,7 +65,9 @@ function sessionWithRequest(id: string, request: Record<string, unknown> | null,
 
 async function renderPanel() {
     const { WaitingPanel } = await import('./WaitingPanel');
-    return renderScreen(<WaitingPanel />);
+    const screen = await renderScreen(<WaitingPanel />);
+    await revealWaitingDetails(screen);
+    return screen;
 }
 
 function button(screen: Awaited<ReturnType<typeof renderPanel>>, label: string) {
@@ -100,6 +103,7 @@ describe('WaitingPanel', () => {
         const { ApprovalsDrawer } = await import('./Approvals');
         const onClose = vi.fn();
         const screen = await renderScreen(<ApprovalsDrawer open width={390} openerRef={createRef()} onClose={onClose} />);
+        await revealWaitingDetails(screen);
         await pressTestInstanceAsync(button(screen as Awaited<ReturnType<typeof renderPanel>>, 'Open session'));
         expect(String(state.navigate.mock.calls[0]?.[0])).toMatch(/^\/session\/s1(\?|$)/);
         expect(onClose).toHaveBeenCalled();

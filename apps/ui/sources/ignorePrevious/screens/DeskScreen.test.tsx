@@ -7,6 +7,9 @@ import { readReactNativeMmkvStubEntries, resetReactNativeMmkvStub } from '@/dev/
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
+import { sessionAllowResult } from '@/sync/ops';
+import { Modal } from '@/modal';
+import type { SessionPermissionResult } from '@/sync/ops/sessions';
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 import { apiSocket } from '@/sync/api/session/apiSocket';
@@ -23,6 +26,8 @@ const state = vi.hoisted(() => ({
     hydration: 'available' as 'available' | 'loading',
     hydrated: [] as string[],
 }));
+
+vi.mock('@/sync/ops', () => ({ sessionAllowResult: vi.fn(async () => ({ ok: true })) }));
 
 // Stored-open restoration is a desktop choice; phones intentionally start closed (Medium 1).
 vi.mock('react-native', async () => {
@@ -114,6 +119,60 @@ describe('DeskScreen', () => {
         state.hydration = 'available';
         state.hydrated = [];
         state.showModal.mockClear();
+        vi.mocked(sessionAllowResult).mockClear();
+        vi.mocked(Modal.alert).mockClear();
+    });
+
+    it.each(['account', 'server'] as const)('waiting action state and drafts belong to the current %s scope', async change => {
+        const scope = { serverId: 'server-a', accountId: 'account-a' };
+        act(() => storage.setState({ profileScope: scope, socketStatus: 'connected' }));
+        seed([session('worker', { agentState: { requests: {
+            permission: { tool: 'Bash', arguments: { command: 'echo work' }, createdAt: 1 },
+            question: { tool: 'AskUserQuestion', kind: 'user_action', arguments: { questions: [{ question: 'Which checks?', freeform: {} }] }, createdAt: 2 },
+        } } })]);
+        setApprovalsOpen(true);
+        const screen = await renderDesk();
+        await screen.pressByTestIdAsync('ip-waiting-toggle-permission');
+        await screen.pressByTestIdAsync('ip-waiting-allow-permission');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-question');
+        act(() => screen.tree.changeTextByTestId('ip-waiting-other-question-0', 'old account draft'));
+        expect(screen.findByTestId('ip-waiting-allow-permission')?.props.disabled).toBe(true);
+        act(() => storage.setState({ profileScope: change === 'account' ? { ...scope, accountId: 'account-b' } : { ...scope, serverId: 'server-b' } }));
+        expect(screen.findByTestId('ip-waiting-other-question-0')).toBeNull();
+        await screen.pressByTestIdAsync('ip-waiting-toggle-permission');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-question');
+        expect(screen.findByTestId('ip-waiting-other-question-0')?.props.value).toBe('');
+        expect(screen.findByTestId('ip-waiting-allow-permission')?.props.disabled).toBe(false);
+        await screen.pressByTestIdAsync('ip-waiting-allow-permission');
+        expect(sessionAllowResult).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+        ['account', 'success'], ['account', 'failure'], ['server', 'success'], ['server', 'failure'],
+    ] as const)('leaving the %s with the drawer closed discards late %s while preserving the shared transport lock', async (change, outcome) => {
+        const pending = createDeferred<SessionPermissionResult>();
+        vi.mocked(sessionAllowResult).mockReturnValueOnce(pending.promise);
+        act(() => storage.setState({ profileScope: { serverId: 'server-a', accountId: 'account-a' }, socketStatus: 'connected' }));
+        seed([session('worker', { agentState: { requests: {
+            permission: { tool: 'Bash', arguments: { command: 'echo work' }, createdAt: 1 },
+        } } })]);
+        setApprovalsOpen(true);
+        const screen = await renderDesk();
+        await screen.pressByTestIdAsync('ip-waiting-toggle-permission');
+        await screen.pressByTestIdAsync('ip-waiting-allow-permission');
+        await screen.pressByTestIdAsync('ip-approvals-open');
+        act(() => storage.setState({ profileScope: change === 'account'
+            ? { serverId: 'server-a', accountId: 'account-b' } : { serverId: 'server-b', accountId: 'account-a' } }));
+        await screen.pressByTestIdAsync('ip-approvals-open');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-permission');
+        try {
+            await screen.pressByTestIdAsync('ip-waiting-allow-permission');
+            expect(sessionAllowResult).toHaveBeenCalledTimes(1);
+        } finally { await act(async () => outcome === 'success' ? pending.resolve({ ok: true }) : pending.reject(new Error('old scope send failed'))); }
+        expect(Modal.alert).not.toHaveBeenCalled();
+        expect(screen.findByTestId('ip-waiting-allow-permission')?.props.disabled).toBe(false);
+        await screen.pressByTestIdAsync('ip-waiting-allow-permission');
+        expect(sessionAllowResult).toHaveBeenCalledTimes(2);
     });
 
     it('mounts without writing device preferences when nothing is stored', async () => {
