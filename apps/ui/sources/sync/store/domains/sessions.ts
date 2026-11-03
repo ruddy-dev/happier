@@ -9,7 +9,11 @@ import type { NormalizedMessage } from '../../typesRaw';
 import type { SessionListViewItem } from '../../domains/session/listing/sessionListViewData';
 import { readSessionArchivePending, type SessionArchiveOperation, type SessionArchiveOperations } from '../../domains/session/listing/sessionArchiveState';
 import { readStoredSessionMessagesFromStateLike } from '../../domains/messages/readStoredSessionMessages';
-import { isTranscriptRenderableAggregate } from '../../domains/messages/transcriptRenderableAggregate';
+import {
+    buildTranscriptRenderableAggregate,
+    canReuseTranscriptRenderableAggregateRequestStates,
+    isTranscriptRenderableAggregate,
+} from '../../domains/messages/transcriptRenderableAggregate';
 import {
     areSessionListRenderablesEqual,
     buildSessionListRenderableFromSession,
@@ -934,10 +938,24 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
                     }
                 }
 
-                // Reuse the incrementally-maintained transcript aggregate when
-                // it is still valid; the builder self-checks completedRequests
-                // identity and falls back to the messages walk otherwise.
-                const sessionMessagesForRenderable = updatedSessionMessages[session.id];
+                // Snapshot reconciliation can invalidate the incremental aggregate. Rebuild it
+                // at this producer's existing transcript fold, so request-state observers can
+                // consume the authoritative result without reading messages themselves.
+                let sessionMessagesForRenderable = updatedSessionMessages[session.id];
+                if (sessionMessagesForRenderable) {
+                    const aggregate = sessionMessagesForRenderable.renderableAggregate;
+                    const completed = mergedSessions[session.id]!.agentState?.completedRequests ?? null;
+                    if (!aggregate || !canReuseTranscriptRenderableAggregateRequestStates(aggregate, completed)) {
+                        if (updatedSessionMessages === state.sessionMessages) updatedSessionMessages = { ...state.sessionMessages };
+                        sessionMessagesForRenderable = updatedSessionMessages[session.id] = {
+                            ...sessionMessagesForRenderable,
+                            renderableAggregate: buildTranscriptRenderableAggregate({
+                                messages: renderableMessages ?? readStoredSessionMessagesFromStateLike(sessionMessagesForRenderable),
+                                completedRequests: completed,
+                            }),
+                        };
+                    }
+                }
                 const nextRenderableBase = buildSessionListRenderableFromSession(
                     mergedSessions[session.id]!,
                     renderableMessages,

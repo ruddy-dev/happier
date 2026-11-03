@@ -13,6 +13,8 @@ import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { DeskText as Text } from '../typography/DeskText';
 import { WaitingPanel, type WaitingHistory } from './WaitingPanel';
 import { MaskFace } from './MaskFace';
+import { createWaitingHistory } from '../model/waitingHistory';
+import { observeWaitingActions } from '../model/observeWaitingActions';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null>; phone?: boolean }) {
@@ -71,6 +73,9 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
 }) {
     const { theme } = useUnistyles();
     const placement = drawerPlacement(width);
+    const [ownHistory] = React.useState(createWaitingHistory);
+    const currentHistory = history ?? ownHistory;
+    React.useLayoutEffect(() => observeWaitingActions(currentHistory), [currentHistory]);
     const contentRef = React.useRef<View>(null);
     const closeRef = React.useRef<View>(null);
     const focusClose = React.useCallback(() => {
@@ -134,7 +139,7 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
                     </Pressable>
                 </View>
                 <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-                    <WaitingPanel history={history} onDirtyChange={onDirtyChange} onFocusFallback={focusClose} onOpenSession={placement === 'fullscreen' ? onClose : undefined} />
+                    <WaitingPanel history={currentHistory} onDirtyChange={onDirtyChange} onFocusFallback={focusClose} onOpenSession={placement === 'fullscreen' ? onClose : undefined} />
                     {children}
                 </ScrollView>
             </View>

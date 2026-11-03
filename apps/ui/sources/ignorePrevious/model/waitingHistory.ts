@@ -15,11 +15,13 @@ type WaitingHistoryState = {
     previous: WaitingItem[];
     answered: AnsweredItem[];
     actions: ReadonlyMap<string, WaitingAction>;
+    /** Authoritatively absent requests may still receive their in-flight answer. */
+    departed: ReadonlySet<string>;
 };
 
 /** Owned by one desk/account scope, never persisted or shared across desks. Keys include raw content. */
 export function createWaitingHistory() {
-    return createStore<WaitingHistoryState>(() => ({ previous: [], answered: [], actions: new Map() }));
+    return createStore<WaitingHistoryState>(() => ({ previous: [], answered: [], actions: new Map(), departed: new Set() }));
 }
 export type WaitingHistory = ReturnType<typeof createWaitingHistory>;
 
@@ -38,7 +40,9 @@ export function forgetWaitingAction(history: WaitingHistory, key: string) {
         if (!current.actions.has(key)) return current;
         const actions = new Map(current.actions);
         actions.delete(key);
-        return { actions };
+        const departed = new Set(current.departed);
+        departed.delete(key);
+        return { actions, departed };
     });
 }
 

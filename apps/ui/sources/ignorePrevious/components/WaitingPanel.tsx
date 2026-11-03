@@ -12,6 +12,7 @@ import { t } from '@/text';
 import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useDeskWaits } from '../model/useDeskWaits';
 import { createWaitingHistory, waitingActionOutcome, type WaitingHistory } from '../model/waitingHistory';
+import { observeWaitingActions } from '../model/observeWaitingActions';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { useDeskSessions } from '../useDeskSessions';
 import { unloadedWaitKey, waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
@@ -89,6 +90,7 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange, onFocusFal
     const ownHistory = React.useRef<WaitingHistory | null>(null);
     if (!ownHistory.current) ownHistory.current = createWaitingHistory();
     const currentHistory = history ?? ownHistory.current;
+    React.useLayoutEffect(() => observeWaitingActions(currentHistory), [currentHistory]);
     const answered = useStore(currentHistory, state => state.answered);
     React.useEffect(() => {
         if (!ready || status !== 'connected') return;

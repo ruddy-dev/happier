@@ -155,7 +155,7 @@ export function DeskScreen() {
     const waitingHistory = React.useMemo(createWaitingHistory, [waitingScope]);
     React.useLayoutEffect(() => () => {
         // Retire feedback from this desk scope; the transport guard still owns pending calls.
-        waitingHistory.setState({ actions: new Map() });
+        waitingHistory.setState({ previous: [], answered: [], actions: new Map(), departed: new Set() });
     }, [waitingHistory]);
     const [hasHalfAnsweredCard, setHasHalfAnsweredCard] = React.useState(false);
     const approvals = useApprovalsDrawer(width);

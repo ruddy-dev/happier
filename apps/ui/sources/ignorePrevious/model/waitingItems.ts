@@ -31,6 +31,10 @@ export function waitingItemGenerationKey(item: Pick<WaitingItem, 'key' | 'reques
     return JSON.stringify([item.key, item.requestContent]);
 }
 
+export function waitingRequestContent(request: Pick<SessionPendingRequest, 'kind' | 'tool' | 'arguments'>): string {
+    return JSON.stringify([request.kind, request.tool, request.arguments]);
+}
+
 const MAX_SUMMARY = 140;
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 
@@ -182,7 +186,7 @@ export function toWaitingItems(
             kind: request.kind,
             summary: summariseRequest(request.tool, request.arguments),
             detail: describeRequest(request.tool, request.arguments),
-            requestContent: JSON.stringify([request.kind, request.tool, request.arguments]),
+            requestContent: waitingRequestContent(request),
             agentNote: optionalDisplayText(stringField(parseArguments(request.arguments), 'description')),
             createdAt: request.createdAt,
             disabledReason,

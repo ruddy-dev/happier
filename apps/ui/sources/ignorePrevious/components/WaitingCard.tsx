@@ -186,14 +186,6 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
     }, []);
     // The same literal as PermissionFooter's requestKey: the two surfaces arbitrate one request.
     const requestKey = `${item.sessionId}\u0000${item.requestId}`;
-    const guardRef = React.useRef<ReturnType<typeof createPermissionActionDispatchGuard> | null>(null);
-    if (guardRef.current === null) {
-        guardRef.current = createPermissionActionDispatchGuard(requestKey, { holdAfterSuccess: false });
-    } else {
-        guardRef.current.setRequestKey(requestKey);
-    }
-    const guard = guardRef.current;
-
     const generation = waitingItemGenerationKey(item);
     const action = useStore(actions, state => state.actions.get(generation) ?? idleWaitingAction);
     const { phase } = action;
@@ -218,6 +210,9 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
             return;
         }
         const sending = { phase: 'sending' } as const;
+        // History owns occurrence feedback. A fresh dispatch guard lets a surviving card answer
+        // a later occurrence, while the shared registry still locks any actual in-flight call.
+        const guard = createPermissionActionDispatchGuard(requestKey, { holdAfterSuccess: false });
         try {
             // The guard runs the action only when this press wins the request. A press refused
             // while this card is answering changes nothing; one refused because another screen
@@ -230,13 +225,13 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
             if (sent && actions.getState().actions.get(generation) === sending) {
                 const outcome = kind === 'allow' ? 'allowed' : 'denied';
                 setWaitingAction(actions, generation, { phase: 'sent', outcome });
-            } else if (!sent && (actions.getState().actions.get(generation) ?? idleWaitingAction).phase === 'idle') {
+            } else if (!sent && mounted.current && (actions.getState().actions.get(generation) ?? idleWaitingAction).phase === 'idle') {
                 setWaitingAction(actions, generation, { phase: 'idle', elsewhere: true });
             }
         } catch (error) {
             // This completion belongs to the reviewed version, even if the row now shows another.
             if (actions.getState().actions.get(generation) !== sending) return;
-            if (readDeskWaits().items.find(current => current.key === item.key)?.requestContent !== content) {
+            if (actions.getState().departed.has(generation)) {
                 forgetWaitingAction(actions, generation);
                 return;
             }
