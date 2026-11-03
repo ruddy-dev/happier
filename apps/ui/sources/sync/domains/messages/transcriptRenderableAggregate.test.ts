@@ -82,6 +82,7 @@ function expectAggregatesEquivalent(
     expect(actual.latestCommittedMessageCreatedAt).toBe(expected.latestCommittedMessageCreatedAt);
     expect(actual.latestUnreadAffectingMessageSeq).toBe(expected.latestUnreadAffectingMessageSeq);
     expect(actual.messageCount).toBe(expected.messageCount);
+    expect(actual.requestProjection).toEqual(expected.requestProjection);
     expect(Array.from(actual.requestStates.entries())).toEqual(Array.from(expected.requestStates.entries()));
 }
 

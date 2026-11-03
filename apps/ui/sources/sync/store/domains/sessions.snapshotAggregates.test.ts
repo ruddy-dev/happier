@@ -62,6 +62,165 @@ function ordinaryRow(row: SessionListRenderableSession, item = row) {
 }
 
 describe('session snapshots: transcript aggregates', () => {
+    it.each([false, true])('does not revisit terminal request history on ordinary partial snapshots, projected=%s', projected => {
+        const historySize = 2_000;
+        const completedRequests = Object.fromEntries(Array.from({ length: historySize }, (_, index) => [
+            `history-${index}`, { tool: 'Bash', arguments: { permissionId: `history-${index}`,
+                status: 'pending', command: 'echo review' }, createdAt: index + 1,
+                completedAt: historySize + 1, status: 'approved' as const },
+        ]));
+        storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true,
+            pendingPermissionRequestCount: projected ? 1 : undefined,
+            pendingUserActionRequestCount: projected ? 0 : undefined,
+            pendingRequestObservedAt: projected ? 3_000 : undefined,
+            agentState: { requests: {}, completedRequests } })]);
+        storage.getState().applyMessages(sessionId, [
+            ...Array.from({ length: historySize }, (_, index) => pendingMessage('Bash', `history-${index}`, index + 1)),
+            pendingMessage('Bash', 'q', 3_000),
+        ]);
+        const entry = storage.getState().sessionMessages[sessionId];
+        const states = entry.renderableAggregate!.requestStates;
+        expect(entry.isLoaded).toBe(false);
+        expect(states.size).toBe(historySize + 1);
+        expect([...states.values()].filter(state => state.status === 'terminal')).toHaveLength(historySize);
+        expect(observePendingSessionRequest(storage.getState().sessions[sessionId], 'q', states.get('q')).status).toBe('pending');
+        let visited = 0;
+        const values = states.values.bind(states);
+        vi.spyOn(states, 'values').mockImplementation(function* () {
+            for (const state of values()) { visited++; yield state; }
+            return undefined;
+        });
+        const entries = states.entries.bind(states);
+        vi.spyOn(states, 'entries').mockImplementation(function* () {
+            for (const pair of entries()) { visited++; yield pair; }
+            return undefined;
+        });
+        vi.spyOn(states, Symbol.iterator).mockImplementation(function* () {
+            for (const pair of entries()) { visited++; yield pair; }
+            return undefined;
+        });
+        const keys = states.keys.bind(states);
+        vi.spyOn(states, 'keys').mockImplementation(function* () {
+            for (const key of keys()) { visited++; yield key; }
+            return undefined;
+        });
+        vi.spyOn(states, 'forEach').mockImplementation((callback, thisArg) => {
+            for (const [key, value] of entries()) { visited++; callback.call(thisArg, value, key, states); }
+        });
+        const snapshotVisits: number[] = [];
+        for (const ready of [false, true]) {
+            if (ready) storage.getState().applyReady();
+            for (const updatedAt of [4_000, 5_000]) {
+                visited = 0;
+                const session = storage.getState().sessions[sessionId];
+                storage.getState().applySessions([{ ...session, updatedAt,
+                    metadata: session.metadata ? { ...session.metadata, name: `Snapshot ${updatedAt}` } : null }]);
+                snapshotVisits.push(visited);
+                expect(storage.getState().sessionMessages[sessionId].isLoaded).toBe(false);
+                expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+                    hasPendingPermissionRequests: true, hasPendingUserActionRequests: false,
+                    pendingRequestObservedAt: 3_000,
+                });
+            }
+        }
+        console.info('partial request-map visits', { projected, historySize, snapshotVisits });
+        expect(snapshotVisits).toEqual([0, 0, 0, 0]);
+
+        // First-open hydration and steady message refresh use the same list builder.
+        const producerVisits: number[] = [];
+        for (const loaded of [false, true]) {
+            if (loaded) storage.getState().applyMessagesLoaded(sessionId);
+            visited = 0;
+            storage.getState().applyMessages(sessionId, [{ id: `open-text-${loaded}`, localId: null,
+                createdAt: 5_100, seq: 11, role: 'agent', isSidechain: false,
+                content: [{ type: 'text', text: 'Opening transcript', uuid: `open-${loaded}`, parentUUID: null }] }]);
+            producerVisits.push(visited);
+            visited = 0;
+            storage.getState().applySessions([{ ...storage.getState().sessions[sessionId], updatedAt: 5_200 }]);
+            producerVisits.push(visited);
+            expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+                hasPendingPermissionRequests: true, pendingRequestObservedAt: 3_000,
+            });
+        }
+        console.info('open/loaded request-map visits', { projected, producerVisits });
+        expect(producerVisits).toEqual([0, 0, 0, 0]);
+
+        // Snapshot hydration also builds renderables without explicit message inputs.
+        // Observe store reads as well: a freshly folded map would evade the map spy.
+        let messageReads = 0;
+        const liveEntry = storage.getState().sessionMessages[sessionId];
+        const messagesById = new Proxy(liveEntry.messagesById, {
+            get(target, key, receiver) {
+                if (typeof key === 'string' && key in target) messageReads++;
+                return Reflect.get(target, key, receiver);
+            },
+        });
+        storage.setState({ sessionMessages: { [sessionId]: { ...liveEntry, messagesById, messagesMap: messagesById } } });
+        visited = 0;
+        const implicit = buildSessionListRenderableFromSession(storage.getState().sessions[sessionId]);
+        expect(implicit).toMatchObject({ hasPendingPermissionRequests: true, pendingRequestObservedAt: 3_000 });
+        console.info('implicit renderable producer reads', { projected, visited, messageReads });
+        expect({ visited, messageReads }).toEqual({ visited: 0, messageReads: 0 });
+        storage.setState({ sessionMessages: { [sessionId]: liveEntry } });
+
+        // Positive state mutation: current completion retires q, and a later
+        // same-ID question reopens with a fresh action time and kind.
+        visited = 0;
+        const current = storage.getState().sessions[sessionId];
+        storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 1,
+            agentState: { requests: {}, completedRequests: { ...completedRequests,
+                q: { tool: 'Bash', arguments: { permissionId: 'q', status: 'pending', command: 'echo review' },
+                    createdAt: 3_000, completedAt: 5_300, status: 'approved' } } } }]);
+        expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+            hasPendingPermissionRequests: false, hasPendingUserActionRequests: false, pendingRequestObservedAt: null,
+        });
+        expect(observePendingSessionRequest(storage.getState().sessions[sessionId], 'q', states.get('q')).status).toBe('terminal');
+        expect(visited).toBe(0);
+        const completed = storage.getState().sessions[sessionId];
+        storage.getState().applySessions([{ ...completed, agentStateVersion: completed.agentStateVersion + 1,
+            agentState: { ...completed.agentState, requests: { q: { tool: 'AskUserQuestion',
+                arguments: { question: 'Continue?' }, createdAt: 6_000 } } } }]);
+        const reopened = storage.getState().sessions[sessionId];
+        storage.getState().applySessions([{ ...reopened,
+            pendingPermissionRequestCount: projected ? 0 : undefined,
+            pendingUserActionRequestCount: projected ? 1 : undefined,
+            pendingRequestObservedAt: projected ? 6_000 : undefined }]);
+        expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+            hasPendingPermissionRequests: false, hasPendingUserActionRequests: true, pendingRequestObservedAt: 6_000,
+        });
+        expect(observePendingSessionRequest(storage.getState().sessions[sessionId], 'q', states.get('q')).status).toBe('pending');
+        // A genuine latest-terminal retraction may need one watermark repair.
+        console.info('completion/reopen request-map visits', { projected, visited });
+        expect(visited).toBeLessThanOrEqual(historySize + 1);
+        visited = 0;
+        storage.getState().applySessions([{ ...storage.getState().sessions[sessionId], updatedAt: 6_100 }]);
+        expect(visited).toBe(0);
+        const aggregate = storage.getState().sessionMessages[sessionId].renderableAggregate!;
+        expect(aggregate.requestProjection.pendingStates.size).toBe(1);
+        expect(aggregate.requestProjection.pendingStates.get('q')).toBe(aggregate.requestStates.get('q'));
+        expect(aggregate.requestProjection.newestTerminalCreatedAt).toBe(historySize);
+
+        const changed = storage.getState().sessions[sessionId];
+        storage.getState().applySessions([{ ...changed, agentStateVersion: changed.agentStateVersion + 1,
+            agentState: { ...changed.agentState, requests: { q: { tool: 'AskUserQuestion',
+                arguments: { question: 'Use the new content?' }, createdAt: 6_000 } } } }]);
+        expect(observePendingSessionRequest(storage.getState().sessions[sessionId], 'q',
+            storage.getState().sessionMessages[sessionId].renderableAggregate!.requestStates.get('q')))
+            .toMatchObject({ status: 'pending', request: { arguments: { question: 'Use the new content?' }, createdAt: 6_000 } });
+        expect(visited).toBe(0);
+
+        const zero = storage.getState().sessions[sessionId];
+        storage.getState().applySessions([{ ...zero, agentStateVersion: zero.agentStateVersion + 1,
+            agentState: { ...zero.agentState, requests: {} },
+            pendingPermissionRequestCount: 0, pendingUserActionRequestCount: 0 }]);
+        expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+            hasPendingPermissionRequests: false, hasPendingUserActionRequests: false, pendingRequestObservedAt: null,
+        });
+        expect(aggregate.requestProjection.pendingStates.has('q')).toBe(true);
+        expect(visited).toBe(0);
+
+    });
+
     it('rebuilds an invalidated partial aggregate during public message refresh, with one historical store walk', () => {
         storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true, agentState: null })]);
         const history: NormalizedMessage[] = Array.from({ length: 10_000 }, (_, index) => ({
@@ -307,6 +466,26 @@ describe('session snapshots: transcript aggregates', () => {
         storage.getState().applySessions([{ ...current, updatedAt: 1_008 }]);
         expect(storage.getState().sessionListRenderables[sessionId].hasPendingPermissionRequests).toBe(false);
     });
+
+    it.each(['evictSessionMessages', 'resetSessionMessages'] as const)(
+        'drops the pending projection with %s and rebuilds it from changed same-ID data', reset => {
+            seedTranscript(false);
+            const current = storage.getState().sessions[sessionId];
+            const oldAggregate = storage.getState().sessionMessages[sessionId].renderableAggregate;
+            storage.getState()[reset](sessionId);
+            storage.getState().applySessions([{ ...current, updatedAt: 2_000 }]);
+            expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+                hasPendingPermissionRequests: false, hasPendingUserActionRequests: false, pendingRequestObservedAt: null,
+            });
+            storage.getState().applyMessages(sessionId, [pendingMessage('AskUserQuestion', 'acted', 3_000)]);
+            const aggregate = storage.getState().sessionMessages[sessionId].renderableAggregate!;
+            expect(aggregate).not.toBe(oldAggregate);
+            expect(aggregate.requestProjection.pendingStates.size).toBe(1);
+            expect(storage.getState().sessionListRenderables[sessionId]).toMatchObject({
+                hasPendingPermissionRequests: false, hasPendingUserActionRequests: true, pendingRequestObservedAt: 3_000,
+            });
+        },
+    );
 
     it('retains an R24 counted placeholder when partial history provides no request details', () => {
         storage.getState().applySessions([createSessionFixture({ id: sessionId, active: true,
