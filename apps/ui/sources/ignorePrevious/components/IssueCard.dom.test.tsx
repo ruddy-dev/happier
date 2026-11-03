@@ -4,10 +4,15 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { t } from '@/text';
+import { storage } from '@/sync/domains/state/storage';
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import type { Session } from '@/sync/domains/state/storageTypes';
 
 import { deskPrefs, type DeskPrefValue } from '../deskPrefs';
 import { groupWorkersByIssue } from '../model/groupWorkers';
 import { IssueCard } from './IssueCard';
+import { WorkColumn } from './WorkColumn';
+import { usageLimitIssue } from '../testkit/usageLimitFixtures';
 
 // Exercise React Native Web's real accessibility-prop mapping to the rendered button.
 vi.mock('react-native', async () => vi.importActual('react-native-web'));
@@ -28,7 +33,11 @@ vi.mock('@/hooks/ui/useReducedMotionPreference', async () => {
 let root: Root;
 let container: HTMLDivElement;
 let previousStyle: DeskPrefValue<'chatStyle'>;
+let previousStorage: ReturnType<typeof storage.getState>;
 beforeEach(() => {
+    previousStorage = storage.getState();
+    storage.setState(storage.getInitialState(), true);
+    vi.stubEnv('EXPO_PUBLIC_IP_WQ_DIR', '');
     previousStyle = deskPrefs.get('chatStyle');
     container = document.createElement('div');
     document.body.append(container);
@@ -38,9 +47,122 @@ afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
     deskPrefs.set('chatStyle', previousStyle);
+    storage.setState(previousStorage, true);
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
 });
 
 describe.each(['terminal', 'mask'] as const)('%s folded Work card accessible name', style => {
+    it.each(['known', 'unknown', 'due'] as const)('names a usage-limit wait through Work with a %s reset', async reset => {
+        deskPrefs.set('chatStyle', style);
+        const now = new Date(2026, 10, 4, 12, 0).getTime();
+        vi.spyOn(Date, 'now').mockReturnValue(now);
+        const resetAt = reset === 'unknown' ? null : now + (reset === 'due' ? -1 : 1) * 60_000;
+        const worker = createSessionFixture({
+            id: 'limited', active: false, updatedAt: now,
+            metadata: { path: '/work/atr-18-limited', host: 'fixture' },
+            latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: usageLimitIssue(now, resetAt),
+        });
+        await act(async () => {
+            storage.getState().applySessions([worker]);
+            storage.getState().applyReady();
+            root.render(<WorkColumn />);
+        });
+        const card = container.querySelector('[data-testid="ip-issue-ATR-18"]');
+        const button = card?.querySelector('[role="button"]') as HTMLElement | null;
+        expect(button).not.toBeNull();
+        expect(button?.getAttribute('aria-expanded')).toBe('false');
+        await act(async () => button?.focus());
+        expect(document.activeElement).toBe(button);
+        const name = button?.getAttribute('aria-label');
+        expect(name).toContain(t('ignorePrevious.usageLimit.waiting'));
+        expect(name).toContain(t('connectedServices.pools.behavior.switchOn.usageLimit'));
+        const time = resetAt === null ? null : new Date(resetAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const detail = reset === 'unknown' ? t('ignorePrevious.usageLimit.waitsForReset')
+            : reset === 'due' ? t('ignorePrevious.usageLimit.resetDue')
+            : t('ignorePrevious.usageLimit.waitsForResetAt', { time: time! });
+        expect(card?.querySelector('[data-testid="ip-worker-usage-limit-limited"]')?.textContent).toBe(detail);
+        if (time) expect(name).not.toContain(time);
+        await act(async () => button?.click());
+        expect(button?.getAttribute('aria-expanded')).toBe('true');
+        expect(button?.getAttribute('aria-label')).toBe(name);
+        expect(card?.querySelector('[data-testid="ip-worker-usage-limit-limited"]')?.textContent).toBe(detail);
+        expect(card?.querySelector('[data-testid="ip-open-worker-limited"]')).not.toBeNull();
+        await act(async () => {
+            storage.getState().applySessions([{ ...worker, seq: worker.seq + 1,
+                latestTurnStatus: 'completed', latestTurnStatusObservedAt: now + 1,
+                lastRuntimeIssue: null }]);
+        });
+        expect(button?.getAttribute('aria-label')).not.toContain(t('connectedServices.pools.behavior.switchOn.usageLimit'));
+        expect(card?.querySelector('[data-testid="ip-worker-usage-limit-limited"]')).toBeNull();
+    });
+
+    it.each(['multiple limits', 'working sibling', 'question sibling', 'failed sibling', 'view-only sibling', 'view-only limited worker', 'ungranted limited worker'] as const)(
+        'keeps the state owner and reset details for %s', async scenario => {
+            deskPrefs.set('chatStyle', style);
+            const now = new Date(2026, 10, 4, 12, 0).getTime();
+            vi.spyOn(Date, 'now').mockReturnValue(now);
+            const limited = createSessionFixture({
+                id: 'limited', active: false, updatedAt: now - 1,
+                metadata: { path: '/work/atr-18-limited', host: 'fixture' },
+                latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+                lastRuntimeIssue: usageLimitIssue(now, now + 60_000),
+            });
+            const pending: Partial<Session> = {
+                active: true, activeAt: now, pendingRequestObservedAt: now,
+                pendingPermissionRequestCount: 1,
+                agentState: { requests: { request: { tool: 'Bash', kind: 'permission', arguments: { command: 'pwd' }, createdAt: now } } },
+            };
+            let other: Partial<Session>;
+            if (scenario === 'multiple limits') other = { ...limited, lastRuntimeIssue: usageLimitIssue(now, now + 120_000) };
+            else if (scenario === 'working sibling') other = { active: true, activeAt: now, thinking: true, thinkingAt: now };
+            else if (scenario === 'failed sibling') other = { active: true, activeAt: now, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+                lastRuntimeIssue: { v: 1, scope: 'primary_session', status: 'failed', code: 'provider_exit', source: 'provider_process_exit', occurredAt: now } };
+            else if (scenario === 'question sibling') other = { ...pending, pendingPermissionRequestCount: 0, pendingUserActionRequestCount: 1,
+                agentState: { requests: { request: { tool: 'AskUserQuestion', kind: 'user_action', arguments: { question: 'Proceed?' }, createdAt: now } } } };
+            else other = { ...pending, accessLevel: scenario === 'ungranted limited worker' ? 'edit' : 'view', canApprovePermissions: false };
+            const sameWorker = scenario === 'view-only limited worker' || scenario === 'ungranted limited worker';
+            const workers = sameWorker ? [{ ...limited, ...other }] : [limited, createSessionFixture({
+                ...other, id: 'other', updatedAt: now, metadata: { path: '/work/atr-18-other', host: 'fixture' },
+            })];
+            await act(async () => {
+                storage.getState().applySessions(workers);
+                storage.getState().applyReady();
+                root.render(<WorkColumn />);
+            });
+            const card = container.querySelector('[data-testid="ip-issue-ATR-18"]');
+            const button = card?.querySelector('[role="button"]') as HTMLElement | null;
+            expect(button).not.toBeNull();
+            const name = button?.getAttribute('aria-label');
+            const limitReason = t('connectedServices.pools.behavior.switchOn.usageLimit');
+            const ownsLimit = scenario === 'multiple limits' || sameWorker;
+            if (ownsLimit) expect(name?.split(limitReason)).toHaveLength(2);
+            else expect(name).not.toContain(limitReason);
+            const stateKey = scenario === 'working sibling' ? 'ignorePrevious.countWorking'
+                : scenario === 'question sibling' ? 'ignorePrevious.countTurn'
+                : scenario === 'failed sibling' ? 'ignorePrevious.countStuck' : 'ignorePrevious.usageLimit.waiting';
+            expect(name).toContain(t(stateKey));
+            if (scenario === 'question sibling') expect(name).toContain(t('ignorePrevious.question'));
+            if (scenario === 'failed sibling') expect(name).toContain(t('ignorePrevious.workList.failed'));
+            if (scenario.startsWith('view-only')) expect(name).toContain(t('session.sharing.permissionApprovalsDisabledReadOnly'));
+            if (scenario === 'ungranted limited worker') expect(name).toContain(t('session.sharing.permissionApprovalsDisabledNotGranted'));
+            const time = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            expect(name).not.toContain(time(now + 60_000));
+            expect(name).not.toContain(time(now + 120_000));
+            if (scenario === 'multiple limits') {
+                expect(card?.querySelector('[data-testid="ip-issue-usage-limits-ATR-18"]')?.textContent).toBe(t('ignorePrevious.usageLimit.nextKnownResetAt', {
+                    count: t('ignorePrevious.usageLimit.limitedCount', { count: 2 }), time: time(now + 60_000),
+                }));
+            }
+            await act(async () => button?.click());
+            expect(button?.getAttribute('aria-label')).toBe(name);
+            expect(card?.querySelector('[data-testid="ip-worker-usage-limit-limited"]')?.textContent).toBe(t('ignorePrevious.usageLimit.waitsForResetAt', { time: time(now + 60_000) }));
+            if (scenario === 'multiple limits') expect(card?.querySelector('[data-testid="ip-worker-usage-limit-other"]')?.textContent)
+                .toBe(t('ignorePrevious.usageLimit.waitsForResetAt', { time: time(now + 120_000) }));
+        },
+    );
+
     it.each([
         { scenario: 'question', bulb: 'turn', stateKey: 'ignorePrevious.countTurn', reasonKey: 'ignorePrevious.question' },
         { scenario: 'view-only approval', bulb: 'waiting', stateKey: 'ignorePrevious.usageLimit.waiting', reasonKey: 'session.sharing.permissionApprovalsDisabledReadOnly' },
