@@ -5,6 +5,7 @@ import { DeskCreature } from '../creature/DeskCreature';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderScreen } from '@/dev/testkit';
+import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 
@@ -40,6 +41,12 @@ vi.mock('@/modal', async () => {
     return createModalModuleMock().module;
 });
 
+// The fixture renders AgentInput with the complete production theme contract.
+vi.mock('react-native-unistyles', async () => {
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    return createUnistylesMock();
+});
+
 vi.mock('@/components/sessions/shell/SessionView', async () => {
     const { useSessionComposerOverrides } = await import('@/components/sessions/model/sessionComposerOverrides');
     const { TextInput, View } = await import('react-native');
@@ -65,6 +72,10 @@ vi.mock('@/hooks/session/useHydrateSessionForRoute', async () => {
     const { deskScreenMocks } = await import('../testkit/deskScreenMocks');
     return deskScreenMocks.hydrateSessionForRoute();
 });
+
+function FixturePanes({ children }: React.PropsWithChildren) {
+    return <AppPaneProvider>{children}</AppPaneProvider>;
+}
 
 describe('CoordinatorPane body', () => {
     const before = storage.getState();
@@ -274,7 +285,7 @@ describe('CoordinatorPane body', () => {
         expect(screen.findByTestId('session-view-worker')!.findAllByProps({ testID: 'ip-run-settings' })).toHaveLength(0);
         await screen.unmount();
         vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
-        const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>);
+        const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>, { wrapper: FixturePanes });
         await act(async () => { await import('../fixtures/CoordinatorBodyStub'); });
         expect(fixture.findByTestId('ip-run-settings')).not.toBeNull();
     });
@@ -300,9 +311,10 @@ describe('CoordinatorPane body', () => {
         expect(overrides.hide.contextUsage).toBe(true);
         await screen.unmount();
         vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
-        const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>);
+        const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>, { wrapper: FixturePanes });
         await act(async () => { await import('../fixtures/CoordinatorBodyStub'); });
-        expect(fixture.findByTestId('ip-fixture-coordinator-body')!.findAllByProps({ testID: 'ip-context-gauge' }).length).toBeGreaterThan(0);
+        expect(fixture.findByTestId('agent-input-status-trailing')!.findAllByProps({ testID: 'ip-context-gauge' }).length).toBeGreaterThan(0);
+        expect(fixture.findByTestId('ip-fixture-coordinator-body')!.findAllByProps({ testID: 'ip-context-gauge' })).toHaveLength(0);
     });
 
     it.each([false, true])('Finding 6 omits the status node without a hint or report, loaded=%s', async (loaded) => {
@@ -408,6 +420,7 @@ describe('CoordinatorPane body', () => {
             <DeskFixtureRouteContext.Provider value={true}>
                 <CoordinatorPane sessionId="c1" />
             </DeskFixtureRouteContext.Provider>,
+            { wrapper: FixturePanes },
         );
 
         // The stub is a lazy import: it appears once the chunk has loaded.

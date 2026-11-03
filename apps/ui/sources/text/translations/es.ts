@@ -11674,6 +11674,12 @@ settingsSession: {
         },
         composer: {
             placeholder: 'Talk to Shog',
+            prompt: 'you',
+            ready: 'Ready',
+            writing: 'Writing',
+            waiting: ({ count }: { count: number }) => `${count} waiting`,
+            waitingUnknown: '— waiting',
+            position: ({ line, column }: { line: number; column: number }) => `Ln ${line}, Col ${column}`,
             enterHint: 'Enter sends, Shift+Enter for a new line',
             briefFirst: 'Brief me first',
             briefPrompt: 'The six questions: aim, agreed, checked, happening, your turn, left.',

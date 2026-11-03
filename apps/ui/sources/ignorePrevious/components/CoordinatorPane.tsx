@@ -17,6 +17,7 @@ import { ContextGauge } from './ContextGauge';
 import { sessionContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { CoordinatorHeader } from './CoordinatorHeader';
+import { CoordinatorComposer } from './CoordinatorComposer';
 import { ShogView } from './ShogView';
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { DeskText } from '../typography/DeskText';
@@ -112,6 +113,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
+                <CoordinatorComposer key={sessionId}>
                 <DeskContextDataContext.Provider value={contextData}><CoordinatorTranscriptAppearanceProvider>
                     {FixtureBody ? (
                         <React.Suspense fallback={null}>
@@ -131,6 +133,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                         />
                     )}
                 </CoordinatorTranscriptAppearanceProvider></DeskContextDataContext.Provider>
+                </CoordinatorComposer>
             </View>
         </View>
     );
