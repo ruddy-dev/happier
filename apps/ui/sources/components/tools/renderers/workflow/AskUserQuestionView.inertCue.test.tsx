@@ -15,10 +15,6 @@ vi.mock('@/components/sessions/terminal/openAttachedSessionTerminal', () => ({
 
 const sessionId = 'inert-cue-session';
 const requestId = 'inert-cue-question';
-const session = createSessionFixture({
-    id: sessionId,
-    agentState: { requests: { [requestId]: { tool: 'AskUserQuestion', kind: 'user_action', arguments: {}, createdAt: 1 } } },
-});
 const tool = makeToolCall({
     id: requestId, name: 'AskUserQuestion', state: 'running',
     input: { questions: [{
@@ -26,6 +22,10 @@ const tool = makeToolCall({
         options: [{ label: 'Stable', description: 'Use the stable release' }],
         freeform: { placeholder: 'Another answer' },
     }] },
+});
+const session = createSessionFixture({
+    id: sessionId,
+    agentState: { requests: { [requestId]: { tool: 'AskUserQuestion', kind: 'user_action', arguments: tool.input, createdAt: 1 } } },
 });
 const optionId = 'ask-user-question.option:0:0';
 const inputId = 'ask-user-question.freeform:0';

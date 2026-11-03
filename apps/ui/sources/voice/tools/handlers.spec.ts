@@ -286,6 +286,123 @@ vi.mock('expo-router', async () => {
 });
 
 describe('voice tool handlers', () => {
+  function seedInspection(kind: 'permission' | 'user_action', normalized: boolean, withIndependent = false) {
+    const tool = kind === 'permission' ? 'Bash' : 'AskUserQuestion';
+    const args = kind === 'permission' ? { command: 'echo B' } : { questions: [{ question: 'Question B?', options: [] }] };
+    const otherArgs = kind === 'permission' ? { command: 'echo A' } : { questions: [{ question: 'Question A?', options: [] }] };
+    state.sessions = { s1: { ...state.sessions.s1, agentState: {
+      requests: withIndependent ? { q: { tool, kind, arguments: kind === 'permission' ? { command: 'echo q' } : { questions: [{ question: 'Question q?', options: [] }] }, createdAt: 700 } } : {},
+      completedRequests: { r: { tool, kind, arguments: otherArgs, createdAt: 500, completedAt: 600, status: 'approved' } },
+    } } };
+    const message = { kind: 'tool-call', id: 'main-b', localId: null, createdAt: 200, children: [],
+      tool: { id: 'r', name: tool, state: 'running', input: args, description: null, createdAt: 200, startedAt: null, completedAt: null,
+        permission: { id: 'r', status: 'pending', kind } } };
+    state.sessionMessages.s1 = normalized
+      ? { messageIdsOldestFirst: ['main-b'], messagesById: { 'main-b': message } }
+      : { messages: [message] };
+  }
+
+  it.each([false, true])('rejects explicit inspection-only main B for Voice Allow/Deny, normalized=%s', async normalized => {
+    seedInspection('permission', normalized);
+    sessionRpcWithServerScope.mockResolvedValue({ ok: true });
+    const { createVoiceToolHandlers } = await import('./handlers');
+    const tools = createVoiceToolHandlers({ resolveSessionId: () => 's1' });
+    for (const decision of ['allow', 'deny']) {
+      expect(JSON.parse(await tools.processPermissionRequest({ requestId: 'r', decision }))).toMatchObject({ ok: false });
+    }
+    expect(sessionRpcWithServerScope).not.toHaveBeenCalled();
+  });
+
+  it.each(['permission', 'user_action'] as const)('selects independent q beside inspection r, including fallback: %s', async kind => {
+    seedInspection(kind, true, true);
+    sessionRpcWithServerScope.mockResolvedValue({ ok: true });
+    const { createVoiceToolHandlers } = await import('./handlers');
+    const tools = createVoiceToolHandlers({ resolveSessionId: () => 's1' });
+    const answer = (requestId?: string) => kind === 'permission'
+      ? tools.processPermissionRequest({ decision: 'allow', requestId })
+      : tools.answerUserActionRequest({ answers: [{ question: 'Question q?', answer: 'answer' }], requestId });
+    expect(JSON.parse(await answer('r'))).toMatchObject({ ok: false });
+    expect(sessionRpcWithServerScope).not.toHaveBeenCalled();
+    const independentResult = JSON.parse(await answer());
+    expect(independentResult).toMatchObject({ ok: true, requestId: 'q' });
+    expect(sessionRpcWithServerScope).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ id: 'q' }) }));
+  });
+
+  it.each(['approve', 'reject', 'answers'] as const)('does not resurrect a classified user-action r through fallback: %s', async decision => {
+    seedInspection('user_action', true);
+    sessionRpcWithServerScope.mockResolvedValue({ ok: true });
+    const { createVoiceToolHandlers } = await import('./handlers');
+    const tools = createVoiceToolHandlers({ resolveSessionId: () => 's1' });
+    const parameters = decision === 'answers' ? { answers: [{ question: 'Question B?', answer: 'answer' }] } : { decision };
+    for (const requestId of ['r', undefined]) {
+      expect(JSON.parse(await tools.answerUserActionRequest({ requestId, ...parameters }))).toMatchObject({ ok: false, errorCode: 'permission_request_requires_inspection' });
+    }
+    expect(sessionRpcWithServerScope).not.toHaveBeenCalled();
+  });
+
+  it.each(['permission', 'user_action'] as const)('rechecks the selected %s occurrence after resolution and preserves fresh A', async kind => {
+    const tool = kind === 'permission' ? 'Bash' : 'AskUserQuestion';
+    const input = (label: string) => kind === 'permission' ? { command: label } : { questions: [{ question: label, options: [] }] };
+    state.sessions = { s1: { ...state.sessions.s1, agentState: { requests: { r: { tool, kind, arguments: input('B'), createdAt: 200 } } } } };
+    state.sessionMessages.s1 = { messages: [] };
+    sessionRpcWithServerScope.mockResolvedValue({ ok: true });
+    const { createVoiceToolHandlers } = await import('./handlers');
+    const tools = createVoiceToolHandlers({ resolveSessionId: () => 's1' });
+    const answer = () => kind === 'permission'
+      ? tools.processPermissionRequest({ requestId: 'r', decision: 'deny' })
+      : tools.answerUserActionRequest({ requestId: 'r', answers: [{ question: 'A', answer: 'answer' }] });
+    const stale = answer();
+    state.sessions.s1 = { ...state.sessions.s1, agentState: { requests: { r: { tool, kind, arguments: input('A'), createdAt: 700 } } } };
+    expect(JSON.parse(await stale)).toMatchObject({ ok: false, errorCode: 'permission_request_changed' });
+    expect(sessionRpcWithServerScope).not.toHaveBeenCalled();
+    expect(JSON.parse(await answer())).toMatchObject({ ok: true, requestId: 'r' });
+    expect(sessionRpcWithServerScope).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ id: 'r' }) }));
+  });
+
+  it.each(['permission', 'user_action'] as const)('implicit cross-session %s fallback skips inspection-only r', async kind => {
+    seedInspection(kind, true);
+    state.sessions.s2 = { ...createBaseState().sessions.s2, active: true, agentState: { requests: {
+      q: { tool: kind === 'permission' ? 'Bash' : 'AskUserQuestion', kind,
+        arguments: kind === 'permission' ? { command: 'echo q' } : { questions: [{ question: 'Question q?', options: [] }] }, createdAt: 700 },
+    } } };
+    state.sessionMessages.s2 = { messages: [] };
+    sessionRpcWithServerScope.mockResolvedValue({ ok: true });
+    const { createVoiceToolHandlers } = await import('./handlers');
+    const tools = createVoiceToolHandlers({ resolveSessionId: () => 's1' });
+    const answer = (parameters = {}) => kind === 'permission'
+      ? tools.processPermissionRequest({ decision: 'deny', ...parameters })
+      : tools.answerUserActionRequest({ answers: [{ question: 'Question q?', answer: 'answer' }], ...parameters });
+    expect(JSON.parse(await answer({ requestId: 'r' }))).toMatchObject({ ok: false, errorCode: 'permission_request_requires_inspection' });
+    expect(JSON.parse(await answer({ sessionId: 's1' }))).toMatchObject({ ok: false, errorCode: 'permission_request_requires_inspection' });
+    expect(sessionRpcWithServerScope).not.toHaveBeenCalled();
+    expect(JSON.parse(await answer())).toMatchObject({ ok: true, sessionId: 's2', requestId: 'q' });
+    expect(sessionRpcWithServerScope).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's2', payload: expect.objectContaining({ id: 'q' }) }));
+  });
+
+  it.each(['permission', 'user_action'] as const)('preserves %s fallback when hydration first discovers inspection-only r', async kind => {
+    seedInspection(kind, true);
+    const inspectionSession = state.sessions.s1;
+    const inspectionMessages = state.sessionMessages.s1;
+    state.sessions.s1 = { ...inspectionSession, agentState: { requests: {} } };
+    state.sessionMessages.s1 = { messages: [] };
+    state.sessions.s2 = { ...createBaseState().sessions.s2, active: true, agentState: { requests: {
+      q: { tool: kind === 'permission' ? 'Bash' : 'AskUserQuestion', kind,
+        arguments: kind === 'permission' ? { command: 'echo q' } : { questions: [{ question: 'Question q?', options: [] }] }, createdAt: 700 },
+    } } };
+    ensureSessionVisibleForMessageRoute.mockImplementationOnce(async () => {
+      state.sessions.s1 = inspectionSession;
+      state.sessionMessages.s1 = inspectionMessages;
+    });
+    sessionRpcWithServerScope.mockResolvedValue({ ok: true });
+    const { createVoiceToolHandlers } = await import('./handlers');
+    const tools = createVoiceToolHandlers({ resolveSessionId: () => 's1' });
+    const result = kind === 'permission'
+      ? await tools.processPermissionRequest({ decision: 'allow' })
+      : await tools.answerUserActionRequest({ answers: [{ question: 'Question q?', answer: 'answer' }] });
+    expect(JSON.parse(result)).toMatchObject({ ok: true, sessionId: 's2', requestId: 'q' });
+    expect(sessionRpcWithServerScope).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's2', payload: expect.objectContaining({ id: 'q' }) }));
+  });
+
   beforeEach(() => {
     state = createBaseState();
     registerStorageStateReader(readMockStorageState);
