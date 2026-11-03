@@ -1,9 +1,11 @@
 /** @vitest-environment jsdom */
 import { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, standardCleanup, resetBrowserSessionDraftPersistenceForTest } from '@/dev/testkit';
 import { createWebAudioBoundary } from '@/dev/testkit/harness/webAudio';
 import { __emitSpeechRecognitionEvent as emit, __resetExpoSpeechRecognitionStub, __setExpoSpeechRecognitionImpls } from '@/dev/expoSpeechRecognitionStub';
+import { t } from '@/text';
 import { storage } from '@/sync/domains/state/storage';
 import { getSessionDraftSnapshot, writeExistingSessionDraft } from '@/sync/ops/sessionDrafts/sessionDraftRepository';
 import { createComposerTextStore } from '@/components/sessions/agentInput/composerTextStore';
@@ -66,6 +68,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
     await standardCleanup();
+    document.body.replaceChildren();
     expect(send).not.toHaveBeenCalled();
     send.mockClear();
     storage.setState(previous, true);
@@ -228,5 +231,294 @@ describe('unsent desk dictation', () => {
         await act(async () => { hook.getCurrent().resolved.statusBadges.find(badge => badge.testID === 'ip-dictation-status')?.onPress?.(); });
         expect(hook.getCurrent().resolved.statusBadges.find(badge => badge.testID === 'ip-dictation-status')?.tone).toBe('active');
         expect(hook.getCurrent().controls.hide?.stop).toBe(true);
+    });
+});
+
+function sessionInput(pane = 'ip-coordinator-pane', testId = 'session-composer-input', wrapped = false) {
+    const root = document.createElement('div');
+    root.dataset.testid = pane;
+    const input = document.createElement('textarea');
+    const marker = wrapped ? document.createElement('div') : input;
+    marker.dataset.testid = testId;
+    if (wrapped) marker.append(input);
+    root.append(marker);
+    document.body.append(root);
+    input.focus();
+    return input;
+}
+async function key(target: EventTarget, type: 'keydown' | 'keyup', key = ' ', init: KeyboardEventInit = {}) {
+    const event = new KeyboardEvent(type, { key, bubbles: true, cancelable: true, ...init });
+    await act(async () => { target.dispatchEvent(event); });
+    return event;
+}
+function badge(controls: ReturnType<typeof useDeskDictationControls>) {
+    return controls.statusBadges!.find(b => b.testID === 'ip-dictation-status')!;
+}
+
+describe('coordinator hold Space dictation', () => {
+    it.each([false, true])('starts from the empty input, suppresses repeat and merges unsent on release, wrapped=%s', async (wrapped) => {
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput(undefined, undefined, wrapped);
+        expect(getUserMedia).not.toHaveBeenCalled();
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(true);
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(badge(hook.getCurrent()).tone).toBe('active');
+        expect(badge(hook.getCurrent()).label).toContain(t('ignorePrevious.dictation.listeningHoldSpace'));
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(true);
+        expect(start).toHaveBeenCalledOnce();
+        emit('result', { results: [{ transcript: 'held speech' }] });
+        expect(draft()).toBe('');
+        expect((await key(input, 'keyup')).defaultPrevented).toBe(true);
+        expect(input.value).toBe('');
+        expect(draft()).toBe('held speech');
+        expect(badge(hook.getCurrent()).tone).toBe('neutral');
+    });
+
+    it.each([
+        ['non-empty', 'ip-coordinator-pane', 'session-composer-input', ' '],
+        ['worker', 'worker-pane', 'session-composer-input', ''],
+        ['Shog', 'ip-shog-panel', 'session-composer-input', ''],
+        ['new session', 'ip-coordinator-pane', 'new-session-composer-input', ''],
+        ['other textarea in coordinator', 'ip-coordinator-pane', 'other-input', ''],
+    ])('passes Space through in %s', async (_case, pane, id, value) => {
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput(pane, id);
+        input.value = value;
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(false);
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        expect(getUserMedia).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true },
+        { isComposing: true }, { keyCode: 229 },
+    ])('passes guarded DOM events through: %j', async (init) => {
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        expect((await key(input, 'keydown', ' ', init)).defaultPrevented).toBe(false);
+        expect((await key(input, 'keydown', ' ', { ...init, repeat: true })).defaultPrevented).toBe(false);
+        expect(getUserMedia).not.toHaveBeenCalled();
+    });
+
+    it('does not install hold Space on native even when a window exists', async () => {
+        const previousPlatform = Platform.OS;
+        Platform.OS = 'ios';
+        try {
+            const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+            expect((await key(sessionInput(), 'keydown')).defaultPrevented).toBe(false);
+            expect(getUserMedia).not.toHaveBeenCalled();
+            await hook.unmount();
+        } finally {
+            Platform.OS = previousPlatform;
+        }
+    });
+
+    it('release is inert while idle and after an operation has already stopped', async () => {
+        const hook = await renderHook(() => useDeskDictation(sessionId));
+        await act(async () => { hook.getCurrent().release(); });
+        expect(getUserMedia).not.toHaveBeenCalled();
+        await press(hook);
+        emit('result', { results: [{ transcript: 'released mic' }] });
+        await act(async () => { hook.getCurrent().release(); });
+        await act(async () => { hook.getCurrent().release(); });
+        expect(draft()).toBe('released mic');
+        expect(start).toHaveBeenCalledOnce();
+    });
+
+    it('withdraws a hold released during permission and ignores a late grant', async () => {
+        let grant!: (value: { getTracks: () => [] }) => void;
+        getUserMedia.mockImplementation(() => new Promise(resolve => { grant = resolve; }));
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        await key(input, 'keyup');
+        await act(async () => { grant({ getTracks: () => [] }); });
+        expect(start).not.toHaveBeenCalled();
+        expect(draft()).toBe('');
+        expect(badge(hook.getCurrent()).tone).toBe('neutral');
+    });
+
+    it('withdraws when release and a permission grant happen in the same turn', async () => {
+        let grant!: (value: { getTracks: () => [] }) => void;
+        getUserMedia.mockImplementation(() => new Promise(resolve => { grant = resolve; }));
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        await act(async () => {
+            grant({ getTracks: () => [] });
+            input.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true }));
+        });
+        expect(start).not.toHaveBeenCalled();
+        expect(draft()).toBe('');
+    });
+
+    it('Escape cancels the hold and suppresses repeats without merging or restarting', async () => {
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'discard held speech' }] });
+        await key(input, 'keydown', 'Escape');
+        const repeats = [];
+        for (let repeat = 0; repeat < 3; repeat++) {
+            repeats.push((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented);
+        }
+        expect((await key(input, 'keyup')).defaultPrevented).toBe(false);
+        expect(abort).toHaveBeenCalledOnce();
+        expect(start).toHaveBeenCalledOnce();
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(draft()).toBe('');
+        expect(repeats).toEqual([true, true, true]);
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(true);
+        emit('result', { results: [{ transcript: 'fresh held speech' }] });
+        await key(input, 'keyup');
+        expect(start).toHaveBeenCalledTimes(2);
+        expect(draft()).toBe('fresh held speech');
+    });
+
+    it.each(['blur', 'hidden'])('%s clears suppression when the Space keyup is lost', async (event) => {
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'discard cancelled speech' }] });
+        await key(input, 'keydown', 'Escape');
+        await act(async () => {
+            if (event === 'blur') window.dispatchEvent(new Event('blur'));
+            else {
+                vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+                document.dispatchEvent(new Event('visibilitychange'));
+            }
+        });
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        expect(start).toHaveBeenCalledOnce();
+        expect(draft()).toBe('');
+    });
+
+    it.each(['blur', 'hidden'])('%s releases the hold and merges', async (event) => {
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'keep held speech' }] });
+        await act(async () => {
+            if (event === 'blur') window.dispatchEvent(new Event('blur'));
+            else {
+                vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+                document.dispatchEvent(new Event('visibilitychange'));
+            }
+        });
+        await key(input, 'keyup');
+        expect(draft()).toBe('keep held speech');
+        expect(start).toHaveBeenCalledOnce();
+    });
+
+    it('can disable hold Space while keeping the mic working', async () => {
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}, { holdSpace: false }));
+        const input = sessionInput();
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(false);
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        expect(getUserMedia).not.toHaveBeenCalled();
+        await act(async () => { badge(hook.getCurrent()).onPress?.(); });
+        expect(badge(hook.getCurrent()).tone).toBe('active');
+        emit('result', { results: [{ transcript: 'mic still works' }] });
+        await act(async () => { badge(hook.getCurrent()).onPress?.(); });
+        expect(draft()).toBe('mic still works');
+    });
+
+    it('Space cannot take over a mic-started operation', async () => {
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await act(async () => { badge(hook.getCurrent()).onPress?.(); });
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(false);
+        for (let repeat = 0; repeat < 3; repeat++) {
+            expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        }
+        expect((await key(input, 'keyup')).defaultPrevented).toBe(false);
+        expect(start).toHaveBeenCalledOnce();
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(badge(hook.getCurrent()).tone).toBe('active');
+        expect(badge(hook.getCurrent()).label).not.toContain(t('ignorePrevious.dictation.listeningHoldSpace'));
+        emit('result', { results: [{ transcript: 'mic speech' }] });
+        await act(async () => { badge(hook.getCurrent()).onPress?.(); });
+        expect(draft()).toBe('mic speech');
+    });
+
+    it('passes repeats through when Space was held elsewhere before focusing the empty input', async () => {
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        const elsewhere = document.createElement('textarea');
+        document.body.append(elsewhere);
+        elsewhere.focus();
+        expect((await key(elsewhere, 'keydown')).defaultPrevented).toBe(false);
+        input.focus();
+        for (let repeat = 0; repeat < 3; repeat++) {
+            expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        }
+        expect((await key(input, 'keyup')).defaultPrevented).toBe(false);
+        expect(getUserMedia).not.toHaveBeenCalled();
+        expect(start).not.toHaveBeenCalled();
+        expect(draft()).toBe('');
+    });
+
+    it('unmount during suppression removes listeners and leaves a remount idle', async () => {
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'discard unmounted suppression' }] });
+        await key(input, 'keydown', 'Escape');
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(true);
+        await hook.unmount();
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        expect((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented).toBe(false);
+        expect(start).toHaveBeenCalledOnce();
+        expect(draft()).toBe('');
+        await key(input, 'keyup');
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(true);
+        emit('result', { results: [{ transcript: 'remounted hold' }] });
+        await key(input, 'keyup');
+        expect(start).toHaveBeenCalledTimes(2);
+        expect(draft()).toBe('remounted hold');
+    });
+
+    it('unmount removes keyboard listeners and cancels the active hold', async () => {
+        const hook = await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const input = sessionInput();
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'discard unmounted hold' }] });
+        await hook.unmount();
+        await key(input, 'keyup');
+        expect((await key(input, 'keydown')).defaultPrevented).toBe(false);
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(abort).toHaveBeenCalledOnce();
+        expect(draft()).toBe('');
+    });
+
+    it.each([false, true])('session change suppresses the interrupted hold, already cancelled=%s', async (alreadyCancelled) => {
+        writeExistingSessionDraft({ scope, sessionId: 'another-coordinator', patch: { text: '' } });
+        const hook = await renderHook(({ id }) => useDeskDictationControls(id, {}), { initialProps: { id: sessionId } });
+        const input = sessionInput();
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'old held speech' }] });
+        if (alreadyCancelled) await key(input, 'keydown', 'Escape');
+        await hook.rerender({ id: 'another-coordinator' });
+        const repeats = [];
+        for (let repeat = 0; repeat < 3; repeat++) {
+            repeats.push((await key(input, 'keydown', ' ', { repeat: true })).defaultPrevented);
+        }
+        expect((await key(input, 'keyup')).defaultPrevented).toBe(false);
+        expect(abort).toHaveBeenCalledOnce();
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(start).toHaveBeenCalledOnce();
+        expect(draft()).toBe('');
+        expect(draft('another-coordinator')).toBe('');
+        expect(repeats).toEqual([true, true, true]);
+        await key(input, 'keydown');
+        emit('result', { results: [{ transcript: 'new held speech' }] });
+        await key(input, 'keyup');
+        expect(getUserMedia).toHaveBeenCalledTimes(2);
+        expect(draft()).toBe('');
+        expect(draft('another-coordinator')).toBe('new held speech');
     });
 });

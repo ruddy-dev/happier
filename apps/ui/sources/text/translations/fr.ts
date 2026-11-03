@@ -10788,6 +10788,8 @@ settingsSession: {
             start: 'Dictate',
             stop: 'Stop dictation',
             listening: 'Listening…',
+            listeningHoldSpace: 'Listening… release Space to stop',
+            holdSpaceHint: 'Or hold Space in the empty box.',
             instructions: 'Press the mic again to stop. Esc cancels.',
             failed: 'Mic failed.',
             privacyShort: 'Audio may go to Google',
