@@ -11,6 +11,7 @@ import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { areServerProfileIdentifiersEquivalent } from '@/sync/domains/server/serverProfiles';
 import { resolveAgentRequestKind, type AgentRequestKind } from '@/utils/sessions/permissions/permissionPromptPolicy';
 import { listPendingPermissionRequests, listPendingUserActionRequests } from '@/utils/sessions/sessionUtils';
+import { isPendingSessionRequestActionable, type SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { resolveAskUserQuestionDecisionAnswers } from '@/voice/requests/resolveAskUserQuestionDecisionAnswers';
 
 function normalizeId(raw: unknown): string {
@@ -57,25 +58,36 @@ function getNestedActionFailure(value: unknown): { errorCode: string; errorMessa
   };
 }
 
-function getPendingSessionRequests(session: unknown): Array<Readonly<{
+type VoicePendingRequest = Readonly<{
   requestId: string;
   toolName: string;
   requestKind: AgentRequestKind;
-}>> {
+  request: SessionPendingRequest;
+}>;
+
+function getPendingSessionRequests(session: unknown): VoicePendingRequest[] {
   if ((session as any)?.active !== true) {
     return [];
   }
   const requests = (session as any)?.agentState?.requests as Record<string, unknown> | undefined;
   if (!requests || typeof requests !== 'object') return [];
-  const out: Array<Readonly<{ requestId: string; toolName: string; requestKind: AgentRequestKind }>> = [];
+  const out: VoicePendingRequest[] = [];
   for (const [requestId, raw] of Object.entries(requests)) {
     const normalizedId = normalizeId(requestId);
-    const toolName = typeof (raw as any)?.tool === 'string' ? String((raw as any).tool).trim() : '';
+    const record = asPlainObject(raw);
+    const toolName = typeof record?.tool === 'string' ? record.tool.trim() : '';
     if (!normalizedId || !toolName) continue;
+    const requestKind = resolveAgentRequestKind({ toolName, requestKind: record?.kind });
     out.push({
       requestId: normalizedId,
       toolName,
-      requestKind: resolveAgentRequestKind({ toolName, requestKind: (raw as any)?.kind }),
+      requestKind,
+      request: {
+        id: normalizedId, tool: toolName,
+        kind: requestKind,
+        arguments: record?.arguments,
+        createdAt: typeof record?.createdAt === 'number' && Number.isFinite(record.createdAt) ? record.createdAt : null,
+      },
     });
   }
   return out;
@@ -86,11 +98,7 @@ function getStoredSessionMessages(sessionId: string): ReadonlyArray<Message> | u
   return Array.isArray(messages) ? (messages as ReadonlyArray<Message>) : undefined;
 }
 
-function getPendingRequestsForSession(sessionId: string, session: unknown): Array<Readonly<{
-  requestId: string;
-  toolName: string;
-  requestKind: AgentRequestKind;
-}>> {
+function getPendingRequestsForSession(sessionId: string, session: unknown): VoicePendingRequest[] {
   const candidateSession = session && typeof session === 'object'
     ? (session as Parameters<typeof listPendingPermissionRequests>[0])
     : null;
@@ -121,11 +129,13 @@ function getPendingRequestsForSession(sessionId: string, session: unknown): Arra
       requestId: request.id,
       toolName: request.tool,
       requestKind: request.kind,
+      request,
     })),
     ...userActionRequests.map((request) => ({
       requestId: request.id,
       toolName: request.tool,
       requestKind: request.kind,
+      request,
     })),
   ];
 
@@ -147,7 +157,7 @@ function listMatchingPendingRequestsAcrossSessions(
   for (const [sessionId, session] of Object.entries(sessions)) {
     const normalizedSessionId = normalizeId(sessionId);
     if (!normalizedSessionId) continue;
-    const requests = getPendingRequestsForSession(normalizedSessionId, session).filter((request) => request.requestKind === kind);
+    const requests = getPendingRequestsForSession(normalizedSessionId, session).filter((request) => request.requestKind === kind && !request.request.requiresInspection);
     for (const request of requests) {
       if (explicit && request.requestId !== explicit) continue;
       matches.push({ sessionId: normalizedSessionId, requestId: request.requestId });
@@ -190,18 +200,20 @@ export function createVoiceToolHandlers(
     session: unknown,
     kind: AgentRequestKind,
     explicitRequestId: unknown,
-  ): { ok: true; requestId: string } | { ok: false; errorCode: string; payload?: Record<string, unknown> } => {
-    const requests = getPendingRequestsForSession(sessionId, session).filter((request) => request.requestKind === kind);
+  ): { ok: true; requestId: string; request: SessionPendingRequest } | { ok: false; errorCode: string; payload?: Record<string, unknown> } => {
+    const candidates = getPendingRequestsForSession(sessionId, session).filter((request) => request.requestKind === kind);
+    const requests = candidates.filter(request => !request.request.requiresInspection);
     const explicit = normalizeId(explicitRequestId);
     if (explicit) {
-      const exists = requests.some((request) => request.requestId === explicit);
-      if (!exists) {
+      const selected = candidates.find((request) => request.requestId === explicit);
+      if (selected?.request.requiresInspection) return { ok: false, errorCode: 'permission_request_requires_inspection', payload: { requestId: explicit } };
+      if (!selected) {
         return { ok: false, errorCode: 'permission_request_not_found', payload: { requestId: explicit } };
       }
-      return { ok: true, requestId: explicit };
+      return { ok: true, requestId: explicit, request: selected.request };
     }
     if (requests.length === 1) {
-      return { ok: true, requestId: requests[0]!.requestId };
+      return { ok: true, requestId: requests[0]!.requestId, request: requests[0]!.request };
     }
     if (requests.length > 1) {
       return {
@@ -210,6 +222,7 @@ export function createVoiceToolHandlers(
         payload: { requestIds: requests.map((request) => request.requestId) },
       };
     }
+    if (candidates.length > 0) return { ok: false, errorCode: 'permission_request_requires_inspection' };
     return { ok: false, errorCode: 'no_permission_request' };
   };
 
@@ -236,14 +249,14 @@ export function createVoiceToolHandlers(
     explicitRequestId: unknown,
     opts?: Readonly<{ explicitSessionIdProvided?: boolean; allowCrossSessionFallback?: boolean }>,
   ): Promise<
-    | { ok: true; sessionId: string; requestId: string }
+    | { ok: true; sessionId: string; requestId: string; request: SessionPendingRequest }
     | { ok: false; errorCode: string; payload?: Record<string, unknown> }
   > => {
     const sessions = (storage.getState() as any)?.sessions ?? {};
     const resolvedSession = sessions?.[resolvedSessionId] ?? null;
-    const selected = selectPendingRequestId(resolvedSessionId, resolvedSession, kind, explicitRequestId);
+    let selected = selectPendingRequestId(resolvedSessionId, resolvedSession, kind, explicitRequestId);
     if (selected.ok) {
-      return { ok: true, sessionId: resolvedSessionId, requestId: selected.requestId };
+      return { ok: true, sessionId: resolvedSessionId, requestId: selected.requestId, request: selected.request };
     }
 
     if (selected.errorCode === 'no_permission_request') {
@@ -257,29 +270,25 @@ export function createVoiceToolHandlers(
       }
       const hydratedSessions = (storage.getState() as any)?.sessions ?? {};
       const hydratedResolvedSession = hydratedSessions?.[resolvedSessionId] ?? null;
-      const hydratedSelected = selectPendingRequestId(resolvedSessionId, hydratedResolvedSession, kind, explicitRequestId);
-      if (hydratedSelected.ok) {
-        return { ok: true, sessionId: resolvedSessionId, requestId: hydratedSelected.requestId };
+      selected = selectPendingRequestId(resolvedSessionId, hydratedResolvedSession, kind, explicitRequestId);
+      if (selected.ok) {
+        return { ok: true, sessionId: resolvedSessionId, requestId: selected.requestId, request: selected.request };
       }
-      if (hydratedSelected.errorCode !== 'no_permission_request') {
-        return hydratedSelected;
-      }
-
-      if (typeof ensureVisible === 'function') {
-        await Promise.resolve(ensureVisible(resolvedSessionId, { forceRefresh: true })).catch(() => {});
-      }
-      const refreshedSessions = (storage.getState() as any)?.sessions ?? {};
-      const refreshedResolvedSession = refreshedSessions?.[resolvedSessionId] ?? null;
-      const refreshedSelected = selectPendingRequestId(resolvedSessionId, refreshedResolvedSession, kind, explicitRequestId);
-      if (refreshedSelected.ok) {
-        return { ok: true, sessionId: resolvedSessionId, requestId: refreshedSelected.requestId };
-      }
-      if (refreshedSelected.errorCode !== 'no_permission_request') {
-        return refreshedSelected;
+      if (selected.errorCode === 'no_permission_request') {
+        if (typeof ensureVisible === 'function') {
+          await Promise.resolve(ensureVisible(resolvedSessionId, { forceRefresh: true })).catch(() => {});
+        }
+        const refreshedSessions = (storage.getState() as any)?.sessions ?? {};
+        const refreshedResolvedSession = refreshedSessions?.[resolvedSessionId] ?? null;
+        selected = selectPendingRequestId(resolvedSessionId, refreshedResolvedSession, kind, explicitRequestId);
+        if (selected.ok) {
+          return { ok: true, sessionId: resolvedSessionId, requestId: selected.requestId, request: selected.request };
+        }
       }
     }
 
-    if (opts?.explicitSessionIdProvided === true || selected.errorCode !== 'no_permission_request') {
+    const inspectionOnlyFallback = selected.errorCode === 'permission_request_requires_inspection' && !normalizeId(explicitRequestId);
+    if (opts?.explicitSessionIdProvided === true || (selected.errorCode !== 'no_permission_request' && !inspectionOnlyFallback)) {
       return selected;
     }
 
@@ -306,13 +315,13 @@ export function createVoiceToolHandlers(
     }
 
     const fallbackSessionId = uniqueSessionIds[0]!;
-    const fallbackSession = sessions?.[fallbackSessionId] ?? null;
+    const fallbackSession = storage.getState().sessions?.[fallbackSessionId] ?? null;
     const fallbackSelected = selectPendingRequestId(fallbackSessionId, fallbackSession, kind, explicitRequestId);
     if (!fallbackSelected.ok) {
       return fallbackSelected;
     }
 
-    return { ok: true, sessionId: fallbackSessionId, requestId: fallbackSelected.requestId };
+    return { ok: true, sessionId: fallbackSessionId, requestId: fallbackSelected.requestId, request: fallbackSelected.request };
   };
 
   const resolveSessionServerIdFromCaches = (sessionId: string): string | null => {
@@ -448,6 +457,11 @@ export function createVoiceToolHandlers(
     const decision = data.decision === 'allow' || data.decision === 'deny' ? data.decision : null;
     if (!decision) return jsonError('invalid_parameters', 'invalid_parameters');
 
+    const current = getPendingRequestsForSession(sessionId, storage.getState().sessions?.[sessionId])
+      .find(request => request.requestId === selected.requestId)?.request;
+    if (!current || !isPendingSessionRequestActionable(selected.request, current)) {
+      return jsonError('permission_request_changed', 'permission_request_changed', { sessionId, requestId });
+    }
     const targetServerId = resolveSessionServerIdFromCaches(sessionId);
     const res = await executor.execute(
       'session.permission.respond',
@@ -538,6 +552,11 @@ export function createVoiceToolHandlers(
       return jsonError('invalid_parameters', 'invalid_parameters', { sessionId });
     }
 
+    const current = getPendingRequestsForSession(sessionId, storage.getState().sessions?.[sessionId])
+      .find(request => request.requestId === selected.requestId)?.request;
+    if (!current || !isPendingSessionRequestActionable(selected.request, current)) {
+      return jsonError('permission_request_changed', 'permission_request_changed', { sessionId, requestId });
+    }
     const targetServerId = resolveSessionServerIdFromCaches(sessionId);
     const res = await executor.execute(
       'session.user_action.answer',

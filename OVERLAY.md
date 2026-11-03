@@ -164,6 +164,21 @@ Ship guard. A normal build must carry no fixture. After a **cold** export withou
 
 ## Patched upstream files
 
+ATR-86 ordinary inspection repair also patches the following canonical UI owners. This development
+change keeps ambiguous transcript requests visible while preventing controls displaying one occurrence
+from answering another. It changes no permission grants, RPC payloads or persisted formats.
+
+| File | Reason |
+|---|---|
+| `apps/ui/sources/sync/domains/session/pending/listPendingSessionRequests.ts` | Exposes an actionability comparison using the existing request-equivalence rules and inspection classification. |
+| `apps/ui/sources/sync/store/pendingRequestActionability.ts` (new) | Projects one displayed occurrence through the canonical observer and existing request index; supports older message-array storage without walking indexed history on token writes. |
+| `apps/ui/sources/components/tools/shell/permissions/usePendingRequestActionability.ts` (new) | Shares the leaf boolean subscription and fresh callback check across ordinary decision controls. |
+| `apps/ui/sources/components/tools/shell/permissions/{PermissionFooter,PermissionPromptCard}.tsx`, `apps/ui/sources/components/tools/shell/userActions/UserActionPromptCard.tsx` | Checks the displayed request before dispatch and preserves its inspection classification through composer previews. Existing interaction grants and dispatch registry remain in force. |
+| `apps/ui/sources/components/tools/shell/views/{ToolView,ToolTimelineRow,ToolFullView,ToolInlineBody}.tsx`, `apps/ui/sources/components/tools/renderers/core/_registry.tsx` | Carries the original request separately from normalized rendering data, preserving genuine normalized-tool approvals and their history presentation. |
+| `apps/ui/sources/components/tools/renderers/workflow/{AskUserQuestionView,ExitPlanToolView}.tsx`, `apps/ui/sources/components/tools/renderers/system/AcpHistoryImportView.tsx` | Applies the same observation and fresh action check to custom question, plan and history-import decisions. |
+| `apps/ui/sources/voice/tools/handlers.ts`, `handlers.spec.ts` | Keeps inspection classification through explicit, implicit and cross-session selection, and rechecks the selected occurrence before permission or question dispatch. |
+| `apps/ui/sources/components/tools/renderers/workflow/AskUserQuestionView.inertCue.test.tsx` | Corrects the matching-request fixture to publish the displayed question input; retains its editing, unavailable-cue and read-only assertions. |
+
 Everything else the overlay adds lives in the new files listed under "Where the overlay lives", so it can't
 conflict with upstream. These upstream files are edited and are where a merge can conflict. From
 `node scripts/overlay/upstreamCheck.mjs` against `ui-web-v0.2.19` (31 files: 20 for the overlay itself, 8 for the desk test harness, 3 for the desk fixture):

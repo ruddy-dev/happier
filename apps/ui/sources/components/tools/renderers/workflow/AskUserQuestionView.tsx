@@ -7,6 +7,7 @@ import { ToolViewProps } from '../core/_registry';
 import { resolvePermissionRequestId } from '../core/resolvePermissionRequestId';
 import { ToolSectionView } from '../../shell/presentation/ToolSectionView';
 import { createPermissionActionDispatchGuard } from '../../shell/permissions/permissionActionDispatchGuard';
+import { usePendingRequestActionability, pendingRequestFromTool } from '@/components/tools/shell/permissions/usePendingRequestActionability';
 import { sessionAllowWithAnswers } from '@/sync/ops';
 import { storage, useSession, useSettingMutable } from '@/sync/domains/state/storage';
 import { Modal } from '@/modal';
@@ -315,7 +316,7 @@ function QuestionChrome({ enabled, active, actionable, contextText, children }: 
     return enabled ? <DeskQuestionCard active={active} actionable={actionable} contextText={contextText}>{children}</DeskQuestionCard> : <>{children}</>;
 }
 
-export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId, interaction }) => {
+export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permissionRequest, sessionId, interaction }) => {
     const { theme } = useUnistyles();
     const appearance = React.useContext(TranscriptAppearanceContext);
     const colors = appearance?.questionColors;
@@ -371,7 +372,8 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
 
     const isRunning = tool.state === 'running';
     const canApprovePermissions = interaction?.canApprovePermissions ?? true;
-    const canInteract = isRunning && !isSubmitted && canApprovePermissions && hasActiveAskUserQuestionRequest;
+    const { actionable, isActionable } = usePendingRequestActionability(sessionId, permissionRequest ?? pendingRequestFromTool(tool));
+    const canInteract = actionable && isRunning && !isSubmitted && canApprovePermissions && hasActiveAskUserQuestionRequest;
     const disabledMessage =
         interaction?.permissionDisabledReason === 'public'
             ? t('session.sharing.permissionApprovalsDisabledPublic')
@@ -485,7 +487,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
     }, [canInteract, questions]);
 
     const handleSubmit = React.useCallback(async () => {
-        if (!sessionId || !allQuestionsAnswered || isSubmitting) return;
+        if (!sessionId || !canApprovePermissions || !allQuestionsAnswered || isSubmitting || !isActionable()) return;
 
         // Format answers as readable text
         const responseLines: string[] = [];
@@ -601,7 +603,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                 Modal.alert(t('common.error'), t('errors.failedToSendMessage'));
             }
         }
-    }, [actionDispatchGuard, requestKey, sessionId, questions, selections, effectiveFreeformAnswers, allQuestionsAnswered, input?.happierDialog, isSubmitting, setResumeChoice, setWorkspaceTrust, toolCallId]);
+    }, [actionDispatchGuard, requestKey, sessionId, isActionable, canApprovePermissions, questions, selections, effectiveFreeformAnswers, allQuestionsAnswered, input?.happierDialog, isSubmitting, setResumeChoice, setWorkspaceTrust, toolCallId]);
 
     // Show submitted state
     if (isSubmitted || tool.state === 'completed') {

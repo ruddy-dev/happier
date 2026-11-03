@@ -8,6 +8,7 @@ import { Metadata } from '@/sync/domains/state/storageTypes';
 import type { OpenApprovalArtifactForSession } from '@/sync/domains/artifacts/approvalArtifacts';
 import { useRouter } from 'expo-router';
 import { PermissionFooter } from '../permissions/PermissionFooter';
+import { pendingRequestFromTool } from '../permissions/usePendingRequestActionability';
 import { ApprovalPromptCard } from '../approvals/ApprovalPromptCard';
 import { parseToolUseError } from '@/utils/errors/toolErrorParser';
 import { t } from '@/text';
@@ -146,6 +147,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
     }, [historicalAgentId, props.metadata, theme.colors.text.primary, theme.colors.text.secondary, toolForSession]);
 
     const toolForRendering = headerModel.toolForRendering;
+    const permissionRequest = React.useMemo(() => pendingRequestFromTool(props.tool), [props.tool]);
     const isWaitingForPermission = headerModel.isWaitingForPermission;
 
     const handleToggleExpanded = React.useCallback(() => {
@@ -478,6 +480,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
                     <ToolInlineBody
                         mode="card"
                         tool={toolForRendering}
+                        permissionRequest={permissionRequest}
                         normalizedToolName={normalizedToolName}
                         metadata={props.metadata}
                         messages={props.messages ?? []}
@@ -498,6 +501,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
                     sessionId={sessionId}
                     toolName={normalizedToolName}
                     toolInput={toolForRendering.input}
+                    permissionRequest={permissionRequest}
                     metadata={props.metadata}
                     canApprovePermissions={props.interaction?.canApprovePermissions ?? true}
                     disabledReason={props.interaction?.permissionDisabledReason}

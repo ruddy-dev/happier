@@ -102,6 +102,18 @@ function arePendingRequestsEquivalent(left: SessionPendingRequest, right: Sessio
     return (!leftArgs || !rightArgs) && left.createdAt !== null && right.createdAt !== null && left.createdAt === right.createdAt;
 }
 
+/** Compare the occurrence shown by a control before reducing its answer to an ID. */
+export function isPendingSessionRequestActionable(displayed: SessionPendingRequest, current: SessionPendingRequest): boolean {
+    return !displayed.requiresInspection && !current.requiresInspection
+        && displayed.id === current.id
+        && (arePendingRequestsEquivalent(displayed, current)
+            // Older producers supplied neither arguments nor an occurrence timestamp.
+            // Preserve those answers while rejecting any newly observable difference.
+            || (displayed.arguments === undefined && current.arguments === undefined
+                && displayed.createdAt === null && current.createdAt === null
+                && displayed.kind === current.kind && displayed.tool === current.tool));
+}
+
 function mergePendingRequestMetadata(
     preferred: SessionPendingRequest,
     secondary: SessionPendingRequest,
