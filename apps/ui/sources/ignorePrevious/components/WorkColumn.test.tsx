@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred, findTestInstanceByTypeContainingText, pressTestInstanceAsync, renderScreen } from '@/dev/testkit';
 import { createMachineFixture } from '@/dev/testkit/fixtures/machineFixtures';
@@ -602,6 +602,7 @@ describe('WorkColumn freshness (F1)', () => {
 describe('N1/N4/F4 WorkColumn wq data', () => {
     let previous: ReturnType<typeof storage.getState>;
     let coordinator: string | null;
+    let previousChatStyle = deskPrefs.get('chatStyle');
     const projects = JSON.stringify({
         ATR: { name: 'Desk Demo', path: '/fixture/a', github: 'example/a' },
         HUB: { name: 'Tools Demo', path: '/fixture/b', github: 'example/b' },
@@ -610,6 +611,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
     const response = (text: string): SessionReadFileResponse => ({ success: true, content: encodeBase64(new TextEncoder().encode(text)) });
     const reads = () => readWqFile.mock.calls.map(([id, path]) => [id, path]);
     beforeEach(() => {
+        previousChatStyle = deskPrefs.get('chatStyle');
         previous = storage.getState();
         coordinator = getStoredCoordinatorId();
         setStoredCoordinatorId('coord');
@@ -621,6 +623,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
     });
     afterEach(() => {
         act(() => {
+            deskPrefs.set('chatStyle', previousChatStyle);
             storage.setState(previous, true);
             setStoredCoordinatorId(coordinator);
         });
@@ -675,7 +678,7 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
             const counts = screen.findByTestId('ip-work-counts');
             expect(counts?.props.horizontal).toBe(true);
             expect(counts?.props.accessibilityLabel).toBeTruthy();
-            expect(screen.tree.root.findAll(node => node.type === 'ScrollView' && node.props.testID === 'ip-work-counts')).toHaveLength(1);
+            expect(screen.findAllByType(ScrollView).filter(node => node.props.testID === 'ip-work-counts')).toHaveLength(1);
             await pressTestInstanceAsync(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable'));
             expect(screen.findByTestId('ip-open-worker-worker')).not.toBeNull();
             expect(screen.findByTestId('ip-work-worker-count-ATR-18')).not.toBeNull();
@@ -705,44 +708,82 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
         await screen.unmount();
     });
 
-    it('R42: a folded issue names every limited worker and its known reset alongside an active sibling', async () => {
+    it.each([
+        ['terminal', 2], ['terminal', 3], ['terminal', 24],
+        ['mask', 2], ['mask', 3], ['mask', 24],
+    ] as const)('R42: %s, %i limited workers stay in one folded row and retain attributable expanded details', async (style, count) => {
+        act(() => deskPrefs.set('chatStyle', style));
         vi.useFakeTimers({ now: Date.now() });
         const now = Date.now();
         const resetAt = now + 60_000;
         const laterResetAt = now + 3_600_000;
-        const limited = (id: string, reset: number | null, updatedAt: number) => session(id, '/fixture/atr-18', {
-            active: false, updatedAt, latestTurnStatus: 'failed',
-            latestTurnStatusObservedAt: now, lastRuntimeIssue: usageLimitIssue(now, reset),
-        });
-        seed([
-            session('worker', '/fixture/atr-18', { active: true, activeAt: now, thinking: true, thinkingAt: now }),
-            limited('limited-early', resetAt, now - 3000),
-            limited('limited-later', laterResetAt, now - 2000),
-            limited('limited-unknown', null, now - 1000),
-        ]);
+        const ids = Array.from({ length: count }, (_, i) => `same-worker-session-${i}`);
+        const limits = ids.map((id, i) => session(id, '/fixture/atr-18', {
+            active: false, updatedAt: now - i - 1, latestTurnStatus: 'failed',
+            metadata: { ...createSessionFixture().metadata!, path: '/fixture/atr-18', summary: { text: 'Same worker title', updatedAt: now } },
+            latestTurnStatusObservedAt: now, lastRuntimeIssue: usageLimitIssue(now, i === 0 ? resetAt : i === 1 ? laterResetAt : null),
+        }));
+        seed([session('worker', '/fixture/atr-18', { active: true, activeAt: now, thinking: true, thinkingAt: now }), ...limits]);
         const screen = await renderColumn();
         await flushHookEffects();
+        await act(async () => { vi.advanceTimersByTime(DESK_TICK_MS); });
+        const time = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
         expect(screen.findByTestId('ip-count-working')?.props.children).toBe(1);
-        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(3);
-        expect(screen.findByTestId('ip-open-worker-worker')).toBeNull();
-        for (const [id, reset] of [['limited-early', resetAt], ['limited-later', laterResetAt]] as const) {
-            const line = screen.findByTestId(`ip-worker-usage-limit-${id}`);
-            expect(line).not.toBeNull();
-            expect(line!.props.children).toContain(`Title ${id}`);
-            expect(line!.props.children).toContain(new Date(reset).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
-        }
-        expect(screen.findByTestId('ip-worker-usage-limit-limited-unknown')?.props.children)
-            .toBe('Title limited-unknown: Usage limit: waits for reset');
-        expect(screen.findByTestId('ip-worker-usage-limit-worker')).toBeNull();
+        expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(count);
+        const summary = screen.findByTestId('ip-issue-usage-limits-ATR-18');
+        expect(summary?.props.children).toBe(`${count} limited · next known reset ${time(resetAt)}`);
+        expect(summary?.props.numberOfLines).toBe(1);
+        expect(summary?.props.ellipsizeMode).toBe('tail');
+        expect(screen.getTextContent()).not.toContain('Same worker title');
+        for (const id of ids) expect(screen.findByTestId(`ip-worker-usage-limit-${id}`)).toBeNull();
 
-        // Clearing one real limit removes only that worker's summary, without hiding siblings.
-        const recovered = storage.getState().sessions['limited-early'];
-        seed([{ ...recovered, seq: recovered.seq + 1, latestTurnStatus: 'completed',
+        // The existing disclosure reveals full per-worker evidence and real unique identities.
+        const disclosure = screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable');
+        await pressTestInstanceAsync(disclosure);
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')).toBeNull();
+        for (const [i, id] of ids.entries()) {
+            expect(screen.findByTestId(`ip-worker-session-${id}`)?.props.children).toBe(`Session ${id}`);
+            expect(screen.findByTestId(`ip-worker-usage-limit-${id}`)?.props.children)
+                .toBe(i < 2 ? `Usage limit: waits for reset, ${time(i === 0 ? resetAt : laterResetAt)}` : 'Usage limit: waits for reset');
+            expect(screen.findByTestId(`ip-open-worker-${id}`)).not.toBeNull();
+        }
+        expect(screen.findByTestId('ip-worker-session-worker')).toBeNull();
+        await pressTestInstanceAsync(disclosure);
+        await act(async () => { vi.advanceTimersByTime(60_000); });
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} limited · next known reset due`);
+
+        // Clearing the earliest real limit updates only the aggregate, never the other resets.
+        seed([{ ...limits[0], seq: limits[0].seq + 1, latestTurnStatus: 'completed',
             latestTurnStatusObservedAt: now + 1, lastRuntimeIssue: null }]);
-        expect(screen.findByTestId('ip-worker-usage-limit-limited-early')).toBeNull();
-        expect(screen.findByTestId('ip-worker-usage-limit-limited-later')).not.toBeNull();
-        expect(screen.findByTestId('ip-worker-usage-limit-limited-unknown')).not.toBeNull();
+        if (count > 2) {
+            expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children)
+                .toBe(`${count - 1} limited · next known reset ${time(laterResetAt)}`);
+        } else {
+            expect(screen.findByTestId(`ip-worker-usage-limit-${ids[1]}`)?.props.children)
+                .toBe(`Usage limit: waits for reset, ${time(laterResetAt)}`);
+        }
+        seed(limits.map(limit => {
+            const current = storage.getState().sessions[limit.id];
+            return { ...current, seq: current.seq + 1, updatedAt: Date.now(), latestTurnStatus: 'failed' as const,
+                latestTurnStatusObservedAt: Date.now(), lastRuntimeIssue: usageLimitIssue(Date.now(), null) };
+        }));
+        expect(screen.findByTestId('ip-issue-usage-limits-ATR-18')?.props.children).toBe(`${count} limited`);
         await screen.unmount();
+    });
+
+    it('R42: duplicate expanded worker titles retain distinct session identities and reset deadlines', async () => {
+        const now = Date.now();
+        const workers = ['shared-session-a', 'shared-session-b'].map((id, i) => session(id, '/fixture/atr-18', {
+            active: false, latestTurnStatus: 'failed', latestTurnStatusObservedAt: now,
+            lastRuntimeIssue: usageLimitIssue(now, now + (i + 1) * 60_000),
+            metadata: { ...createSessionFixture().metadata!, path: '/fixture/atr-18', summary: { text: 'Same title', updatedAt: now } },
+        }));
+        seed(workers);
+        const screen = await renderColumn();
+        await pressTestInstanceAsync(screen.findByTestId('ip-issue-ATR-18')!.findByType('Pressable'));
+        for (const worker of workers) {
+            expect(screen.findByTestId(`ip-worker-session-${worker.id}`)?.props.children).toBe(`Session ${worker.id}`);
+        }
     });
 
     it('R42: a folded limited issue shows its real reset deadline and never invents one', async () => {
@@ -752,7 +793,8 @@ describe('N1/N4/F4 WorkColumn wq data', () => {
             latestTurnStatusObservedAt: now, lastRuntimeIssue: usageLimitIssue(now, resetAt) });
         seed([limited]);
         const screen = await renderColumn();
-        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.children).toContain(new Date(resetAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.children).toBe(`Usage limit: waits for reset, ${new Date(resetAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`);
+        expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.numberOfLines).toBe(1);
         seed([{ ...limited, seq: limited.seq + 1, lastRuntimeIssue: usageLimitIssue(now, null) }]);
         expect(screen.findByTestId('ip-worker-usage-limit-worker')?.props.children).toBe('Usage limit: waits for reset');
         expect(screen.findByTestId('ip-count-waiting')?.props.children).toBe(1);
