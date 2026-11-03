@@ -449,7 +449,7 @@ describe('Desk worker controls catalogue replay', () => {
         await s.screen.pressByTestIdAsync('ip-waiting-toggle-r1');
         expect(s.screen.findByTestId('ip-waiting-allow-r1')).toBeNull();
         expect(s.screen.findByTestId('ip-waiting-deny-r1')).toBeNull();
-        expect(s.screen.getTextContent()).toMatch(/view.only|not.*granted|not.*allow/i);
+        expect(s.screen.getTextContent()).toMatch(/view.only|cannot approve/i);
         if (accessLevel === 'view') {
             expect(s.screen.findByTestId('ip-stop-w1')).toBeNull();
             expect(s.screen.findByTestId('ip-mode-w1')).toBeNull();

@@ -131,7 +131,7 @@ describe('DeskScreen issue links', () => {
         await scenario.apply('w1', { requests: { subagent: { tool: 'Task', arguments: { description: 'Review the patch' } } } });
         expect(scenario.textOf('ip-count-all')).toBe('1');
         expect(scenario.textOf('ip-count-turn')).toBe('1');
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
         expect(scenario.textOf('ip-issue-ATR-7')).toBeNull();
         await scenario.openApprovals();
         expect(scenario.screen.getTextContent()).toContain('Parent worker');
@@ -150,7 +150,7 @@ describe('DeskScreen issue links', () => {
         expect(scenario.textOf('ip-count-all')).toBe('1');
         expect(scenario.textOf('ip-count-turn')).toBe('0');
         expect(scenario.textOf('ip-issue-none')).toBeNull();
-        expect(scenario.textOf('ip-approvals-count')).toBe('1');
+        expect(scenario.textOf('ip-approvals-count')).toBe('1 request');
         expect(scenario.screen.findByTestId('ip-walk-waiting')).toBeNull();
     });
 

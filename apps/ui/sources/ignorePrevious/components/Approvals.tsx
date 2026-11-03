@@ -52,7 +52,7 @@ export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { o
         >
             <Text style={{ color: theme.colors.text.primary, fontSize: phone ? 12.5 : 13, letterSpacing: phone ? -0.25 : 0 }}>{t('ignorePrevious.waiting.heading')}</Text>
             <Text testID="ip-approvals-count" style={{ color: waiting ? theme.colors.text.primary : theme.colors.text.secondary, fontSize: 13, ...Typography.default('semiBold') }}>
-                {ready ? count : '–'}
+                {ready ? t('ignorePrevious.waiting.requestCount', { count }) : t('ignorePrevious.waiting.unknownRequestCount')}
             </Text>
             <Icon name={phone ? 'caret-up' : 'sidebar-right-open'} size={16} color={theme.colors.text.secondary} />
         </Pressable>
@@ -76,6 +76,8 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
     const { theme } = useUnistyles();
     const { terminal, paint, ink, mute, rule } = useWaitingAppearance();
     const placement = drawerPlacement(width);
+    const { count, ready } = useDeskWaitsSummary();
+    const countLabel = ready ? t('ignorePrevious.waiting.requestCount', { count }) : t('ignorePrevious.waiting.unknownRequestCount');
     const [ownHistory] = React.useState(createWaitingHistory);
     const currentHistory = history ?? ownHistory;
     React.useLayoutEffect(() => observeWaitingActions(currentHistory), [currentHistory]);
@@ -115,7 +117,7 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
             },
             { opacity: entrance, transform: [{ translateX: entrance.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }] },
         ]}>
-            <View ref={contentRef} testID="ip-approvals-drawer" accessibilityLabel={t('ignorePrevious.waiting.heading')}
+            <View ref={contentRef} testID="ip-approvals-drawer" accessibilityLabel={`${t('ignorePrevious.waiting.heading')}. ${ready ? countLabel : `${t('ignorePrevious.waiting.unknownRequestCountLabel')}. ${t('ignorePrevious.connecting')}`}`}
                 style={{ flex: 1, minHeight: 0, backgroundColor: terminal ? paint.panel : theme.colors.surface.base,
                     borderLeftWidth: placement === 'fullscreen' ? 0 : 1, borderLeftColor: rule }}>
 
@@ -130,7 +132,9 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
                     >
                         {t('ignorePrevious.waiting.heading')}
                     </Text>
-                    <WaitingHeadingCount />
+                    <Text testID="ip-waiting-count" style={{ marginLeft: 'auto', color: mute,
+                        ...(terminal ? { fontWeight: '700' } : {}),
+                        fontSize: 13, fontVariant: ['tabular-nums'] }}>{countLabel}</Text>
                     <Pressable
                         ref={closeRef}
                         testID="ip-approvals-close"
@@ -152,13 +156,4 @@ export function ApprovalsDrawer({ open, width, openerRef, focusOnOpen = false, h
             </View>
         </Animated.View>
     );
-}
-
-/** Reuses the chrome summary, including unloaded waits and excluding view-only requests. */
-function WaitingHeadingCount() {
-    const { count, ready } = useDeskWaitsSummary();
-    const { terminal, mute } = useWaitingAppearance();
-    return <Text testID="ip-waiting-count" style={{ marginLeft: 'auto', color: mute,
-        ...(terminal ? { fontWeight: '700' } : {}),
-        fontSize: 13, fontVariant: ['tabular-nums'] }}>{ready ? count : '–'}</Text>;
 }

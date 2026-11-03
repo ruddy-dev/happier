@@ -249,7 +249,7 @@ describe('DeskScreen', () => {
         setStoredCoordinatorId('s1');
         let screen = await renderDesk();
         expect(screen.findByTestId('ip-waiting')).toBeNull();
-        expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe('1 request');
 
         await screen.pressByTestIdAsync('ip-approvals-open');
         expect(screen.findByTestId('ip-waiting')).toBeTruthy();
@@ -310,7 +310,7 @@ describe('DeskScreen', () => {
         // s1 is the coordinator, so only s2 counts as a worker (L1).
         expect(screen.findByTestId('ip-count-all')?.props.children).toBe(1);
         // s2's request lives in a record not loaded yet, so it counts as one thing to look at.
-        expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe(1);
+        expect(screen.findByTestId('ip-approvals-count')?.props.children).toBe('1 request');
     });
 
     it.each(['success', 'failure'] as const)('Round 2 coordinator exclusion lasts for the entire archive operation across mounted pickers: %s', async outcome => {

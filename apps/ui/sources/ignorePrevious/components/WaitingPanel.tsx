@@ -16,6 +16,7 @@ import { useIssueKeys } from '../model/useIssueKeys';
 import { useDeskSessions } from '../useDeskSessions';
 import { unloadedWaitKey, waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
 import { WaitingCard, OpenSessionButton } from './WaitingCard';
+import { waitingRestrictionLabel } from './waitingRestrictionLabel';
 import { useWaitingAppearance } from './waitingAppearance';
 
 /**
@@ -153,17 +154,19 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange, onFocusFal
             {visibleItems.map((item) => (
                 <WaitingRow key={item.key} item={item} actions={currentHistory} refreshing={!ready} onFocusedRemoval={reportFocusedRemoval} isCoordinator={coordinatorId === item.sessionId} onDirtyChange={reportCardDirty} issueKey={issueKeys.get(item.sessionId) ?? null} onOpen={open} />
             ))}
-            {unloaded.map((wait) => (
-                <View key={unloadedWaitKey(wait.sessionId)} testID={`ip-waiting-unloaded-${wait.sessionId}`} style={styles.card}>
+            {unloaded.map((wait) => {
+                const restriction = waitingRestrictionLabel(wait.disabledReason);
+                return <View key={unloadedWaitKey(wait.sessionId)} testID={`ip-waiting-unloaded-${wait.sessionId}`} style={styles.card}>
                     <Text style={styles.title}>{wait.sessionTitle}</Text>
                     <Text style={styles.secondary}>
                         {wait.reason === 'unreadable' ? t('ignorePrevious.waiting.unreadable') : t('ignorePrevious.needsLook')}
                     </Text>
+                    {restriction ? <Text style={styles.secondary}>{restriction}</Text> : null}
                     <View style={{ flexDirection: 'row' }}>
                         <OpenSessionButton sessionId={wait.sessionId} onOpen={open} />
                     </View>
-                </View>
-            ))}
+                </View>;
+            })}
             {answered.length ? (
                 <View style={{ gap: 6 }}>
                     <Text accessibilityRole="header" style={styles.title}>{t('ignorePrevious.waiting.answered')}</Text>
