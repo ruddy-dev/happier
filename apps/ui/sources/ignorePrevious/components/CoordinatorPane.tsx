@@ -1,5 +1,6 @@
-import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
-import { useCoordinatorTranscriptAppearance } from '../useCoordinatorTranscriptAppearance';
+import { CoordinatorTranscriptAppearanceProvider } from '../useCoordinatorTranscriptAppearance';
+import { DeskContextDataContext } from '../model/questionContext';
+import { useQuestionContextData } from '../model/useWorkCardData';
 import * as React from 'react';
 import { Platform, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
@@ -16,6 +17,7 @@ import { ContextGauge } from './ContextGauge';
 import { sessionContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { CoordinatorHeader } from './CoordinatorHeader';
+import { CoordinatorComposer } from './CoordinatorComposer';
 import { ShogView } from './ShogView';
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { DeskText } from '../typography/DeskText';
@@ -57,7 +59,7 @@ function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBod
  */
 export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: (colour: string) => React.ReactNode }) {
     const { theme } = useUnistyles();
-    const appearance = useCoordinatorTranscriptAppearance();
+    const contextData = useQuestionContextData(sessionId);
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const [shogOpen, setShogOpen] = React.useState(false);
     const shogOpenerRef = React.useRef<View>(null);
@@ -111,7 +113,8 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
             </View>
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
-                <TranscriptAppearanceContext.Provider value={appearance}>
+                <CoordinatorComposer key={sessionId}>
+                <DeskContextDataContext.Provider value={contextData}><CoordinatorTranscriptAppearanceProvider>
                     {FixtureBody ? (
                         <React.Suspense fallback={null}>
                             <FixtureBody footerLeadingActions={composer.footerLeadingActions} statusTrailingActions={composer.statusTrailingActions} />
@@ -129,7 +132,8 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                             chatBottomSpacing="none"
                         />
                     )}
-                </TranscriptAppearanceContext.Provider>
+                </CoordinatorTranscriptAppearanceProvider></DeskContextDataContext.Provider>
+                </CoordinatorComposer>
             </View>
         </View>
     );

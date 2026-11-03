@@ -118,6 +118,14 @@ The nullable upstream `TranscriptAppearanceContext` leaves ordinary sessions unc
 markdown colours keep text and inline surfaces together, including Paper on a dark Happier theme.
 Tool containers accept the style, while tool-row text retains its existing fonts and colours.
 
+In the development Terminal coordinator, the existing `all_tools_in_turn` strategy produces one
+collapsed activity summary per reply, anchored at its first eligible call. The summary may include
+later completed calls across prose or standalone actions. Pending questions and permissions and
+status rows retain their own chronological rows; the target-window projection retains omission rows.
+The scoped grouping context survives tool-content appearance resets for nested chains. It sets
+collapsed previews to zero and disables short-transcript auto-expansion, preserving manual toggles.
+Mask slips and ordinary sessions continue to use account preferences, which this scope never writes.
+
 The stored `thinkingAndTools` preference defaults to `reply-link` (one quiet link per reply), with `hidden`
 as the other value. It has no settings row or runtime reader in this slice; C17 owns the transcript filter.
 
@@ -162,10 +170,17 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 
 | File | Why |
 |---|---|
+| `apps/ui/sources/components/sessions/files/repositoryTree/WebDropTargetView.tsx` | ATR-84 appends the coordinator context's footer only to the web `agent-input-drop-zone` host. The strip lives inside the real composer box and unmounts with it; other drop targets, ordinary composers and native hosts get no footer. No DOM discovery or polling. |
+| `apps/ui/sources/components/ui/forms/MultiTextInput.web.tsx` | ATR-84 reads a nullable coordinator-only context for the Terminal prompt/font and a per-instance draft/selection observer. Existing change, selection, imperative-edit and reconciliation paths notify it from the actual textarea. Other web inputs and native inputs retain their existing rendering and behavior. |
 | `apps/ui/sources/app/(app)/index.tsx` | ATR-55 redirects the ordinary authenticated web root to `/desk` only when there are no query parameters and no pending terminal connection. Any root query, including server overrides, legacy `url`/`auto` links and unrelated parameters, keeps its existing owner. Native redirect behavior, signed-out welcome, session links, non-root URLs and the existing Tauri setup/home branch are preserved. Component coverage lives in `ignorePrevious/screens/startPage.test.tsx`. |
 | `apps/ui/sources/components/navigation/shell/SidebarNavigator.tsx` | Hides the shared sidebar on the desk route; coverage lives beside it in `SidebarNavigator.collapsed.test.tsx`. |
-| `apps/ui/sources/components/sessions/transcript/TranscriptAppearanceContext.tsx` (new) | Nullable data/slot contract for user, agent and tool containers, optional markdown font/colours and an agent-leading node; imports no overlay code. |
-| `apps/ui/sources/components/sessions/transcript/MessageView.tsx` | Applies opt-in container styles after built-ins and the agent-leading slot; styles the streaming plain-text fallback. Resets the appearance beneath tool chrome to preserve tool-row typography. |
+| `apps/ui/sources/components/sessions/transcript/TranscriptAppearanceContext.tsx` (new) | Nullable data/slot contract for user, agent and tool containers, optional markdown font/colours and agent- and user-leading nodes; separate nullable tool-grouping scope survives nested appearance resets; imports no overlay code. |
+| `apps/ui/sources/components/sessions/transcript/useChatListRootState.ts` | Opt-in scoped turn grouping reuses `all_tools_in_turn`; default account grouping remains intact. |
+| `apps/ui/sources/components/sessions/transcript/ChainTranscriptList.tsx` | Same scoped grouping for chains, with zero collapsed previews and existing manual expansion. |
+| `apps/ui/sources/components/sessions/transcript/items/useTranscriptItemsPipeline.tsx` | Scoped zero-preview decomposition and suppression of short-transcript auto-expansion; existing manual toggles and window projection remain authoritative. |
+| `apps/ui/sources/components/sessions/transcript/turnGrouping/buildTranscriptTurns.ts`, `apps/ui/sources/components/sessions/transcript/items/useTranscriptRootDerivedItems.ts` | Thread Terminal's pending-permission grouping option through turn builds and cache invalidation, including backfill. Ordinary grouping retains its default. |
+| `apps/ui/sources/components/sessions/transcript/toolCalls/isToolCallMessageGroupableInTranscript.ts` | Keeps running questions with incomplete permission metadata visible; the desk Terminal opts into keeping all pending permissions standalone while ordinary permission grouping remains unchanged. |
+| `apps/ui/sources/components/sessions/transcript/MessageView.tsx` | Applies opt-in container styles after built-ins and the optional agent- and user-leading slots; styles the streaming plain-text fallback. Resets the appearance beneath tool chrome to preserve tool-row typography. |
 | `apps/ui/sources/components/sessions/pending/PendingMessagesTranscriptBlock.tsx` | Resets transcript appearance for queued-message markdown on the stock Happier bubble. |
 | `apps/ui/sources/components/markdown/enriched/useEnrichedMarkdownStyle.ts` | Opt-in font and coordinated markdown colours, including emphasis and inline/code/table surfaces. The default builder inputs remain unchanged. |
 | `apps/ui/sources/components/markdown/MarkdownBlockView.tsx` | Applies typed optional font/colour overrides to the block renderer, including nested spans, lists, options and tables; retains the upstream static stylesheet without a provider. |
@@ -234,6 +249,10 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/tools/renderers/workflow/buildAskUserQuestionAnswerPayload.ts` | ATR-65 development desk adds an exported completion predicate alongside the existing question normalizer and answer builder, shared by the session and Waiting card. Preserves optional access for historical null elements. |
 | `apps/ui/sources/components/tools/renderers/workflow/buildAskUserQuestionAnswerPayload.test.ts` | ATR-65 covers completion equivalence for null elements, optionless allowEmpty and freeform with options. |
 | `apps/ui/sources/components/tools/renderers/workflow/AskUserQuestionView.tsx` | ATR-65 delegates its unchanged every-question-answered rule to that exported predicate and arbitrates submission through the existing permission dispatch guard under the same session/request key as PermissionFooter and WaitingCard, with the default session hold behavior. |
+| `apps/ui/sources/components/sessions/transcript/TranscriptAppearanceContext.tsx` | ATR-85 adds optional question-only control colors, supplied only by Terminal coordinator appearance. |
+| `apps/ui/sources/components/sessions/transcript/MessageView.tsx` | ATR-85 aligns opt-in user prompts to the leading edge and passes desk appearance to the question renderer. |
+| `apps/ui/sources/components/tools/renderers/workflow/AskUserQuestionView.tsx` | ATR-85 wraps desk questions in desk-owned presentation, applies optional question-only colors, and passes question text for optional cached issue mention. The personal heading uses existing interaction eligibility; answer and permission logic stay unchanged. |
+| `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | ATR-85 adds the transcript question heading to the existing overlay string block. |
 
 The desk runner adds overlay-owned files under `packages/tests`: `playwright.desk.config.mjs`, `scripts/desk-{env,global-setup}.mjs`, `scripts/desk-export.ts`, `src/testkit/deskTest/*`, and `suites/ui-e2e/desk.{guard,j1,j2,j3}.spec.ts`. These are new files rather than edits to upstream specs. J1 scopes `ip-issue-<KEY>` to the expanded Work column, including folded Faces cards; the collapsed rail uses `ip-rail-issue-<KEY>`. J2 checks the specific active `ip-waiting-card-<requestId>` root separately from Answered history. Seed setup is inside cleanup scopes, including partially started workers. The guard's shared auto-fixture closes pages while guards remain installed, disposes the context request client to end outstanding fetches, drains tracked HTTP and WebSocket callbacks with a bounded URL-naming failure, then unroutes HTTP and reports refusals and non-closure errors; browser-free tests drive that exact fixture body. Redirect probes include an empty-Location repeat hop. `yarn desk:export --rebuild` bypasses the existing completed export caches. Before an actual export, `desk-export.ts` deletes only `metro-file-map-*` entries inside its private Metro temp directory and keeps the transform cache.
 

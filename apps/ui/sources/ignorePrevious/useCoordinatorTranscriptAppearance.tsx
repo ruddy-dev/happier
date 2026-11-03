@@ -1,6 +1,8 @@
 import * as React from 'react';
 
-import { type TranscriptAppearance } from '@/components/sessions/transcript/TranscriptAppearanceContext';
+import { Text } from '@/components/ui/text/Text';
+
+import { TranscriptAppearanceContext, TranscriptToolCallsGroupingContext, type TranscriptAppearance } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 
 import { MaskFace } from './components/MaskFace';
 import { useDeskPref } from './deskPrefs';
@@ -12,6 +14,16 @@ const maskAppearance: TranscriptAppearance = {
     agentLeading: <MaskFace size={28} bulb="rest" sleepy={false} testID="ip-coordinator-message-mask" />,
 };
 
+export function CoordinatorTranscriptAppearanceProvider({ children }: React.PropsWithChildren) {
+    const appearance = useCoordinatorTranscriptAppearance();
+    const [style] = useDeskPref('chatStyle');
+    return (
+        <TranscriptToolCallsGroupingContext.Provider value={style === 'terminal' ? 'collapsed-per-turn' : null}>
+            <TranscriptAppearanceContext.Provider value={appearance}>{children}</TranscriptAppearanceContext.Provider>
+        </TranscriptToolCallsGroupingContext.Provider>
+    );
+}
+
 export function useCoordinatorTranscriptAppearance(): TranscriptAppearance {
     const [style] = useDeskPref('chatStyle');
     const [palette] = useDeskPref('terminalPalette');
@@ -20,6 +32,12 @@ export function useCoordinatorTranscriptAppearance(): TranscriptAppearance {
         const paint = terminalPalettes[palette];
         return {
             fontFamily: DESK_FONT_STACK,
+            questionColors: {
+                text: paint.ink, secondary: paint.mute, surface: paint.panel2,
+                border: paint.mute, accent: paint.hl, onAccent: paint.bg,
+                button: paint.yel, buttonText: paint.yelink,
+            },
+            userLeading: <Text accessibilityElementsHidden importantForAccessibility="no" style={{ color: paint.hl, fontFamily: DESK_FONT_STACK }}>{'> '}</Text>,
             userBubbleStyle: { backgroundColor: paint.panel, borderRadius: 0 },
             agentContainerStyle: {
                 backgroundColor: paint.bg, borderRadius: 0,

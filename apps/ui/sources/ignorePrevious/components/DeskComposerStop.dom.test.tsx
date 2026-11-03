@@ -3,7 +3,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AgentInput } from '@/components/sessions/agentInput/AgentInput';
 import { useSessionComposerOverrides, type ComposerBase } from '@/components/sessions/model/sessionComposerOverrides';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
@@ -12,6 +12,11 @@ import { stubServerFeaturesFetch } from '@/hooks/server/serverFeaturesTestUtils'
 import { resetServerFeaturesClientForTests } from '@/sync/api/capabilities/serverFeaturesClient';
 import { t } from '@/text';
 import { useDeskComposerControls } from '../model/useDeskComposerControls';
+import { deskPrefs } from '../deskPrefs';
+import { CoordinatorComposer } from './CoordinatorComposer';
+
+beforeEach(() => deskPrefs.set('chatStyle', 'terminal'));
+afterEach(() => deskPrefs.set('chatStyle', 'mask'));
 
 // RN Web lacks RN's useAnimatedValue hook; keep its real Animated.Value and hosts.
 vi.mock('react-native', async () => {
@@ -20,6 +25,8 @@ vi.mock('react-native', async () => {
 });
 // Navigation focus is an app-host boundary; this composer is visible.
 vi.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
+// Resolve the real platform input the way Metro's web build does.
+vi.mock('@/components/ui/forms/MultiTextInput', async () => vi.importActual('@/components/ui/forms/MultiTextInput.web'));
 vi.mock('react-native-unistyles', async () => {
     const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles'); return createUnistylesMock();
 });
@@ -37,8 +44,9 @@ const base: ComposerBase = {
 function Composer({ desk, draft }: { desk: boolean; draft: string }) {
     const controls = useDeskComposerControls('coordinator');
     const resolved = useSessionComposerOverrides(base, desk ? controls : undefined);
-    return <AgentInput sessionId="coordinator" value={draft} onChangeText={() => {}} onSend={send}
+    const input = <AgentInput sessionId="coordinator" value={draft} onChangeText={() => {}} onSend={send}
         showAbortButton={true} onFileViewerPress={() => {}} autocompleteKinds={[]} autocompleteSuggestions={async () => []} agentType="claude" {...resolved} />;
+    return desk ? <CoordinatorComposer>{input}</CoordinatorComposer> : input;
 }
 it('Finding 3: R13 desk Stop owns Send and Shift+Escape, aborts once and restores draft focus; plain composer keeps mic and secondary Stop', async () => {
     const before = storage.getState();
@@ -57,6 +65,7 @@ it('Finding 3: R13 desk Stop owns Send and Shift+Escape, aborts once and restore
     const submit = () => container.querySelector<HTMLElement>('[data-testid="session-composer-send"]')!;
     try {
         await seed(true); await render(true, 'Keep this draft');
+        expect(container.querySelector('[data-testid="ip-composer-draft-status"]')?.textContent).toBe(t('ignorePrevious.composer.writing'));
         expect(submit().getAttribute('aria-label')).toBe(t('runs.stop.stopRunA11y'));
         expect(container.querySelector('[data-testid="agent-input-abort"]')).toBeNull();
         expect(container.querySelector(`[aria-label="${t('voiceAssistant.label')}"]`)).toBeNull();
@@ -75,7 +84,9 @@ it('Finding 3: R13 desk Stop owns Send and Shift+Escape, aborts once and restore
         expect(submit().getAttribute('aria-label')).toBe(t('common.send'));
         await render(true);
         expect(submit().getAttribute('aria-label')).toBe(t('common.send'));
+        expect(container.querySelector('[data-testid="ip-composer-draft-status"]')?.textContent).toBe(t('ignorePrevious.composer.ready'));
         await render(false);
+        expect(container.querySelector('[data-testid="ip-composer-status-strip"]')).toBeNull();
         expect(submit().getAttribute('aria-label')).toBe(t('voiceAssistant.label'));
         expect(container.querySelector('[data-testid="agent-input-abort"]')).not.toBeNull();
     } finally {
@@ -98,6 +109,7 @@ it('Finding 1: collapsed busy desk menu omits Stop while plain composer retains 
         await render(true); await open();
         expect(document.body.textContent).not.toContain(t('agentInput.actionMenu.stop'));
         await render(false);
+        await open();
         expect(document.body.textContent).toContain(t('agentInput.actionMenu.stop'));
     } finally { await act(async () => root.unmount()); container.remove(); storage.setState(before, true); }
 });
