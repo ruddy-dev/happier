@@ -185,6 +185,48 @@ it('R10: lists view-only waits without counting them or lighting request activit
     expect(waits!.unloaded.map(session => session.sessionId)).toEqual(['owner-unloaded', 'viewer-unloaded']);
 });
 
+it.each([false, true])('projects current restrictions for unloaded rows, unreadable metadata=%s', unreadable => {
+    const sessions = [
+        createSessionFixture({ id: 'unloaded-owner', active: true, agentState: {}, pendingPermissionRequestCount: 1 }),
+        createSessionFixture({ id: 'unloaded-view', active: true, accessLevel: 'view', agentState: {}, pendingPermissionRequestCount: 1 }),
+        createSessionFixture({ id: 'unloaded-edit', active: true, accessLevel: 'edit', canApprovePermissions: false, agentState: {}, pendingPermissionRequestCount: 1 }),
+    ];
+    const rows = sessions.map(session => ({ ...buildSessionListRenderableFromSession(session),
+        ...(unreadable ? { metadata: null, metadataUnavailable: true } : {}),
+    }));
+    act(() => storage.getState().mergeSessionListRenderables(rows));
+    const initial = readDeskWaits();
+    expect(initial).toMatchObject({ ready: true, count: 2, items: [] });
+    expect(initial.unloaded).toEqual(rows.map((row, index) => ({
+        sessionId: row.id, sessionTitle: sessionUtils.getSessionName(row),
+        reason: unreadable ? 'unreadable' : 'notLoaded',
+        disabledReason: [null, 'readOnly', 'notGranted'][index],
+    })));
+    // A new source row with equivalent presentation must retain the projected item and array.
+    act(() => storage.getState().mergeSessionListRenderables(rows.map(row => ({ ...row, updatedAt: row.updatedAt + 1 }))));
+    expect(readDeskWaits()).toBe(initial);
+
+    const edit = storage.getState().sessionListRenderables['unloaded-edit']!;
+    act(() => storage.getState().mergeSessionListRenderables([{ ...edit, canApprovePermissions: true }]));
+    const granted = readDeskWaits();
+    expect(granted.count).toBe(2);
+    expect(granted.items).toEqual([]);
+    expect(granted.unloaded[0]).toBe(initial.unloaded[0]);
+    expect(granted.unloaded[1]).toBe(initial.unloaded[1]);
+    expect(granted.unloaded[2]).not.toBe(initial.unloaded[2]);
+    expect(granted.unloaded[2]?.disabledReason).toBeNull();
+
+    // Hydration may change rights before any request details arrive. It is still unloaded.
+    act(() => storage.getState().applySessions([{ ...sessions[2]!, accessLevel: 'view', canApprovePermissions: false }]));
+    const hydrated = readDeskWaits();
+    expect(hydrated.count).toBe(1);
+    expect(hydrated.items).toEqual([]);
+    expect(hydrated.unloaded.find(row => row.sessionId === 'unloaded-edit')).toMatchObject({ reason: 'notLoaded', disabledReason: 'readOnly' });
+    expect(hydrated.unloaded.find(row => row.sessionId === 'unloaded-edit')).not.toBe(granted.unloaded[2]);
+    act(() => storage.getState().applyMessagesLoaded('unloaded-edit'));
+    expect(readDeskWaits().unloaded.find(row => row.sessionId === 'unloaded-edit')).toMatchObject({ reason: 'unreadable', disabledReason: 'readOnly' });
+});
+
 
 it('projects creature request identities without drawer work and retains equivalent activity', () => {
     const values: ReturnType<typeof useDeskWaitsActivity>[] = [];
