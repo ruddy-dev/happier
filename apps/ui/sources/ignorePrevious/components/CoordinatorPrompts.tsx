@@ -6,7 +6,7 @@ import { Modal } from '@/modal';
 import { readComposerText, requestComposerText } from '@/components/sessions/model/composerRequests';
 import { t } from '@/text';
 
-import { readDeskWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
+import { readDeskAttentionWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
 import { usePhoneControlPaint } from './usePhoneControlPaint';
 
@@ -36,15 +36,18 @@ function waitingList({ items, unloaded }: DeskWaits): string {
         const who = { n, session: item.sessionTitle, id: item.sessionId };
         if (item.kind === 'user_action') {
             lines.push(t('ignorePrevious.walkItemQuestion', who));
+            if (item.disabledReason === 'notGranted') lines.push(t('ignorePrevious.walkItemRestricted'));
             continue;
         }
-        lines.push(t('ignorePrevious.walkItem', { ...who, tool: item.tool, summary: item.summary }));
+        lines.push(t('ignorePrevious.walkItem', { ...who, tool: item.tool, summary: item.detail }));
+        if (item.disabledReason === 'notGranted') lines.push(t('ignorePrevious.walkItemRestricted'));
         if (item.agentNote) lines.push(t('ignorePrevious.walkItemNote', { note: item.agentNote }));
     }
     for (const wait of unloaded) {
         n += 1;
         const who = { n, session: wait.sessionTitle, id: wait.sessionId };
         lines.push(wait.reason === 'unreadable' ? t('ignorePrevious.walkItemUnreadable', who) : t('ignorePrevious.walkItemUnloaded', who));
+        if (wait.disabledReason === 'notGranted') lines.push(t('ignorePrevious.walkItemRestricted'));
     }
     return lines.join('\n');
 }
@@ -70,7 +73,7 @@ export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinat
     const contents = <>
             {chip('ip-brief-first', t('ignorePrevious.composer.briefFirst'), () => fill(t('ignorePrevious.composer.briefPrompt')))}
             {chip('ip-start-new', t('ignorePrevious.composer.startNew'), () => fill(t('ignorePrevious.composer.startPrompt')))}
-            {count > 0 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () => fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskWaits(coordinatorId)) }))) : null}
+            {count > 0 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () => fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskAttentionWaits(coordinatorId)) }))) : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}
         </>;
     if (phone) return <ScrollView testID="ip-phone-shortcuts" horizontal keyboardShouldPersistTaps="handled" style={{ flexGrow: 0, minWidth: 0, maxWidth: '100%' }} contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>{contents}</ScrollView>;
