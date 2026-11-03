@@ -21,7 +21,7 @@ import { LocalConversationSection } from '@/voice/settings/panels/LocalConversat
 import { Icon } from '@/components/ui/icons/Icon';
 
 export default function VoiceSettingsScreen() {
-    return <DeskPageAppearance><VoiceSettingsContent /></DeskPageAppearance>;
+    return <DeskPageAppearance page="voice"><VoiceSettingsContent /></DeskPageAppearance>;
 }
 
 function VoiceSettingsContent() {

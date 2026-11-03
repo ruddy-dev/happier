@@ -39,7 +39,7 @@ function DeskPageContent({ children, withHeader, name }: React.PropsWithChildren
 }
 
 /** Mount on the three page entries, with sign-in confined to Home's unauthenticated branch. */
-export function DeskPageAppearance({ children, withHeader = true }: React.PropsWithChildren<{ withHeader?: boolean }>) {
+export function DeskPageAppearance({ children, withHeader = true, page }: React.PropsWithChildren<{ withHeader?: boolean; page?: 'voice' }>) {
     const { theme } = useUnistyles();
     const [style] = useDeskPref('chatStyle');
     const [palette] = useDeskPref('terminalPalette');
@@ -47,7 +47,7 @@ export function DeskPageAppearance({ children, withHeader = true }: React.PropsW
     if (Platform.OS !== 'web') return <>{children}</>;
     return (
         <DeskFontRoot>
-            <DeskPageScope name={name}>
+            <DeskPageScope name={name} page={page}>
                 <DeskPageContent withHeader={withHeader} name={name}>{children}</DeskPageContent>
             </DeskPageScope>
         </DeskFontRoot>

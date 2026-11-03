@@ -223,6 +223,8 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/account/auth/RemoteWelcomeDecisionPanel.tsx` | ATR-93 adds neutral test IDs to the heading group and loading block for scoped mobile styling; content and semantics remain upstream-owned. |
 | `apps/ui/sources/components/account/auth/useRemoteAuthEntryOptions.test.tsx` | ATR-93 checks the existing heading semantics and loading block contents. |
 | `apps/ui/sources/app/(app)/restore/manual.tsx` | ATR-56 wraps the existing secret-key restore content in the opt-in appearance scope; recovery, reveal and authentication behavior remain upstream-owned. |
+| `apps/ui/sources/components/ui/lists/Item.tsx` | ATR-93 marks interactive web rows and uses the existing inside focus ring with Terminal Voice corners; other pages and native retain their focus behavior. |
+| `apps/ui/sources/components/ui/overlays/FloatingOverlay.tsx` | ATR-93 applies Terminal Voice geometry to the painted frame and clipping surface, retaining connected-edge overrides. |
 | `apps/ui/sources/components/ui/lists/ItemGroup.tsx` | ATR-93 adds stable card and inner-boundary test IDs for Terminal Voice route styling; existing chrome and overflow behavior remain unchanged. |
 | `apps/ui/sources/components/ui/lists/ItemGroup.surfaceChrome.test.tsx` | ATR-93 checks that the styling hooks identify the painted card and its inner clipping boundary. |
 | `apps/ui/sources/app/(app)/settings/voice.tsx` | ATR-56 adds the opt-in appearance wrapper around the existing Voice settings content; ATR-93 marks its content root for route-scoped control styling. |
