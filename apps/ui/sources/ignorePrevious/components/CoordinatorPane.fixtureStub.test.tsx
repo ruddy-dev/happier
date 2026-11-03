@@ -40,6 +40,12 @@ vi.mock('@/modal', async () => {
     return createModalModuleMock().module;
 });
 
+// The fixture renders AgentInput with the complete production theme contract.
+vi.mock('react-native-unistyles', async () => {
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    return createUnistylesMock();
+});
+
 vi.mock('@/components/sessions/shell/SessionView', async () => {
     const { useSessionComposerOverrides } = await import('@/components/sessions/model/sessionComposerOverrides');
     const { TextInput, View } = await import('react-native');
@@ -302,7 +308,8 @@ describe('CoordinatorPane body', () => {
         vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
         const fixture = await renderScreen(<DeskFixtureRouteContext.Provider value={true}><CoordinatorPane sessionId="c1" /></DeskFixtureRouteContext.Provider>);
         await act(async () => { await import('../fixtures/CoordinatorBodyStub'); });
-        expect(fixture.findByTestId('ip-fixture-coordinator-body')!.findAllByProps({ testID: 'ip-context-gauge' }).length).toBeGreaterThan(0);
+        expect(fixture.findByTestId('agent-input-status-trailing')!.findAllByProps({ testID: 'ip-context-gauge' }).length).toBeGreaterThan(0);
+        expect(fixture.findByTestId('ip-fixture-coordinator-body')!.findAllByProps({ testID: 'ip-context-gauge' })).toHaveLength(0);
     });
 
     it.each([false, true])('Finding 6 omits the status node without a hint or report, loaded=%s', async (loaded) => {

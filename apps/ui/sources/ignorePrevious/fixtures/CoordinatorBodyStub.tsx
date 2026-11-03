@@ -8,6 +8,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
+import { CoordinatorComposerFixture } from './CoordinatorComposerFixture';
 import { t } from '@/text';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 import { isHostVisible, isRuntimeActive, subscribeToRuntimeActiveChange } from '@/utils/runtime/isRuntimeActive';
@@ -31,7 +32,6 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
     const player = hasDemo ? getDemoConversation() : null;
     const playback = React.useSyncExternalStore(player?.subscribe ?? subscribeIdle, player?.getSnapshot ?? getIdleSnapshot);
     const transcript = playback.transcript;
-    const { composerPlaceholder } = (hasDemo ? demo : scenario).coordinatorBody;
     const reducedMotion = useReducedMotionPreference();
     const scroll = React.useRef<ScrollView>(null);
     React.useEffect(() => {
@@ -86,20 +86,9 @@ export function CoordinatorBodyStub({ footerLeadingActions, statusTrailingAction
                         );
                     })}
                 </View>
-                <View
-                    style={{
-                        margin: 12,
-                        paddingHorizontal: 14,
-                        paddingVertical: 12,
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border.default,
-                    }}
-                >
-                    <Text style={{ color: theme.colors.text.secondary, fontSize: 14 }}>{composerPlaceholder}</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingTop: 8 }}>{footerLeadingActions}{statusTrailingActions}</View>
-                </View>
             </ScrollView>
+            <CoordinatorComposerFixture sessionId={hasDemo ? demo.coordinatorId : scenario.coordinatorId}
+                footerLeadingActions={footerLeadingActions} statusTrailingActions={statusTrailingActions} />
         </View>
     );
 }

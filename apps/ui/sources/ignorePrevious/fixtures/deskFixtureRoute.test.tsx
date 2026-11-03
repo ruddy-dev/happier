@@ -3,10 +3,11 @@ import * as SecureStore from 'expo-secure-store';
 import { prepareWarmCacheEncryptionKey } from '@/sync/domains/state/warmCacheEncryptionKey';
 import { MMKV } from 'react-native-mmkv';
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen } from '@/dev/testkit';
+import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { loadSessionListWarmCacheEntries, readPersistedSessionListWarmCacheEntries, setWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
@@ -16,6 +17,11 @@ import { getStoredCoordinatorId, setCoordinatorOverride, setStoredCoordinatorId 
 import DeskFixturePage from '@/app/(app)/dev/desk-fixture';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock('react-native-unistyles', async () => {
+    const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
+    return createUnistylesMock();
+});
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');
@@ -87,6 +93,15 @@ describe('dev/desk-fixture route', () => {
     const before = storage.getState();
     const storedBefore = getStoredCoordinatorId();
 
+    beforeAll(async () => {
+        await installAgentAssetLoader();
+        // Load the real lazy composer graph before the route's render assertions.
+        await act(async () => { await import('./CoordinatorBodyStub'); });
+    });
+    afterAll(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
     beforeEach(() => {
         storage.setState(before, true);
         setStoredCoordinatorId(null);
