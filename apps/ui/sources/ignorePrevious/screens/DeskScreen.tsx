@@ -91,7 +91,7 @@ function CoordinatorPicker({
     );
 }
 
-function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: IconName; label: string; onPress: () => void }) {
+function PanelToggle({ testID, icon, label, onPress, colour }: { testID: string; icon: IconName; label: string; onPress: () => void; colour?: string }) {
     const { theme } = useUnistyles();
     return (
         <Pressable
@@ -102,7 +102,7 @@ function PanelToggle({ testID, icon, label, onPress }: { testID: string; icon: I
             hitSlop={8}
             style={{ padding: 6, borderRadius: 8 }}
         >
-            <Icon name={icon} size={20} color={theme.colors.text.secondary} />
+            <Icon name={icon} size={20} color={colour ?? theme.colors.text.secondary} />
         </Pressable>
     );
 }
@@ -191,16 +191,17 @@ export function DeskScreen() {
     const coordinator = coordinatorId && !changing ? (
         <CoordinatorPane
             sessionId={coordinatorId}
-            headerAccessory={
+            headerAccessory={colour => (
                 <>
                     <PanelToggle
                         testID="ip-coordinator-change"
+                        colour={colour}
                         icon="arrows-left-right"
                         label={t('ignorePrevious.changeCoordinator')}
                         onPress={() => setChanging(true)}
                     />
                 </>
-            }
+            )}
         />
     ) : (
         <ScrollView contentContainerStyle={{ gap: 8 }}>
