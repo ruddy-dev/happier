@@ -56,7 +56,7 @@ function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBod
  * embeds it. The mask's bulb lights when anything is waiting on you. "Shog" is the coordinator's quiet nickname;
  * pressing the mask shows Shog up close.
  */
-export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: React.ReactNode }) {
+export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: (colour: string) => React.ReactNode }) {
     const { theme } = useUnistyles();
     const contextData = useQuestionContextData(sessionId);
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
