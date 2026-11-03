@@ -35,12 +35,12 @@ export type TranscriptRenderableAggregate = {
     latestUnreadAffectingMessageSeq: number | null;
     /** Number of transcript messages folded into the aggregate. */
     messageCount: number;
-    /** Canonical transcript request states keyed by request id. */
+    /** Canonical transcript contributions before agent-completion coverage, keyed by request id. */
     requestStates: Map<string, TranscriptRequestState>;
     /**
      * Identity of the `agentState.completedRequests` record the request states
-     * were folded with. When it changes, `requestStates` must be rebuilt
-     * (pending coverage depends on it) — see
+     * are published for. Coverage is applied by the pending-request owner at consumption,
+     * so a new completion basis can reuse the transcript contributions. See
      * `canReuseTranscriptRenderableAggregateRequestStates`.
      */
     completedRequestsRef: Record<string, unknown> | null;
@@ -57,10 +57,9 @@ function latestMeaningfulActivityCreatedAtContribution(message: Message): number
 
 function collectMessageRequestStates(
     message: Message,
-    completedRequests: CompletedRequests,
 ): Map<string, TranscriptRequestState> {
     const states = new Map<string, TranscriptRequestState>();
-    collectTranscriptRequestStates([message], completedRequests, states);
+    collectTranscriptRequestStates([message], states);
     return states;
 }
 
@@ -82,7 +81,7 @@ export function buildTranscriptRenderableAggregate(params: Readonly<{
     }
 
     const requestStates = new Map<string, TranscriptRequestState>();
-    collectTranscriptRequestStates(params.messages, params.completedRequests, requestStates);
+    collectTranscriptRequestStates(params.messages, requestStates);
 
     return {
         latestCommittedMessageCreatedAt,
@@ -157,9 +156,9 @@ export function applyMessageChangeToTranscriptRenderableAggregate(params: Readon
         return true;
     }
     const previousStates = previous
-        ? collectMessageRequestStates(previous, aggregate.completedRequestsRef)
+        ? collectMessageRequestStates(previous)
         : null;
-    const nextStates = collectMessageRequestStates(next, aggregate.completedRequestsRef);
+    const nextStates = collectMessageRequestStates(next);
 
     if (previousStates) {
         for (const [requestId, previousState] of previousStates) {
@@ -195,6 +194,15 @@ export function canReuseTranscriptRenderableAggregateRequestStates(
     completedRequests: CompletedRequests,
 ): boolean {
     return aggregate.completedRequestsRef === completedRequests;
+}
+
+/** Publish a current completion basis without re-reading completion-independent contributions. */
+export function withTranscriptRenderableAggregateCompletedRequests(
+    aggregate: TranscriptRenderableAggregate,
+    completedRequests: CompletedRequests,
+): TranscriptRenderableAggregate {
+    return canReuseTranscriptRenderableAggregateRequestStates(aggregate, completedRequests)
+        ? aggregate : { ...aggregate, completedRequestsRef: completedRequests };
 }
 
 export function isTranscriptRenderableAggregate(value: unknown): value is TranscriptRenderableAggregate {

@@ -172,7 +172,6 @@ function updateTranscriptRequestState(
 
 export function collectTranscriptRequestStates(
     messages: ReadonlyArray<Message> | null | undefined,
-    completedRequests: Record<string, unknown> | null | undefined,
     states: Map<string, TranscriptRequestState>,
 ): void {
     if (!Array.isArray(messages) || messages.length === 0) return;
@@ -191,15 +190,7 @@ export function collectTranscriptRequestStates(
         const permissionStatus = typeof permission?.status === 'string' ? permission.status : null;
 
         if (requestId && toolName && permissionStatus) {
-            if (
-                permissionStatus === 'pending'
-                && !isPendingRequestCoveredByCompleted(completedRequests, requestId, createdAt, {
-                    tool: toolName,
-                    kind: permission.kind,
-                    arguments: message.tool?.input,
-                    createdAt,
-                })
-            ) {
+            if (permissionStatus === 'pending') {
                 updateTranscriptRequestState(states, requestId, {
                     status: 'pending',
                     createdAt,
@@ -228,7 +219,7 @@ export function collectTranscriptRequestStates(
             }
         }
 
-        collectTranscriptRequestStates(message.children ?? [], completedRequests, states);
+        collectTranscriptRequestStates(message.children ?? [], states);
     }
 }
 
@@ -248,11 +239,7 @@ function getTranscriptRequestStates(
         return storageState ? (readStoredSessionMessages(storageState, session.id) ?? []) : [];
     })();
     const states = new Map<string, TranscriptRequestState>();
-    collectTranscriptRequestStates(
-        transcriptMessages,
-        (session.agentState?.completedRequests as Record<string, unknown> | null | undefined) ?? null,
-        states,
-    );
+    collectTranscriptRequestStates(transcriptMessages, states);
     if (statesCache) {
         statesCache.states = states;
     }
@@ -263,8 +250,7 @@ export function listPendingTranscriptRequests(
     session: Session,
     messages?: ReadonlyArray<Message>,
 ): SessionPendingRequest[] {
-    return Array.from(getTranscriptRequestStates(session, messages).values())
-        .flatMap((state) => (state.status === 'pending' ? [state.request] : []));
+    return listUncoveredTranscriptRequests(session, getTranscriptRequestStates(session, messages));
 }
 
 function readAgentStateRequest(agentState: AgentState | null | undefined, id: string): SessionPendingRequest | null {
@@ -307,6 +293,8 @@ export function observePendingSessionRequest(
     requestId: string,
     transcriptState: TranscriptRequestState | undefined,
 ): Readonly<{ status: 'pending'; request: SessionPendingRequest }> | Readonly<{ status: 'terminal' | 'absent' }> {
+    const transcriptRequest = readUncoveredTranscriptRequest(session, transcriptState);
+    const transcriptCovered = transcriptState?.status === 'pending' && !transcriptRequest;
     const agentRequest = readAgentStateRequest(session.agentState, requestId);
     const covered = agentRequest !== null && isPendingRequestCoveredByCompleted(session.agentState?.completedRequests,
         requestId, agentRequest.createdAt, session.agentState?.requests?.[requestId]);
@@ -315,13 +303,27 @@ export function observePendingSessionRequest(
             ? { status: 'pending', request: agentRequest } : { status: covered ? 'terminal' : 'absent' };
     }
     if (agentRequest && !covered && !isAgentRequestSuppressedByTranscript(agentRequest, transcriptState)) {
-        return { status: 'pending', request: transcriptState?.status === 'pending'
-            && arePendingRequestsEquivalent(transcriptState.request, agentRequest)
-            ? mergePendingRequestMetadata(transcriptState.request, agentRequest) : agentRequest };
+        return { status: 'pending', request: transcriptRequest
+            && arePendingRequestsEquivalent(transcriptRequest, agentRequest)
+            ? mergePendingRequestMetadata(transcriptRequest, agentRequest) : agentRequest };
     }
-    if (transcriptState?.status === 'pending') return { status: 'pending', request: transcriptState.request };
-    return { status: (transcriptState?.status === 'terminal' && transcriptState.terminalKind === 'hard') || covered
+    if (transcriptRequest) return { status: 'pending', request: transcriptRequest };
+    return { status: (transcriptState?.status === 'terminal' && transcriptState.terminalKind === 'hard') || covered || transcriptCovered
         ? 'terminal' : 'absent' };
+}
+
+function readUncoveredTranscriptRequest(session: Session, state: TranscriptRequestState | undefined): SessionPendingRequest | null {
+    if (state?.status !== 'pending') return null;
+    const request = state.request;
+    return isPendingRequestCoveredByCompleted(session.agentState?.completedRequests,
+        request.id, request.createdAt, request) ? null : request;
+}
+
+function listUncoveredTranscriptRequests(session: Session, states: Map<string, TranscriptRequestState>): SessionPendingRequest[] {
+    return Array.from(states.values()).flatMap(state => {
+        const request = readUncoveredTranscriptRequest(session, state);
+        return request ? [request] : [];
+    });
 }
 
 export function derivePendingRequestFlagsFromAgentState(agentState: AgentState | null | undefined): PendingRequestFlags {
@@ -347,7 +349,7 @@ function shouldUseProjectedPendingRequestCounts(session: Session, transcriptStat
     let newestTerminalTranscriptCreatedAt = 0;
     for (const state of transcriptStates.values()) {
         if (state.status === 'pending') {
-            hasPendingTranscriptRequests = true;
+            if (readUncoveredTranscriptRequest(session, state)) hasPendingTranscriptRequests = true;
             continue;
         }
         newestTerminalTranscriptCreatedAt = Math.max(newestTerminalTranscriptCreatedAt, state.createdAt);
@@ -453,8 +455,7 @@ export function listPendingSessionRequests(
 
     const transcriptStates = getTranscriptRequestStates(session, messages, statesCache);
     const pending = new Map<string, SessionPendingRequest>();
-    const pendingTranscriptRequests = Array.from(transcriptStates.values())
-        .flatMap((state) => (state.status === 'pending' ? [state.request] : []));
+    const pendingTranscriptRequests = listUncoveredTranscriptRequests(session, transcriptStates);
 
     for (const request of pendingTranscriptRequests) {
         pending.set(request.id, request);
@@ -582,8 +583,7 @@ export function derivePendingRequestFlagsFromSession(
                     projectedFlags.hasPendingUserActionRequests || agentStateFlags.hasPendingUserActionRequests,
             };
         }
-        const pendingTranscriptRequests = Array.from(transcriptStates.values())
-            .flatMap((state) => (state.status === 'pending' ? [state.request] : []));
+        const pendingTranscriptRequests = listUncoveredTranscriptRequests(session, transcriptStates);
         if (pendingTranscriptRequests.length === 0) {
             return EMPTY_PENDING_REQUEST_FLAGS;
         }

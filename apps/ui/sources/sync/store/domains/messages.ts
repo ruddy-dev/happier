@@ -388,6 +388,7 @@ export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
     const processedMessages = reducerResult.messages;
 
     const messagesById = existing.messagesById;
+    let renderableAggregate = existing.renderableAggregate;
     const messageRevisionsById = existing.messageRevisionsById ?? {};
     const idsToRemove = new Set<string>();
     const idsToInsert: string[] = [];
@@ -401,6 +402,9 @@ export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
 
     for (const message of processedMessages) {
         const prev = messagesById[message.id];
+        if (renderableAggregate && !applyMessageChangeToTranscriptRenderableAggregate({
+            aggregate: renderableAggregate, previous: prev ?? null, next: message,
+        })) renderableAggregate = undefined;
         if ((prev && shouldIncludeSubagentSourceMessage(prev)) || shouldIncludeSubagentSourceMessage(message)) {
             didSubagentSourceChange = true;
         }
@@ -492,9 +496,7 @@ export function applyAgentStateUpdateToSessionMessages(params: Readonly<{
             messagesById,
             messageRevisionsById,
             messagesMap: messagesById,
-            // This reconcile path bypasses the incremental aggregate
-            // maintenance, so a stored aggregate must be rebuilt on next use.
-            renderableAggregate: processedMessages.length > 0 ? undefined : existing.renderableAggregate,
+            renderableAggregate,
             reducerState: existing.reducerState,
             reducerVersion: (existing.reducerVersion ?? 0) + 1,
             latestThinkingMessageId,

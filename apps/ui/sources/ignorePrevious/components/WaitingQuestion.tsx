@@ -15,6 +15,7 @@ import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { DeskText } from '../typography/DeskText';
 import { resolveWaitingQuestions } from '../model/waitingQuestions';
 import { displayText } from '../model/displayText';
+import { useWaitingAppearance } from './waitingAppearance';
 
 /** A draft only. The enclosing card owns dispatch arbitration, errors and settlement. */
 export function WaitingQuestion({ sessionId, requestId, questions, readOnly, disabled, busy, sent, error, onSend, onDirtyChange }: {
@@ -30,6 +31,7 @@ export function WaitingQuestion({ sessionId, requestId, questions, readOnly, dis
     onDirtyChange?: (dirty: boolean) => void;
 }) {
     const { theme } = useUnistyles();
+    const { terminal, paint, ink, mute, styles } = useWaitingAppearance();
     const mounted = React.useRef(true);
     React.useLayoutEffect(() => {
         mounted.current = true;
@@ -71,11 +73,12 @@ export function WaitingQuestion({ sessionId, requestId, questions, readOnly, dis
             await sessionAllowWithAnswers(sessionId, requestId, payload.send);
         });
     };
-    const text = { color: theme.colors.text.primary, fontSize: 14 };
-    const secondary = { color: theme.colors.text.secondary, fontSize: 13 };
+    const text = { color: ink, fontSize: 14 };
+    const secondary = styles.secondary;
     const control = {
         minHeight: 48, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1,
-        borderRadius: 10, borderColor: theme.colors.border.default, backgroundColor: theme.colors.surface.inset,
+        borderRadius: terminal ? 2 : 10, borderColor: terminal ? paint.rule : theme.colors.border.default,
+        backgroundColor: terminal ? paint.panel : theme.colors.surface.inset,
     };
     return <View style={{ gap: 12 }}>
         {questions.map((question, index) => <View key={index} style={{ gap: 8 }}>
@@ -90,7 +93,7 @@ export function WaitingQuestion({ sessionId, requestId, questions, readOnly, dis
                 return <Pressable key={optionIndex} testID={`ip-waiting-option-${requestId}-${index}-${optionIndex}`}
                     accessibilityRole="button" accessibilityLabel={displayText(option.label)}
                     accessibilityState={{ selected, disabled }} disabled={disabled}
-                    style={[control, selected ? { borderColor: theme.colors.text.primary, backgroundColor: theme.colors.surface.elevated } : null, disabled ? { opacity: 0.5 } : null]}
+                    style={[control, selected ? { borderColor: ink, backgroundColor: terminal ? paint.panel2 : theme.colors.surface.elevated } : null, disabled && !terminal ? { opacity: 0.5 } : null]}
                     onPress={() => {
                         if (disabled) return;
                         setSelections(current => {
@@ -114,7 +117,7 @@ export function WaitingQuestion({ sessionId, requestId, questions, readOnly, dis
                     multiline={question.freeform?.multiline === true}
                     autoCapitalize="none" autoCorrect={false}
                     placeholder={question.freeform?.placeholder ? displayText(question.freeform.placeholder) : t('ignorePrevious.questionCard.otherPlaceholder')}
-                    placeholderTextColor={theme.colors.input.placeholder}
+                    placeholderTextColor={terminal ? mute : theme.colors.input.placeholder}
                     style={[control, text, { fontFamily: DESK_FONT_STACK }]}
                     onChangeText={value => {
                         if (disabled) return;
@@ -131,8 +134,8 @@ export function WaitingQuestion({ sessionId, requestId, questions, readOnly, dis
         {readOnly ? null : <Pressable testID={`ip-waiting-send-${requestId}`} accessibilityRole="button"
             accessibilityLabel={t('ignorePrevious.questionCard.send')} accessibilityState={{ disabled: !canSend, busy }}
             aria-busy={busy}
-            disabled={!canSend} onPress={submit} style={[control, !canSend ? { opacity: 0.5 } : null]}>
-            <DeskText style={text}>{t('ignorePrevious.questionCard.send')}</DeskText>
+            disabled={!canSend} onPress={submit} style={[terminal ? styles.button : control, !canSend && !terminal ? { opacity: 0.5 } : null]}>
+            <DeskText style={[terminal ? styles.buttonText : text, !canSend && terminal ? { color: mute } : null]}>{terminal ? `[ ${t('ignorePrevious.questionCard.send')} ]` : t('ignorePrevious.questionCard.send')}</DeskText>
         </Pressable>}
     </View>;
 }

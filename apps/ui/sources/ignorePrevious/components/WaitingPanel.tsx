@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useStore } from 'zustand';
 import { Platform, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
 
 import { DeskText as Text } from '../typography/DeskText';
 import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
@@ -16,7 +15,8 @@ import { observeWaitingActions } from '../model/observeWaitingActions';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { useDeskSessions } from '../useDeskSessions';
 import { unloadedWaitKey, waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
-import { WaitingCard, cardStyles, OpenSessionButton } from './WaitingCard';
+import { WaitingCard, OpenSessionButton } from './WaitingCard';
+import { useWaitingAppearance } from './waitingAppearance';
 
 /**
  * Everything across your sessions that waits on you: commands to allow or deny, questions to
@@ -122,9 +122,8 @@ export function WaitingPanel({ onOpenSession, history, onDirtyChange, onFocusFal
             && (currentGenerations.has(key) || (action.phase === 'sending' && pendingAnswers.has(key)))));
         currentHistory.setState({ previous: items, answered: nextAnswered, actions: kept.size === actions.size ? actions : kept });
     }, [items, unloaded, ready, status, desk.list, desk.lookup, currentHistory, answered]);
-    const { theme } = useUnistyles();
     const navigateToSession = useDeskSessionNavigation();
-    const styles = cardStyles(theme);
+    const { styles } = useWaitingAppearance();
 
     const open = React.useCallback((sessionId: string) => {
         void navigateToSession(sessionId);

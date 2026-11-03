@@ -13,6 +13,7 @@ import {
     buildTranscriptRenderableAggregate,
     canReuseTranscriptRenderableAggregateRequestStates,
     isTranscriptRenderableAggregate,
+    withTranscriptRenderableAggregateCompletedRequests,
 } from '../../domains/messages/transcriptRenderableAggregate';
 import {
     areSessionListRenderablesEqual,
@@ -938,18 +939,20 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
                     }
                 }
 
-                // Snapshot reconciliation can invalidate the incremental aggregate. Rebuild it
-                // at this producer's existing transcript fold, so request-state observers can
-                // consume the authoritative result without reading messages themselves.
+                // Completion coverage belongs to the pending-request owner, so the aggregate's
+                // transcript contributions can be published for new completions without a fold.
+                // A missing/invalidated partial aggregate stays unknown; only loaded history rebuilds.
                 let sessionMessagesForRenderable = updatedSessionMessages[session.id];
                 if (sessionMessagesForRenderable) {
                     const aggregate = sessionMessagesForRenderable.renderableAggregate;
                     const completed = mergedSessions[session.id]!.agentState?.completedRequests ?? null;
-                    if (!aggregate || !canReuseTranscriptRenderableAggregateRequestStates(aggregate, completed)) {
+                    if ((aggregate && !canReuseTranscriptRenderableAggregateRequestStates(aggregate, completed))
+                        || (!aggregate && sessionMessagesForRenderable.isLoaded === true)) {
                         if (updatedSessionMessages === state.sessionMessages) updatedSessionMessages = { ...state.sessionMessages };
                         sessionMessagesForRenderable = updatedSessionMessages[session.id] = {
                             ...sessionMessagesForRenderable,
-                            renderableAggregate: buildTranscriptRenderableAggregate({
+                            renderableAggregate: aggregate ? withTranscriptRenderableAggregateCompletedRequests(aggregate, completed)
+                                : buildTranscriptRenderableAggregate({
                                 messages: renderableMessages ?? readStoredSessionMessagesFromStateLike(sessionMessagesForRenderable),
                                 completedRequests: completed,
                             }),
@@ -958,7 +961,9 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
                 }
                 const nextRenderableBase = buildSessionListRenderableFromSession(
                     mergedSessions[session.id]!,
-                    renderableMessages,
+                    // Explicitly exclude partial history, including the pending-request owner's
+                    // implicit storage-read fallback when no messages argument is supplied.
+                    renderableMessages ?? [],
                     sessionMessagesForRenderable?.isLoaded === true
                     && isTranscriptRenderableAggregate(sessionMessagesForRenderable.renderableAggregate)
                         ? sessionMessagesForRenderable.renderableAggregate

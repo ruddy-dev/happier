@@ -7,6 +7,8 @@ import { resolveWaitingQuestions } from '../model/waitingQuestions';
 import { WaitingQuestion } from './WaitingQuestion';
 import { DeskText as Text } from '../typography/DeskText';
 import { Typography } from '@/constants/Typography';
+import { useWaitingAppearance } from './waitingAppearance';
+import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { Modal } from '@/modal';
 import { sessionAllowResult, sessionDenyResult } from '@/sync/ops';
 import type { SessionPermissionResult } from '@/sync/ops/sessions';
@@ -17,49 +19,26 @@ import { useDeskNow } from '../model/useDeskNow';
 import { workerLastSignalAt, workerUnheardMinutes } from '../model/workerFreshness';
 import { waitingItemGenerationKey, type WaitingItem } from '../model/waitingItems';
 import { readDeskWaits } from '../model/useDeskWaits';
-import { useDeskPref } from '../deskPrefs';
 import { forgetWaitingAction, idleWaitingAction, setWaitingAction, type WaitingHistory } from '../model/waitingHistory';
 
 function StaleRequestNote({ sessionId, requestId }: { sessionId: string; requestId: string }) {
     const session = useSessionListRenderable(sessionId);
     const now = useDeskNow();
-    const { theme } = useUnistyles();
+    const { styles } = useWaitingAppearance();
     const unknown = !session || session.active !== true || workerLastSignalAt(session) === null;
     if (!unknown && workerUnheardMinutes(session, now) === null) return null;
     return (
-        <Text testID={`ip-waiting-stale-${requestId}`} style={{ color: theme.colors.text.secondary, fontSize: 13 }}>
+        <Text testID={`ip-waiting-stale-${requestId}`} style={styles.secondary}>
             {unknown ? t('ignorePrevious.waiting.workerUnknown') : t('ignorePrevious.connection.staleRequest')}
         </Text>
     );
 }
 
-type Theme = ReturnType<typeof useUnistyles>['theme'];
-
-export function cardStyles(theme: Theme) {
-    return {
-        card: { gap: 6, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border.default },
-        title: { color: theme.colors.text.primary, fontSize: 15 },
-        button: {
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            minHeight: 48,
-            justifyContent: 'center',
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: theme.colors.border.default,
-            backgroundColor: theme.colors.surface.inset,
-        },
-        buttonText: { color: theme.colors.text.primary, fontSize: 14, ...Typography.default('semiBold') },
-        secondary: { color: theme.colors.text.secondary, fontSize: 13 },
-    } as const;
-}
-
 export function OpenSessionButton({ sessionId, onOpen }: { sessionId: string; onOpen: (sessionId: string) => void }) {
-    const { theme } = useUnistyles();
-    const styles = cardStyles(theme);
+    const { terminal, styles } = useWaitingAppearance();
     return (
-        <Pressable accessibilityRole="button" style={styles.button} onPress={() => onOpen(sessionId)}>
-            <Text style={styles.buttonText}>{t('ignorePrevious.openSession')}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('ignorePrevious.openSession')} style={styles.button} onPress={() => onOpen(sessionId)}>
+            <Text style={styles.buttonText}>{terminal ? `[ ${t('ignorePrevious.openSession')} ]` : t('ignorePrevious.openSession')}</Text>
         </Pressable>
     );
 }
@@ -83,9 +62,7 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
     refreshing?: boolean;
 }) {
     const { theme } = useUnistyles();
-    const styles = cardStyles(theme);
-    const [chatStyle] = useDeskPref('chatStyle');
-    const terminal = chatStyle === 'terminal';
+    const { terminal, paint, ink, rule, styles } = useWaitingAppearance();
     const [disclosure, setDisclosure] = React.useState<'unopened' | 'open' | 'closed'>('unopened');
     const content = item.requestContent;
     const [reviewedContent, setReviewedContent] = React.useState<string | null>(null);
@@ -110,7 +87,7 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
 
     return (
         <View ref={rowRef} testID={`ip-waiting-card-${item.requestId}`}
-            style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border.default }}>
+            style={{ borderBottomWidth: 1, borderBottomColor: rule }}>
             <Pressable ref={toggleRef} testID={`ip-waiting-toggle-${item.requestId}`} accessibilityRole="button"
                 accessibilityLabel={t(expanded ? 'ignorePrevious.waiting.hideDetails' : 'ignorePrevious.waiting.showDetails', {
                     name: item.sessionTitle, issue: issueKey ?? t('ignorePrevious.noIssue'), summary: item.summary,
@@ -122,12 +99,12 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
                     else { setReviewedContent(content); setBlockedByChange(false); setDisclosure('open'); }
                 }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 52, paddingVertical: 10,
-                    paddingHorizontal: 4, backgroundColor: focused ? theme.colors.surface.inset : 'transparent',
+                    paddingHorizontal: 4, backgroundColor: focused ? (terminal ? paint.panel2 : theme.colors.surface.inset) : 'transparent',
                     borderRadius: terminal ? 0 : 6,
-                    borderWidth: 1, borderColor: focused ? theme.colors.border.strong : 'transparent' }}>
+                    borderWidth: 1, borderColor: focused ? (terminal ? ink : theme.colors.border.strong) : 'transparent' }}>
                 <Text testID={`ip-waiting-cursor-${item.requestId}`} accessible={false}
-                    style={{ color: theme.colors.text.primary, width: 12 }}>{terminal && focused ? '›' : expanded ? '−' : '+'}</Text>
-                <Text numberOfLines={1} style={{ color: theme.colors.text.primary, fontSize: 13, flex: 1, minWidth: 0 }}>{item.summary}</Text>
+                    style={{ color: ink, width: 12 }}>{terminal && focused ? '›' : expanded ? '−' : '+'}</Text>
+                <Text numberOfLines={1} style={{ color: ink, fontSize: 13, flex: 1, minWidth: 0 }}>{item.summary}</Text>
                 <Text testID={`ip-waiting-issue-${item.requestId}`} numberOfLines={1}
                     style={{ ...styles.secondary, fontSize: 11, maxWidth: '30%' }}>{issueKey ?? t('ignorePrevious.noIssue')}</Text>
             </Pressable>
@@ -148,7 +125,7 @@ export function WaitingCard({ item, issueKey, onOpen, actions, onDirtyChange, on
                         </Text>
                     ) : null}
                     {/* Whole and selectable: what Allow runs must be readable to its last character. */}
-                    <Text selectable style={{ color: theme.colors.text.primary, fontSize: 13, ...Typography.mono() }}>
+                    <Text selectable style={{ color: ink, fontSize: 13, ...(terminal ? { fontFamily: DESK_FONT_STACK } : Typography.mono()) }}>
                         {item.detail}
                     </Text>
                 </>
@@ -176,8 +153,7 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
     onDirtyChange?: (dirty: boolean) => void;
     onRequestChanged: () => void;
 }) {
-    const { theme } = useUnistyles();
-    const styles = cardStyles(theme);
+    const { terminal, mute, styles } = useWaitingAppearance();
     const content = item.requestContent;
     const mounted = React.useRef(true);
     React.useLayoutEffect(() => {
@@ -257,11 +233,11 @@ function WaitingAnswers({ item, expanded, refreshing, actions, isCoordinator, on
             aria-busy={busy}
             accessibilityHint={disconnected ? t('ignorePrevious.connection.actionsUnavailable') : undefined}
             disabled={disabled}
-            style={[styles.button, disabled ? { opacity: 0.5 } : null]}
+            style={[styles.button, disabled && !terminal ? { opacity: 0.5 } : null]}
             // Not awaited: the press returns at once and the guard owns the in-flight answer.
             onPress={() => void send(kind, call)}
         >
-            <Text style={styles.buttonText}>{label}</Text>
+            <Text style={[styles.buttonText, disabled && terminal ? { color: mute } : null]}>{terminal ? `[ ${label} ]` : label}</Text>
         </Pressable>
     );
 

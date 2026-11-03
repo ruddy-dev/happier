@@ -11631,7 +11631,7 @@ settingsSession: {
             unreadable: "The desk can't read this session's request. Open the session to look.",
             blankLines: ({ count }: { count: number }) => `${count} blank lines`,
             blankCharacters: ({ count }: { count: number }) => `${count} blank characters`,
-            answeringElsewhere: 'This press was blocked by the session screen. Open the session to answer there.',
+            answeringElsewhere: 'An answer is already in progress or has been sent. Open the session to check.',
         },
         questionCard: {
             send: 'Send',
