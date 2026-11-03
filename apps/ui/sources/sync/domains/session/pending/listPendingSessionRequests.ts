@@ -56,6 +56,8 @@ export type TranscriptRequestState = (
         /** Older hard outcomes still suppress stale agent details after a later pending contribution. */
         hardTerminalCreatedAt?: number;
         hardTerminalRequest?: SessionPendingRequest;
+        /** Distinct payloads share the latest hard clock; no single outcome can be assigned. */
+        hardTerminalAmbiguous?: true;
     }>;
 
 /**
@@ -84,7 +86,10 @@ function getRequestPermissionSuggestions(req: unknown): unknown[] | null {
 function stringifyPendingRequestArguments(value: unknown): string | null {
     if (typeof value === 'undefined') return null;
     try {
-        return JSON.stringify(value);
+        const serialized = JSON.stringify(value);
+        // Normalize JSON values using the existing signature owner. Serialize first
+        // so its non-JSON fallback cannot make two unserializable payloads equivalent.
+        return serialized === undefined ? null : buildStableJsonSignature(JSON.parse(serialized));
     } catch {
         return null;
     }
@@ -179,15 +184,26 @@ export function mergeTranscriptRequestState(
     const winner = nextWins ? nextState : previousState;
     // Keep completion-independent evidence in either fold order. A completed newer
     // pending contribution must not erase the outcome that covers older agent state.
-    const hardTerminalCreatedAt = Math.max(
-        readHardTerminalCreatedAt(previousState) ?? -Infinity,
-        readHardTerminalCreatedAt(nextState) ?? -Infinity,
-    );
-    return hardTerminalCreatedAt > (readHardTerminalCreatedAt(winner) ?? -Infinity)
-        ? { ...winner, hardTerminalCreatedAt,
-            hardTerminalRequest: readHardTerminalCreatedAt(nextState) === hardTerminalCreatedAt
-                ? nextState.hardTerminalRequest : previousState.hardTerminalRequest }
-        : winner;
+    const previousHardAt = readHardTerminalCreatedAt(previousState) ?? -Infinity;
+    const nextHardAt = readHardTerminalCreatedAt(nextState) ?? -Infinity;
+    const hardTerminalCreatedAt = Math.max(previousHardAt, nextHardAt);
+    if (hardTerminalCreatedAt === -Infinity) return winner;
+    const hardSource = nextHardAt >= previousHardAt ? nextState : previousState;
+    // Retain one bit, not a growing payload history. A newer hard clock replaces
+    // this evidence; an equal clock cannot select one of conflicting outcomes.
+    const ambiguous = hardSource.hardTerminalAmbiguous === true
+        || (previousHardAt === nextHardAt && (previousState.hardTerminalAmbiguous === true
+            || nextState.hardTerminalAmbiguous === true
+            || (!!previousState.hardTerminalRequest && !!nextState.hardTerminalRequest
+                && !arePendingRequestsEquivalent(previousState.hardTerminalRequest, nextState.hardTerminalRequest))));
+    const hardTerminalRequest = ambiguous ? undefined : hardSource.hardTerminalRequest;
+    if (readHardTerminalCreatedAt(winner) === hardTerminalCreatedAt
+        && winner.hardTerminalRequest === hardTerminalRequest
+        && !!winner.hardTerminalAmbiguous === ambiguous) return winner;
+    const { hardTerminalRequest: _request, hardTerminalAmbiguous: _ambiguous, ...rest } = winner;
+    return { ...rest, hardTerminalCreatedAt,
+        ...(hardTerminalRequest ? { hardTerminalRequest } : {}),
+        ...(ambiguous ? { hardTerminalAmbiguous: true as const } : {}) };
 }
 
 function readHardTerminalCreatedAt(state: TranscriptRequestState | undefined): number | null {
@@ -314,10 +330,11 @@ function listPendingAgentStateRequests(agentState: AgentState | null | undefined
     });
 }
 
-function isAgentRequestSuppressedByTranscript(request: SessionPendingRequest, state: TranscriptRequestState | undefined): boolean {
+function reconcileAgentRequestWithTranscript(request: SessionPendingRequest, state: TranscriptRequestState | undefined): SessionPendingRequest | null {
     const hardTerminalCreatedAt = readHardTerminalCreatedAt(state);
-    return hardTerminalCreatedAt !== null && (request.createdAt ?? 0) <= hardTerminalCreatedAt
-        && (!state?.hardTerminalRequest || arePendingRequestsEquivalent(request, state.hardTerminalRequest));
+    if (hardTerminalCreatedAt === null || (request.createdAt ?? 0) > hardTerminalCreatedAt) return request;
+    if (state?.hardTerminalAmbiguous) return { ...request, requiresInspection: true };
+    return !state?.hardTerminalRequest || arePendingRequestsEquivalent(request, state.hardTerminalRequest) ? null : request;
 }
 
 /**
@@ -340,10 +357,12 @@ export function observePendingSessionRequest(
         return agentRequest && !covered && agentRequest.kind === 'user_action'
             ? { status: 'pending', request: agentRequest } : { status: covered ? 'terminal' : 'absent' };
     }
-    if (agentRequest && !covered && !isAgentRequestSuppressedByTranscript(agentRequest, transcriptState)) {
+    const reconciled = agentRequest && !covered ? reconcileAgentRequestWithTranscript(agentRequest, transcriptState) : null;
+    if (reconciled) {
+        if (reconciled.requiresInspection) return { status: 'pending', request: reconciled };
         return { status: 'pending', request: transcriptRequest
-            && arePendingRequestsEquivalent(transcriptRequest, agentRequest)
-            ? mergePendingRequestMetadata(transcriptRequest, agentRequest) : agentRequest };
+            && arePendingRequestsEquivalent(transcriptRequest, reconciled)
+            ? mergePendingRequestMetadata(transcriptRequest, reconciled) : reconciled };
     }
     if (transcriptRequest) return { status: 'pending', request: transcriptRequest };
     return { status: readHardTerminalCreatedAt(transcriptState) !== null || covered || transcriptCovered
@@ -506,9 +525,11 @@ export function listPendingSessionRequests(
     }
 
     if (pendingAgentStateRequests.length > 0) {
-        for (const request of pendingAgentStateRequests) {
-            const transcriptState = transcriptStates.get(request.id);
-            if (isAgentRequestSuppressedByTranscript(request, transcriptState)) {
+        for (const agentRequest of pendingAgentStateRequests) {
+            const request = reconcileAgentRequestWithTranscript(agentRequest, transcriptStates.get(agentRequest.id));
+            if (!request) continue;
+            if (request.requiresInspection) {
+                pending.set(request.id, request);
                 continue;
             }
 

@@ -4,6 +4,7 @@ import {
     type TranscriptRequestState,
 } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { resolveLatestUnreadAffectingCommittedMessageSeq } from '@/sync/domains/session/readCursor/resolveSessionReadableSeq';
+import { buildStableJsonSignature } from '@/sync/domains/session/metadata/sessionMetadataStability';
 
 import { messageAttentionImpact } from './messageUserAttention';
 import type { Message } from './messageTypes';
@@ -100,7 +101,9 @@ function areTerminalStatesInterchangeable(
         && next.status === 'terminal'
         && previous.createdAt === next.createdAt
         && previous.terminalKind === next.terminalKind
-        && previous.hardTerminalCreatedAt === next.hardTerminalCreatedAt;
+        && previous.hardTerminalCreatedAt === next.hardTerminalCreatedAt
+        && previous.hardTerminalAmbiguous === next.hardTerminalAmbiguous
+        && buildStableJsonSignature(previous.hardTerminalRequest) === buildStableJsonSignature(next.hardTerminalRequest);
 }
 
 /**
