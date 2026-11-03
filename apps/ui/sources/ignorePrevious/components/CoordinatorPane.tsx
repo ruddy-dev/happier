@@ -1,14 +1,12 @@
 import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { useCoordinatorTranscriptAppearance } from '../useCoordinatorTranscriptAppearance';
 import * as React from 'react';
-import { Platform, Pressable, View, useWindowDimensions } from 'react-native';
+import { Platform, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { isMobileLayoutWidth } from '@/components/sessions/layout/isMobileLayoutWidth';
 import type { SessionViewComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
 import { SessionView } from '@/components/sessions/shell/SessionView';
-import { Text } from '@/components/ui/text/Text';
-import { Typography } from '@/constants/Typography';
 import { useHydrateSessionForRoute } from '@/hooks/session/useHydrateSessionForRoute';
 import { Modal } from '@/modal';
 import { useSession, useSetting } from '@/sync/store/hooks';
@@ -18,10 +16,9 @@ import { RunSettingsMenu } from './RunSettingsMenu';
 import { ContextGauge } from './ContextGauge';
 import { sessionContextMeter } from './ContextMeter';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
-import { MaskFace } from './MaskFace';
+import { CoordinatorHeader } from './CoordinatorHeader';
 import { ShogView } from './ShogView';
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
-import { useWaitingCount } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
 import { useDeskComposerControls } from '../model/useDeskComposerControls';
 import { useDeskDictationControls } from '../model/useDeskDictation';
@@ -91,29 +88,11 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does,
     // and hand SessionView the state so it shows loading or retrying instead of "isn't available".
     const hydration = useHydrateSessionForRoute(sessionId, 'IgnorePrevious.CoordinatorPane');
-    const waiting = useWaitingCount() > 0;
     const FixtureBody = getFixtureBody(React.useContext(DeskFixtureRouteContext));
 
     return (
         <View testID="ip-coordinator-pane" onLayout={(event) => setChatWidth(event.nativeEvent.layout.width)} style={{ flex: 1, minHeight: 480 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
-                <Pressable
-                    testID="ip-shog-open"
-                    accessibilityRole="button"
-                    accessibilityLabel={t('ignorePrevious.openShog')}
-                    onPress={openShog}
-                    hitSlop={6}
-                >
-                    <MaskFace size={36} bulb={waiting ? 'turn' : 'rest'} sleepy={false} />
-                </Pressable>
-                <Text style={{ color: theme.colors.text.primary, fontSize: 18, ...Typography.default('semiBold') }}>
-                    {t('ignorePrevious.coordinator')}
-                </Text>
-                <Text style={{ color: theme.colors.text.secondary, fontSize: 13 }}>{t('ignorePrevious.coordinatorNickname')}</Text>
-                <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    {headerAccessory}
-                </View>
-            </View>
+            <CoordinatorHeader session={coordinator} onOpenShog={openShog} accessory={headerAccessory} />
             <CoordinatorPrompts coordinatorId={sessionId} />
             <View style={{ flex: 1 }}>
                 <TranscriptAppearanceContext.Provider value={appearance}>
@@ -124,6 +103,7 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                     ) : (
                         <SessionView
                             id={sessionId}
+                            showHeader={false}
                             composer={composer}
                             routeHydrationState={hydration}
                             routeAnchorOverride={true}

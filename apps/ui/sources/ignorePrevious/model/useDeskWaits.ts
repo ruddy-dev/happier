@@ -94,6 +94,8 @@ type Projection = {
     loadingSessionIds: readonly string[];
     details?: DeskWaits;
     previousDetails?: DeskWaits;
+    activity?: DeskWaitsActivity;
+    previousActivity?: DeskWaitsActivity;
     notificationWaits?: NotificationWaits;
 };
 type WaitSnapshot = {
@@ -175,7 +177,8 @@ function selectProjection(state: State, excludeSessionId?: string): { snapshot: 
         const summary = projection?.summary.count === count && projection.summary.ready === current.ready
             ? projection.summary : { count, ready: current.ready };
         projection = { summary, sourceInputs: current.inputs, sourceUnloaded: current.unloaded, sourceLoading: current.loadingSessionIds,
-            inputs, unloaded, loadingSessionIds, previousDetails: projection?.details ?? projection?.previousDetails };
+            inputs, unloaded, loadingSessionIds, previousDetails: projection?.details ?? projection?.previousDetails,
+            previousActivity: projection?.activity ?? projection?.previousActivity };
         current.projections.set(excludeSessionId, projection);
     }
     projection.sourceInputs = current.inputs;
@@ -257,4 +260,34 @@ export function readDeskWaits(excludeSessionId?: string): DeskWaits {
 
 export function useWaitingCount(): number {
     return useDeskWaitsSummary().count;
+}
+
+
+export type DeskWaitsActivity = Readonly<{
+    count: number | null;
+    requests: readonly Readonly<{ sessionId: string; requestId: string }>[];
+    unloadedSessionIds: readonly string[];
+}>;
+/** Request identities for the header's event animation, without drawer labels or action models. */
+function selectActivity(state: State): DeskWaitsActivity {
+    const { projection } = selectProjection(state);
+    if (!projection.activity) {
+        const count = projection.summary.ready ? projection.summary.count : null;
+        const requests = projection.inputs.flatMap(({ row, requests }) => requests.map(request => ({
+            sessionId: row.id, requestId: request.id,
+        })));
+        const unloadedSessionIds = projection.unloaded.map(({ row }) => row.id);
+        const previous = projection.previousActivity;
+        projection.activity = previous && previous.count === count
+            && shallow(previous.unloadedSessionIds, unloadedSessionIds)
+            && previous.requests.length === requests.length
+            && previous.requests.every((request, index) => shallow(request, requests[index]))
+            ? previous : { count, requests, unloadedSessionIds };
+        projection.previousActivity = undefined;
+    }
+    return projection.activity;
+}
+
+export function useDeskWaitsActivity(): DeskWaitsActivity {
+    return storage(selectActivity);
 }

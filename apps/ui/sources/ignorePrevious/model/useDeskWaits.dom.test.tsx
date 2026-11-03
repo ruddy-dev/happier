@@ -9,7 +9,7 @@ import type { NormalizedMessage } from '@/sync/typesRaw';
 import * as waitingItems from './waitingItems';
 import * as sessionUtils from '@/utils/sessions/sessionUtils';
 import * as transcriptReader from '@/sync/domains/messages/readStoredSessionMessages';
-import { readDeskWaits, useDeskWaits, useDeskWaitsSummary, useWaitingCount } from './useDeskWaits';
+import { readDeskWaits, useDeskWaits, useDeskWaitsSummary, useDeskWaitsActivity, useWaitingCount } from './useDeskWaits';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root;
@@ -108,4 +108,31 @@ it('reuses the badge summary identity when details change at the same count', ()
     expect(summaries.at(-1)).toBe(initial);
     expect(summaries).toHaveLength(1);
     expect(readDeskWaits().items[0]?.sessionTitle).toBe('Renamed worker');
+});
+
+
+it('projects creature request identities without drawer work and retains equivalent activity', () => {
+    const values: ReturnType<typeof useDeskWaitsActivity>[] = [];
+    function Header() {
+        const activity = useDeskWaitsActivity();
+        values.push(activity);
+        return <output>{activity.count}</output>;
+    }
+    const details = vi.spyOn(waitingItems, 'toWaitingItems');
+    const labels = vi.spyOn(sessionUtils, 'getSessionName');
+    write('waiting', 50, true);
+    act(() => root.render(<Header />));
+    expect(values.at(-1)).toMatchObject({ count: 1, requests: [{ sessionId: 'waiting', requestId: 'request-50' }], unloadedSessionIds: [] });
+    const initial = values.at(-1);
+    for (let i = 0; i < 10; i++) write('streaming', i);
+    const worker = storage.getState().sessions.waiting!;
+    act(() => storage.getState().applySessions([{ ...worker, metadataVersion: worker.metadataVersion + 1,
+        metadata: { ...worker.metadata!, name: 'Renamed worker' } }]));
+    expect(values.at(-1)).toBe(initial);
+    expect(values).toHaveLength(1);
+    write('waiting', 51, true);
+    expect(values.at(-1)?.requests.map(request => request.requestId)).toEqual(['request-50', 'request-51']);
+    expect(values.at(-1)?.count).toBe(2);
+    expect(details).not.toHaveBeenCalled();
+    expect(labels).not.toHaveBeenCalled();
 });
