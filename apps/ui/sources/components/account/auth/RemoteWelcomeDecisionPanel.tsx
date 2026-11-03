@@ -330,7 +330,7 @@ export function RemoteWelcomeDecisionPanel(props: RemoteWelcomeDecisionPanelProp
               * — same coordinates as the brand hero's wordmark so users see
               * the same logo position across both mobile screens.
               */}
-            <View style={styles.headingBlock}>
+            <View testID="welcome-heading-group" style={styles.headingBlock}>
                 <Text testID="welcome-question-title" accessibilityRole="header" style={styles.questionTitle}>
                     {isReturningUser ? returningGreeting.title : t('welcome.welcomeQuestionTitle')}
                 </Text>

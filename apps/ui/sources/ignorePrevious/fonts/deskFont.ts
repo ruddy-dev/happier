@@ -23,12 +23,11 @@ export function mountDeskFont(doc: Document): () => void {
 [data-ip-page-scope] :focus-visible { outline: 3px solid var(--ip-page-focus) !important; outline-offset: 2px; }
 /* The mobile welcome copy crosses the inherited planet; opaque theme canvas keeps it readable. */
 @media (max-width: 720px) {
-    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-question-title"],
-    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-question-subtitle"],
-    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-private-key-copy"],
-    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-signup-disabled"],
-    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-server-loading"] {
-        background-color: var(--ip-page-surface); box-shadow: 0 0 8px 4px var(--ip-page-surface);
+    [data-ip-page-scope] [data-testid="welcome-decision-panel"] [data-testid="welcome-heading-group"] {
+        background-color: var(--ip-page-surface); padding: 16px; border-radius: 12px;
+    }
+    [data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-heading-group"] {
+        border-radius: 2px;
     }
 }
 [data-ip-terminal] [data-testid="welcome-decision-panel"] [data-testid="welcome-primary-start"],
