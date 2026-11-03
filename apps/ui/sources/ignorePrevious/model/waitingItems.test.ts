@@ -186,6 +186,30 @@ describe('describeRequest: text that would read differently from what runs', () 
 });
 
 describe('toWaitingItems', () => {
+    it.each([null, { command: 'echo ready', cwd: '/work/review' }])('escapes tool display while retaining raw permission identity with arguments %j', args => {
+        const make = (tool: string) => toWaitingItems([{
+            sessionId: 'worker', sessionTitle: 'Builder', disabledReason: null,
+            requests: [{ id: 'shared', kind: 'permission', tool, arguments: args, createdAt: 1 }],
+        }])[0]!;
+        const raw = make('Read\u202E');
+        const escaped = make('Read⟨U+202E⟩');
+        expect(raw.tool).toBe('Read⟨U+202E⟩');
+        expect(raw.tool).toBe(escaped.tool);
+        expect(raw.summary).toBe(escaped.summary);
+        expect(raw.detail).toBe(escaped.detail);
+        expect(raw.key).toBe(escaped.key);
+        expect(JSON.parse(raw.requestContent)).toEqual(['permission', 'Read\u202E', args]);
+        expect(raw.requestContent).not.toBe(escaped.requestContent);
+    });
+
+    it.each(['Bash', 'Edit', 'AskUserQuestion', 'mcp__shell__run'])('preserves the ordinary tool name %s', tool => {
+        const [item] = toWaitingItems([{
+            sessionId: 'worker', sessionTitle: 'Builder', disabledReason: null,
+            requests: [{ id: 'shared', kind: 'permission', tool, arguments: null, createdAt: 1 }],
+        }]);
+        expect(item).toMatchObject({ tool, summary: tool, detail: tool });
+    });
+
     it('flattens requests across sessions, oldest first, unknown times last', () => {
         const items = toWaitingItems([
             {

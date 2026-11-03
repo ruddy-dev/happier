@@ -37,9 +37,9 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => storage.setState(previous, true)); });
 
-function worker(id: string, command: string): Session {
+function worker(id: string, command: string, tool = 'Bash'): Session {
     return createSessionFixture({ id, active: true, agentState: { requests: {
-        shared: { tool: 'Bash', arguments: { command }, createdAt: 1 },
+        shared: { tool, arguments: { command }, createdAt: 1 },
     } } });
 }
 function seed(sessions: Session[]) {
@@ -129,6 +129,31 @@ it.each([
     expect(boundary.allow).not.toHaveBeenCalled();
     await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
     expect(screen.getTextContent()).toContain(replacement);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    expect(boundary.allow).toHaveBeenCalledExactlyOnceWith('worker', 'shared');
+});
+
+it('escapes the Allow label but requires a fresh review when raw and escaped tool names collide', async () => {
+    const original = worker('worker', 'echo ready', 'Read\u202E');
+    seed([original]);
+    const screen = await renderScreen(<WaitingPanel />);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    const label = t('ignorePrevious.allow', { tool: 'Read⟨U+202E⟩' });
+    const allow = screen.findByTestId('ip-waiting-allow-shared')!;
+    expect(allow.props.accessibilityLabel).toBe(label);
+    expect(screen.getTextContent()).toContain(label);
+    expect(screen.getTextContent()).not.toContain('\u202E');
+    const captured = allow.props.onPress;
+    await act(async () => {
+        storage.getState().applySessions([{
+            ...worker('worker', 'echo ready', 'Read⟨U+202E⟩'), agentStateVersion: original.agentStateVersion + 1,
+        }]);
+        captured();
+    });
+    expect(boundary.allow).not.toHaveBeenCalled();
+    expect(screen.findByTestId('ip-waiting-changed-shared')).not.toBeNull();
+    expect(screen.findByTestId('ip-waiting-toggle-shared')?.props.accessibilityState.expanded).toBe(false);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
     await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
     expect(boundary.allow).toHaveBeenCalledExactlyOnceWith('worker', 'shared');
 });
