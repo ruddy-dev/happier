@@ -55,7 +55,9 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
     const contextProject = item ? projectName : undefined;
     const title = item?.title ?? newest?.title ?? label;
     const summary = [contextProject, title !== label ? label : null, stage ? t('ignorePrevious.workCard.stage', { stage: t(`ignorePrevious.workCard.${stage}`) }) : null].filter(Boolean).join('. ');
-    const state = [bulbWord(group.bulb), attention].filter(Boolean).join('. ');
+    const limitReason = group.bulb === 'waiting' && stateWorker?.usageLimit
+        ? t('connectedServices.pools.behavior.switchOn.usageLimit') : null;
+    const state = [bulbWord(group.bulb), attention, limitReason].filter(Boolean).join('. ');
 
     return (
         <View
