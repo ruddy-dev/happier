@@ -987,6 +987,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
     });
 
     it('loads pending edits into the composer and saves them without sending a new message', async () => {
+        const { CoordinatorComposer } = await import('@/ignorePrevious/components/CoordinatorComposer');
         sessionPendingMessagesState.current = [{
             id: 'p1',
             text: 'queued\nmessage',
@@ -1004,9 +1005,11 @@ describe('SessionView (attachments.uploads resumable send)', () => {
 
         let tree: renderer.ReactTestRenderer | undefined;
         try {
-            tree = (await renderScreen(<AppPaneProvider>
-                        <SessionView id="s1" />
-                    </AppPaneProvider>)).tree;
+            const renderAtWidth = (phone: boolean) => <AppPaneProvider><CoordinatorComposer coordinatorId="s1" phone={phone}>
+                <SessionView id="s1" />
+            </CoordinatorComposer></AppPaneProvider>;
+            const screen = await renderScreen(renderAtWidth(true));
+            tree = screen.tree;
 
             pendingFireAndForget.length = 0;
 
@@ -1031,6 +1034,13 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             });
 
             agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput.props.value).toBe('queued\nmessage');
+
+            const originalInput = agentInput;
+            await screen.update(renderAtWidth(false));
+            await screen.update(renderAtWidth(true));
+            agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput === originalInput).toBe(true);
             expect(agentInput.props.value).toBe('queued\nmessage');
 
             await act(async () => {
@@ -1120,6 +1130,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
     });
 
     it('clears current attachment drafts during pending edit and restores them on cancel', async () => {
+        const { CoordinatorComposer } = await import('@/ignorePrevious/components/CoordinatorComposer');
         sessionPendingMessagesState.current = [{
             id: 'p1',
             text: 'queued message',
@@ -1134,7 +1145,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
 
         let tree: renderer.ReactTestRenderer | undefined;
         try {
-            tree = (await renderScreen(<AppPaneProvider>
+            const renderAtWidth = (phone: boolean) => <AppPaneProvider><CoordinatorComposer coordinatorId="s1" phone={phone}>
                         <SessionView
                             id="s1"
                             initialAttachmentDrafts={[{
@@ -1149,7 +1160,9 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                                 status: 'pending',
                             }]}
                         />
-                    </AppPaneProvider>)).tree;
+                    </CoordinatorComposer></AppPaneProvider>;
+            const screen = await renderScreen(renderAtWidth(true));
+            tree = screen.tree;
 
             const renderedTree = tree;
             expect(renderedTree).toBeDefined();
@@ -1172,6 +1185,14 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             });
 
             agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput.props.value).toBe('queued message');
+            expect(agentInput.props.attachments).toEqual([]);
+
+            const originalInput = agentInput;
+            await screen.update(renderAtWidth(false));
+            await screen.update(renderAtWidth(true));
+            agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
+            expect(agentInput === originalInput).toBe(true);
             expect(agentInput.props.value).toBe('queued message');
             expect(agentInput.props.attachments).toEqual([]);
 

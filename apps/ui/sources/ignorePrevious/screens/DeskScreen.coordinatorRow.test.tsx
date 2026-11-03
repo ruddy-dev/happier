@@ -9,6 +9,9 @@ import { DeskCreature } from '../creature/DeskCreature';
 import { CoordinatorCard } from '../components/CoordinatorCard';
 import { sessionContextMeter } from '../components/ContextMeter';
 import { t } from '@/text';
+import { readComposerText, useComposerRequestHandle } from '@/components/sessions/model/composerRequests';
+import { useCoordinatorComposerPanelLeading } from '../model/coordinatorComposerInput';
+import { View } from 'react-native';
 
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
 import raw from '../testkit/scripts/L1-coordinator-row.json';
@@ -48,9 +51,20 @@ vi.mock('@/hooks/ui/useReducedMotionPreference', async () => {
 });
 
 vi.mock('@/components/sessions/shell/SessionView', async () => {
-    const { deskScreenMocks } = await import('../testkit/deskScreenMocks');
-    return deskScreenMocks.sessionView();
+    return { SessionView: TestSessionView };
 });
+
+// Keep the chat boundary small while exposing the real composer's slot and request handle.
+function TestSessionView({ id, routeHydrationState }: { id: string; routeHydrationState?: { kind: string } | null }) {
+    const leading = useCoordinatorComposerPanelLeading('agent-input-drop-zone');
+    const text = React.useRef('');
+    useComposerRequestHandle(id, {
+        setText: (value) => { text.current = value; },
+        getText: () => text.current,
+        focus: () => {},
+    }, true);
+    return <View testID={`session-view-${id}`} accessibilityHint={routeHydrationState?.kind ?? 'none'}>{leading}</View>;
+}
 
 vi.mock('@/hooks/session/useHydrateSessionForRoute', async () => {
     const { deskScreenMocks } = await import('../testkit/deskScreenMocks');
@@ -143,6 +157,10 @@ describe('DeskScreen coordinator row (L1)', () => {
         expect(scenario.textOf('ip-count-turn')).toBe('1');
         // The existing walk-through excludes the coordinator's own blocked prompt (L2).
         expect(scenario.textOf('ip-walk-waiting')).toContain('(1)');
+        await scenario.screen.pressByTestIdAsync('ip-walk-waiting');
+        expect(readComposerText('c1')).toContain('echo ready');
+        expect(readComposerText('c1')).toContain('w1');
+        expect(readComposerText('c1')).not.toContain('c1');
         await scenario.apply('c1', { completed: { own: 'approved' } });
         expect(scenario.textOf('ip-coord-card-waiting')).toBe(t('ignorePrevious.coordinatorCard.waiting', { count: 0 }));
         expect(scenario.textOf('ip-coord-card-state')).toBe('Idle');
