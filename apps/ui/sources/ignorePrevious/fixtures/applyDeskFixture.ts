@@ -83,6 +83,9 @@ export function applyDeskFixture(now: number = Date.now(), data?: string): () =>
     const selected: FixtureScenario = data === 'demo' ? demo : scenario;
     const specs = selected.sessions;
     const wasReady = storage.getState().isDataReady;
+    let released = false;
+    // Real store subscribers can synchronously release the fixture during any write.
+    const writeIfActive = (write: () => void) => { if (!released) write(); };
     const linesFor = (spec: FixtureSession) => spec.id === selected.coordinatorId ? selected.coordinatorBody.transcript : spec.transcript ?? [];
     const applyLines = (spec: FixtureSession, count: number) => {
         const messages = linesFor(spec).slice(0, count).map((line, index): NormalizedMessage => {
@@ -93,14 +96,14 @@ export function applyDeskFixture(now: number = Date.now(), data?: string): () =>
                 : { ...common, role: 'agent', content: [{ type: 'text', text: line.text, uuid: id, parentUUID: null }] };
         });
         // The same normalized-message owner as sync; empty transcripts still become loaded.
-        storage.getState().applyMessages(spec.id, messages);
-        storage.getState().applyMessagesLoaded(spec.id);
+        writeIfActive(() => storage.getState().applyMessages(spec.id, messages));
+        writeIfActive(() => storage.getState().applyMessagesLoaded(spec.id));
     };
     const applyDemoProgress = (step: number, reset: boolean) => {
         const complete = step === demoScript.length;
         // Restart removes reducer history. Completion also drops transient runtime/grace fields,
         // so the final fixture is exactly the static demo, independent of the playback clock.
-        if (reset || complete) storage.getState().deleteSessions(specs.map(spec => spec.id));
+        if (reset || complete) writeIfActive(() => storage.getState().deleteSessions(specs.map(spec => spec.id)));
         const visible = demoScript.slice(0, step);
         const changedId = demoScript[step - 1]?.sessionId;
         const changed = specs.flatMap((spec, index) => {
@@ -115,11 +118,10 @@ export function applyDeskFixture(now: number = Date.now(), data?: string): () =>
             };
             return [{ spec, count, session: buildSession(progressSpec, index, now, true) }];
         });
-        storage.getState().applySessions(changed.map(row => row.session));
+        writeIfActive(() => storage.getState().applySessions(changed.map(row => row.session)));
         for (const row of changed) applyLines(row.spec, row.count);
     };
     const player = data === 'demo' ? mountDemoConversation(applyDemoProgress) : null;
-    let released = false;
     const release = () => {
         if (released) return;
         released = true;
@@ -132,11 +134,11 @@ export function applyDeskFixture(now: number = Date.now(), data?: string): () =>
     const unregister = registerDeskFixtureRelease(release);
     try {
         setCoordinatorOverride(selected.coordinatorId);
-        storage.getState().applySessions(specs.map((spec, index) => buildSession(spec, index, now, data === 'demo')));
+        writeIfActive(() => storage.getState().applySessions(specs.map((spec, index) => buildSession(spec, index, now, data === 'demo'))));
         if (data === 'demo') {
             for (const spec of specs) applyLines(spec, linesFor(spec).length);
         }
-        storage.getState().applyReady();
+        writeIfActive(() => storage.getState().applyReady());
     } catch (error) {
         release();
         throw error;

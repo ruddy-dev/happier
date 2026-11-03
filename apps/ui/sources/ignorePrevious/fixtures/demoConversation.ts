@@ -88,6 +88,7 @@ export function createDemoConversation(write: (step: number, reset: boolean) => 
 let active: ReturnType<typeof createDemoConversation> | null = null;
 export function getDemoConversation() { return active; }
 export function mountDemoConversation(write: (step: number, reset: boolean) => void) {
+    active?.release();
     active = createDemoConversation(write);
     return active;
 }
