@@ -7,7 +7,7 @@ import type { AgentId } from '@happier-dev/agents';
 import { useDeskPref } from '../deskPrefs';
 import type { Bulb } from '../model/bulb';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
-import { spriteAsciiColour, spritePixelColour, spriteSignalColour, spriteStateTokens, useDeskPaint } from '../palette';
+import { spriteAsciiColour, spritePixelColour, spriteSignalColour, spriteStateTokens, useDeskPaint, type SpriteTheme } from '../palette';
 import { codexRobotSprites, noWorkerSprite, spriteAscii, spriteGrids, type SpriteKind } from '../sprites';
 
 export type WorkerSpriteProps = Readonly<{
@@ -15,8 +15,10 @@ export type WorkerSpriteProps = Readonly<{
     /** Pass null for an unidentified worker; omit for unassigned issues and literal sprites. */
     workerAgentId?: AgentId | null;
     bulb: Bulb;
-    /** Card 40, rail 28, worker row 24. The grid uses whole-number cell sizes. */
-    size: 24 | 28 | 40;
+    /** Card 40, rail 28, worker row 24; picker 32 and preview 48. Whole-number grid cells. */
+    size: 24 | 28 | 32 | 40 | 48;
+    /** A desk-owned appearance preview can supply its selected palette. */
+    paint?: SpriteTheme;
     faceStyle?: 'A' | 'B';
     calm?: boolean;
     /** Show the literal cast member in appearance controls, ignoring role overrides. */
@@ -29,7 +31,7 @@ const robotPreference: Partial<Record<SpriteKind, 'robotDroid' | 'robotIpb' | 'r
 };
 
 /** Approved grids and ASCII, a shared steady state cue, and just one finite IPB entrance. */
-export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKind, workerAgentId, bulb, size, faceStyle: overrideFaceStyle, calm = false, preview = false, testID }: WorkerSpriteProps) {
+export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKind, workerAgentId, bulb, size, paint: overridePaint, faceStyle: overrideFaceStyle, calm = false, preview = false, testID }: WorkerSpriteProps) {
     const [noWorker] = useDeskPref('noWorkerRobot');
     const [savedFaceStyle] = useDeskPref('workerFaces');
     const [codexRobot] = useDeskPref('codexRobot');
@@ -44,7 +46,8 @@ export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKi
     const robotKey = robotPreference[kind] ?? 'robotDroid';
     const [preset] = useDeskPref(robotKey);
     const faceStyle = overrideFaceStyle ?? savedFaceStyle;
-    const { paint } = useDeskPaint();
+    const { paint: deskPaint } = useDeskPaint();
+    const paint = overridePaint ?? deskPaint;
     const reducedMotion = useReducedMotionPreference();
     const [progress] = React.useState(() => new Animated.Value(0));
     const working = kind === 'ipb' && bulb === 'working';
@@ -63,7 +66,7 @@ export const WorkerSprite = React.memo(function WorkerSprite({ kind: requestedKi
         inputRange: [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4],
         outputRange: [0, Math.round(size * 0.08), 0, Math.round(size * 0.08), 0, Math.round(size * 0.08), 0, Math.round(size * 0.08), 0],
     }), [progress, size]);
-    const detail = size === 40 ? 'L' : size === 28 ? 'M' : 'S';
+    const detail = size >= 40 ? 'L' : size >= 28 ? 'M' : 'S';
     const cell = Math.floor(size / 16);
     const inset = (size - 16 * cell) / 2;
     const pixels = faceStyle === 'A' ? spriteGrids[kind][bulb][detail].flatMap((row, y) => {

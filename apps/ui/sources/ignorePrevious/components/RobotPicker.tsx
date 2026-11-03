@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { Platform, Pressable, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useDeskPref } from '../deskPrefs';
 import { codexRobotSprites, type SpriteKind } from '../sprites';
+import { terminalPalettes, useDeskPaint } from '../palette';
 import { DeskText } from '../typography/DeskText';
 import { WorkerSprite } from './WorkerSprite';
 
@@ -33,8 +33,11 @@ function sprites(choice: Choice): readonly SpriteKind[] {
 function PickerRow<C extends Choice>({ role, choices, selected, onSelect }: {
     role: 'unassigned' | 'codex'; choices: readonly C[]; selected: C; onSelect: (value: C) => void;
 }) {
-    const { theme } = useUnistyles();
+    const desk = useDeskPaint();
     const [chatStyle] = useDeskPref('chatStyle');
+    const [terminalPalette] = useDeskPref('terminalPalette');
+    const terminal = chatStyle === 'terminal';
+    const paint = terminal ? terminalPalettes[terminalPalette] : desk.paint;
     const [focused, setFocused] = React.useState<C | null>(null);
     const refs = React.useRef(new Map<C, View>());
     const optionId = (choice: C) => role === 'unassigned' ? `ip-no-worker-${choice}` : `ip-codex-robot-${choice}`;
@@ -55,8 +58,8 @@ function PickerRow<C extends Choice>({ role, choices, selected, onSelect }: {
         onSelect(choice);
         refs.current.get(choice)?.focus();
     };
-    return <View testID={`ip-robot-picker-${role}`} style={{ gap: 8 }}>
-        <DeskText style={{ color: theme.colors.text.primary }}>{t(`ignorePrevious.robots.${role}`)}</DeskText>
+    return <View testID={`ip-robot-picker-${role}`} style={{ gap: 8, padding: 8, backgroundColor: paint.panel, borderRadius: terminal ? 0 : 12 }}>
+        <DeskText style={{ color: paint.ink }}>{t(`ignorePrevious.robots.${role}`)}</DeskText>
         <View accessibilityRole="radiogroup" accessibilityLabel={t(`ignorePrevious.robots.${role}`)}
             style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {choices.map((choice, index) => {
@@ -67,24 +70,28 @@ function PickerRow<C extends Choice>({ role, choices, selected, onSelect }: {
                     accessibilityState={{ checked }} onPress={() => onSelect(choice)}
                     onFocus={() => setFocused(choice)} onBlur={() => setFocused(null)}
                     {...(Platform.OS === 'web' ? { 'aria-checked': checked, onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => keyDown(event, index), tabIndex: checked ? 0 : -1 } : {})}
-                    style={{ minWidth: 48, minHeight: 48, padding: focused === choice ? 5 : 6, alignItems: 'center', justifyContent: 'center', gap: 4,
-                        borderWidth: focused === choice ? 2 : 1, borderColor: checked || focused === choice ? theme.colors.text.primary : theme.colors.border.default,
-                        backgroundColor: checked ? theme.colors.surface.inset : theme.colors.surface.base }}>
-                    <View style={{ flexDirection: 'row' }}>
-                        {sprites(choice).map(kind => <WorkerSprite key={kind} kind={kind} size={choice === 'model' ? 24 : 28} bulb="idle" faceStyle="A" preview calm />)}
+                    style={{ minWidth: 48, minHeight: 48, padding: 2,
+                        // Reserve a separate, dashed outer ring. Focus never changes the selected border or moves its artwork.
+                        borderWidth: 2, borderStyle: 'dashed', borderColor: focused === choice ? paint.hl : 'transparent', borderRadius: terminal ? 0 : 14 }}>
+                    <View style={{ flex: 1, padding: 6, alignItems: 'center', justifyContent: 'center', gap: 4,
+                        borderWidth: 1, borderColor: checked ? paint.ink : paint.edge, borderRadius: terminal ? 0 : 10,
+                        backgroundColor: checked ? paint.panel2 : paint.bg }}>
+                        <View style={{ flexDirection: 'row' }}>
+                            {sprites(choice).map(kind => <WorkerSprite key={kind} kind={kind} size={32} paint={paint} bulb="idle" faceStyle="A" preview calm />)}
+                        </View>
+                        <DeskText style={{ color: paint.ink }}>
+                            {terminal ? t(checked ? 'ignorePrevious.robots.selectedTerminal' : 'ignorePrevious.robots.unselectedTerminal') : checked ? t('ignorePrevious.robots.selected') : ''}
+                            {' '}{choiceLabel(choice)}
+                        </DeskText>
                     </View>
-                    <DeskText style={{ color: theme.colors.text.primary }}>
-                        {chatStyle === 'terminal' ? t(checked ? 'ignorePrevious.robots.selectedTerminal' : 'ignorePrevious.robots.unselectedTerminal') : checked ? t('ignorePrevious.robots.selected') : ''}
-                        {' '}{choiceLabel(choice)}
-                    </DeskText>
                 </Pressable>;
             })}
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View testID={`ip-robot-preview-${role}`} style={{ flexDirection: 'row', flexShrink: 0 }}>
-                {sprites(selected).map(kind => <WorkerSprite key={kind} kind={kind} size={selected === 'model' ? 24 : 40} bulb="idle" faceStyle="A" preview calm />)}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+            <View testID={`ip-robot-preview-${role}`} style={{ flexDirection: 'row', gap: 8, flexShrink: 0 }}>
+                {sprites(selected).map(kind => <WorkerSprite key={kind} kind={kind} size={48} paint={paint} bulb="idle" faceStyle="A" preview calm />)}
             </View>
-            <DeskText testID={`ip-robot-caption-${role}`} style={{ flex: 1, minWidth: 0, color: theme.colors.text.secondary }}>
+            <DeskText testID={`ip-robot-caption-${role}`} style={{ flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0, color: paint.mute }}>
                 {choiceCaption(selected)}
             </DeskText>
         </View>
