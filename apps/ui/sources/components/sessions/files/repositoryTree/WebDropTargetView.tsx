@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Platform, View, type ViewProps } from 'react-native';
-import { useCoordinatorComposerPanelFooter } from '@/ignorePrevious/model/coordinatorComposerInput';
+import { useCoordinatorComposerPanelFooter, useCoordinatorComposerPanelLeading } from '@/ignorePrevious/model/coordinatorComposerInput';
 
 type WebDragDropHandlers = Readonly<{
     onDragEnter?: (event: any) => void;
@@ -12,6 +12,7 @@ type WebDragDropHandlers = Readonly<{
 export type WebDropTargetViewProps = ViewProps & WebDragDropHandlers;
 
 export function WebDropTargetView(props: WebDropTargetViewProps): React.ReactElement {
+    const panelLeading = useCoordinatorComposerPanelLeading(Platform.OS === 'web' ? props.testID : undefined);
     const panelFooter = useCoordinatorComposerPanelFooter(Platform.OS === 'web' ? props.testID : undefined);
     const { onDragEnter, onDragLeave, onDragOver, onDrop, ...rest } = props;
     const handlersRef = React.useRef<WebDragDropHandlers>({
@@ -67,6 +68,8 @@ export function WebDropTargetView(props: WebDropTargetViewProps): React.ReactEle
     React.useEffect(() => detachHostListeners, [detachHostListeners]);
 
     return (
+        <>
+        {panelLeading}
         <View
             {...rest}
             ref={setHostRef}
@@ -74,5 +77,6 @@ export function WebDropTargetView(props: WebDropTargetViewProps): React.ReactEle
             {props.children}
             {panelFooter}
         </View>
+        </>
     );
 }

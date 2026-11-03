@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Modal } from '@/modal';
@@ -35,7 +35,7 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  * Unsent prompt drafts above the coordinator's chat. "Go through what's waiting" hands it the list from
  * Your turn into the composer; the user sends it and still presses Allow or Deny themselves.
  */
-export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string }) {
+export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinatorId: string; phone?: boolean }) {
     const { theme } = useUnistyles();
     const { count } = useDeskWaitsSummary(coordinatorId);
     // A chip never wipes what is already typed: the prompt goes after the draft, a blank line apart.
@@ -52,6 +52,7 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
             accessibilityRole="button"
             onPress={onPress}
             style={{
+                flexShrink: 0,
                 paddingHorizontal: 10,
                 paddingVertical: 6,
                 borderRadius: 10,
@@ -64,17 +65,16 @@ export function CoordinatorPrompts({ coordinatorId }: { coordinatorId: string })
         </Pressable>
     );
 
-    return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
+    const contents = <>
             {chip('ip-brief-first', t('ignorePrevious.composer.briefFirst'), () => fill(t('ignorePrevious.composer.briefPrompt')))}
             {chip('ip-start-new', t('ignorePrevious.composer.startNew'), () => fill(t('ignorePrevious.composer.startPrompt')))}
-            {count > 0
-                ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () =>
-                      // Read the details only on press, so the closed chip keeps only the count subscription.
-                      fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskWaits(coordinatorId)) })),
-                  )
-                : null}
+            {count > 0 ? chip('ip-walk-waiting', t('ignorePrevious.walkWaiting', { count }), () => fill(t('ignorePrevious.walkWaitingPrompt', { list: waitingList(readDeskWaits(coordinatorId)) }))) : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}
+        </>;
+    if (phone) return <ScrollView testID="ip-phone-shortcuts" horizontal style={{ flexGrow: 0, minWidth: 0, maxWidth: '100%' }} contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>{contents}</ScrollView>;
+    return (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
+            {contents}
         </View>
     );
 }

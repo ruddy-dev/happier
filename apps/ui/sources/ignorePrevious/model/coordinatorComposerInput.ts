@@ -30,6 +30,7 @@ export const CoordinatorComposerInputContext = React.createContext<Readonly<{
     observer: ReturnType<typeof createCoordinatorComposerObserver>;
     prompt: React.ReactNode;
     panelFooter: React.ReactNode;
+    panelLeading: React.ReactNode;
     textStyle?: Readonly<{ fontFamily: string; color: string }>;
 }> | null>(null);
 
@@ -43,4 +44,9 @@ export function useCoordinatorComposerInput(testID: string | undefined) {
 export function useCoordinatorComposerPanelFooter(testID: string | undefined) {
     const context = React.useContext(CoordinatorComposerInputContext);
     return testID === 'agent-input-drop-zone' ? context?.panelFooter : null;
+}
+
+export function useCoordinatorComposerPanelLeading(testID: string | undefined) {
+    const context = React.useContext(CoordinatorComposerInputContext);
+    return testID === 'agent-input-drop-zone' ? context?.panelLeading : null;
 }

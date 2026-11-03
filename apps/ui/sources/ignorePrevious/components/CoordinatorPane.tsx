@@ -23,6 +23,7 @@ import { DeskText } from '../typography/DeskText';
 import { FloatingOverlay } from '@/components/ui/overlays/FloatingOverlay';
 import { useDeskPopup } from '../popups/useDeskPopup';
 import { useDeskComposerControls } from '../model/useDeskComposerControls';
+import { isDeskPhoneWidth } from '../model/drawerPlacement';
 import { useDeskDictationControls } from '../model/useDeskDictation';
 
 /**
@@ -110,9 +111,9 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                     </FloatingOverlay>
                 </View> : null}
             </View>
-            <CoordinatorPrompts coordinatorId={sessionId} />
+            {(Platform.OS !== 'web' || !isDeskPhoneWidth(windowWidth)) && <CoordinatorPrompts coordinatorId={sessionId} />}
             <View style={{ flex: 1 }}>
-                <CoordinatorComposer key={sessionId}>
+                <CoordinatorComposer key={sessionId} coordinatorId={sessionId} phone={isDeskPhoneWidth(windowWidth)}>
                 <TranscriptAppearanceContext.Provider value={appearance}>
                     {FixtureBody ? (
                         <React.Suspense fallback={null}>
