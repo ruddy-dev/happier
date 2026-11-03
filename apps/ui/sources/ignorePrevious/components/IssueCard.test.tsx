@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { act } from 'react-test-renderer';
 import { StyleSheet } from 'react-native';
 import { parsePermissionIntentAlias } from '@happier-dev/agents';
@@ -145,6 +146,31 @@ describe('IssueCard', () => {
         expect(screen.findByTestId('ip-bulb-dot-turn')).toBeTruthy();
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'ATR-6')!);
         expect(onToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('exposes web and native disclosure state while expanding and folding through its trigger', async () => {
+        const { IssueCard } = await import('./IssueCard');
+        function Disclosure() {
+            const [open, setOpen] = React.useState(false);
+            return <IssueCard group={group} open={open} onToggle={() => setOpen(value => !value)} />;
+        }
+        const screen = await renderScreen(<Disclosure />);
+        const trigger = findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'ATR-6')!;
+
+        // accessibilityState alone did not reach aria-expanded in the actual web capture.
+        expect(trigger.props['aria-expanded']).toBe(false);
+        expect(trigger.props.accessibilityState).toEqual({ expanded: false });
+        expect(screen.findByTestId('ip-open-worker-s1')).toBeNull();
+
+        await pressTestInstanceAsync(trigger);
+        expect(trigger.props['aria-expanded']).toBe(true);
+        expect(trigger.props.accessibilityState).toEqual({ expanded: true });
+        expect(screen.findByTestId('ip-open-worker-s1')).toBeTruthy();
+
+        await pressTestInstanceAsync(trigger);
+        expect(trigger.props['aria-expanded']).toBe(false);
+        expect(trigger.props.accessibilityState).toEqual({ expanded: false });
+        expect(screen.findByTestId('ip-open-worker-s1')).toBeNull();
     });
 
     it('includes the unheard note in the folded card label', async () => {
