@@ -45,7 +45,9 @@ export function ModalProvider({ active = true, children, modalContentWrapper = R
     });
     const stateRef = React.useRef<ModalHostState>(state);
     const contentWrapperRef = React.useRef(modalContentWrapper);
-    contentWrapperRef.current = modalContentWrapper;
+    React.useLayoutEffect(() => {
+        contentWrapperRef.current = modalContentWrapper;
+    }, [modalContentWrapper]);
     const removalTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
     const pendingFocusReturnTargetsRef = React.useRef<FocusReturnTarget[]>([]);
 

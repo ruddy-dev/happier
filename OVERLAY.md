@@ -277,8 +277,12 @@ count predates the subsequent patches recorded here and is not a count of this m
 | `apps/ui/sources/unistyles.ts` | ATR-56 registers the same names for consistent Unistyles types, but no native page opts in; native startup selection is unchanged. |
 | `apps/ui/sources/unistyles.startup.test.ts` | ATR-56 includes the named desk scopes in startup registration coverage while retaining exact canonical base-theme fallback and checking that the selected startup theme stays light. |
 | `apps/ui/sources/components/ui/popover/portal.tsx` | ATR-56 re-establishes the active desk page's CSS theme scope inside web portals; without a desk context the wrapper is inert. Native portal behavior is unchanged. |
-| `apps/ui/sources/components/appShell/providers/AppPaneModalProvider.tsx` | ATR-56 supplies the desk page appearance wrapper for modal content; pane and modal ownership remain unchanged. |
-| `apps/ui/sources/modal/ModalProvider.tsx` | ATR-56 adds an optional content wrapper around mounted dialogs, defaulting to a fragment. The wrapper is keyed per dialog so each captures its opening appearance independently. Registration, focus return, visibility and dismissal stay with the existing provider. |
+| `apps/ui/sources/app/_layout.tsx` | ATR-93 mounts the desk modal appearance adapter inside the existing auth and theme providers. |
+| `apps/ui/sources/components/appShell/providers/AppPaneModalProvider.tsx` | ATR-93 passes an optional content wrapper to the modal host. The shared pane can also mount on its own. |
+| `apps/ui/sources/modal/ModalProvider.tsx` | ATR-93 snapshots the committed appearance wrapper when each dialog opens. The host owns registration, focus return and dismissal. |
+| `apps/ui/sources/modal/ModalProvider.test.ts` | ATR-93 covers opening a dialog while a different wrapper is suspended before commit. |
+| `apps/ui/sources/auth/routing/authRouting.test.ts` | ATR-93 checks that enabling the public desk fixture still leaves Voice settings behind authentication. |
+| `apps/ui/sources/components/ui/lists/Item.pressFeedback.test.tsx` | ATR-93 exercises Voice row focus in Terminal and Slip across split rows and optional test IDs. |
 | `apps/ui/sources/dev/testkit/mocks/unistyles.ts`, `apps/ui/sources/dev/vitestSetup.ts` | ATR-56 adds a `ScopedTheme` passthrough to both Unistyles test mocks (the testkit factory and the global setup mock) so tests that render a desk-scoped page or dialog keep working; it renders its children unchanged. |
 | `packages/tests/package.json` | Adds `desk:export` and `desk:test`, plus the pinned `playwright-core` development dependency for the system-Chrome journey runner. |
 | `packages/tests/playwright.ui.config.mjs` | Excludes `desk.*.spec.ts`; desk journeys run only under the desk config and its request guard. |

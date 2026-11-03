@@ -91,6 +91,31 @@ describe('ModalProvider', () => {
         vi.useRealTimers();
     });
 
+    it('captures the committed wrapper when a transition suspends', async () => {
+        const { ModalProvider } = await import('./ModalProvider');
+        const { Modal } = await import('./ModalManager');
+        const pending = new Promise<never>(() => {});
+        function Committed({ children }: React.PropsWithChildren) { return React.createElement('Committed', null, children); }
+        function Uncommitted({ children }: React.PropsWithChildren) { return React.createElement('Uncommitted', null, children); }
+        function Child({ suspend }: { suspend: boolean }) {
+            if (suspend) throw pending;
+            return React.createElement('Ready');
+        }
+        const tree = (suspend: boolean) => React.createElement(React.Suspense, { fallback: null },
+            React.createElement(ModalProvider, {
+                modalContentWrapper: suspend ? Uncommitted : Committed,
+                children: React.createElement(Child, { suspend }),
+            }));
+        const screen = await renderScreen(tree(false));
+        await act(async () => {
+            React.startTransition(() => screen.tree.update(tree(true)));
+        });
+        expect(screen.findAllByType('Ready' as never)).toHaveLength(1);
+        showCustomModal(Modal, DummyModalA);
+        expect(screen.findAllByType(Committed)).toHaveLength(1);
+        expect(screen.findAllByType(Uncommitted)).toHaveLength(0);
+    });
+
     it('keeps earlier custom modals mounted when stacking', async () => {
         const { ModalProvider } = await import('./ModalProvider');
         const { Modal } = await import('./ModalManager');

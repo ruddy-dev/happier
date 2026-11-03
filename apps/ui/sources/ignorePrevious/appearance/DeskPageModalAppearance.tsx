@@ -7,6 +7,13 @@ import { DESK_HAPPIER_PAGE_ROUTES } from '../fonts/deskFont';
 import { DeskPageScope } from './DeskPageScope';
 import { resolveDeskPageTheme, type DeskPageThemeName } from './deskPageThemes';
 import { useDeskPref } from '../deskPrefs';
+import { AppPaneModalProvider } from '@/components/appShell/providers/AppPaneModalProvider';
+
+/** App-root composition, inside the authentication and theme providers. */
+export function DeskAppPaneModalProvider({ children }: React.PropsWithChildren) {
+    const modalContentWrapper = useDeskPageModalAppearance();
+    return <AppPaneModalProvider modalContentWrapper={modalContentWrapper}>{children}</AppPaneModalProvider>;
+}
 
 /** Produce a wrapper for the current route, captured by the host when a dialog opens. */
 export function useDeskPageModalAppearance(): React.ComponentType<React.PropsWithChildren> {
