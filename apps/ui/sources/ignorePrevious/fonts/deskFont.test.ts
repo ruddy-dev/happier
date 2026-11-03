@@ -61,13 +61,16 @@ it('scopes terminal control geometry and phone copy backing to their owning rout
     const scope = doc.createElement('div');
     scope.setAttribute('data-ip-page-scope', '');
     scope.setAttribute('data-ip-terminal', '');
-    scope.innerHTML = '<div data-testid="welcome-decision-panel"><div data-testid="welcome-question-title"></div><button data-testid="welcome-primary-start"></button></div><input data-testid="restore-manual-secret-input"><button data-testid="restore-manual-submit"></button><div data-testid="ip-voice-page"><button></button></div><button data-testid="unrelated"></button>';
+    scope.innerHTML = '<div data-testid="welcome-decision-panel"><div data-testid="welcome-heading-group"><div data-testid="welcome-question-title"></div></div><button data-testid="welcome-primary-start"></button></div><input data-testid="restore-manual-secret-input"><button data-testid="restore-manual-submit"></button><div data-testid="ip-voice-page"><button></button></div><button data-testid="unrelated"></button>';
     doc.body.append(scope);
     const matches = (element: Element) => geometry.some(rule => element.matches(rule.selectorText));
     for (const id of ['welcome-primary-start', 'restore-manual-secret-input', 'restore-manual-submit']) expect(matches(scope.querySelector(`[data-testid="${id}"]`)!)).toBe(true);
     expect(matches(scope.querySelector('[data-testid="ip-voice-page"] button')!)).toBe(true);
     expect(matches(scope.querySelector('[data-testid="unrelated"]')!)).toBe(false);
-    expect(scope.querySelector('[data-testid="welcome-question-title"]')!.matches(backing!.selectorText)).toBe(true);
+    expect(scope.querySelector('[data-testid="welcome-heading-group"]')!.matches(backing!.selectorText)).toBe(true);
+    expect(scope.querySelector('[data-testid="welcome-question-title"]')!.matches(backing!.selectorText)).toBe(false);
+    expect(backing!.style.padding).toBeTruthy();
+    expect(backing!.style.boxShadow).toBeFalsy();
     const focusRule = rules.find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText.includes(':focus-visible'));
     expect(focusRule?.style.outline).toContain('3px');
     const input = scope.querySelector<HTMLInputElement>('[data-testid="restore-manual-secret-input"]')!;

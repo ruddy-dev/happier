@@ -150,6 +150,13 @@ describe('RemoteWelcomeDecisionPanel', () => {
             />,
         );
 
+        const headingGroup = screen.findByTestId('welcome-heading-group');
+        expect(headingGroup).toBeTruthy();
+        for (const id of ['welcome-question-title', 'welcome-question-subtitle', 'welcome-private-key-copy']) {
+            expect(headingGroup?.findByProps({ testID: id })).toBeTruthy();
+        }
+        expect(screen.findByTestId('welcome-question-title')?.props.accessibilityRole).toBe('header');
+        expect(screen.findByTestId('welcome-question-subtitle')?.props.accessibilityRole).toBe('header');
         expect(screen.findByTestId('welcome-question-title')).toBeTruthy();
         expect(screen.findByTestId('welcome-question-subtitle')).toBeTruthy();
         expect(screen.findByTestId('welcome-private-key-copy')).toBeTruthy();
