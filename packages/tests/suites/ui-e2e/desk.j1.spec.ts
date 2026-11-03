@@ -53,16 +53,19 @@ test('the desk says who is waiting, working and idle, from a cold load', async (
     }
 });
 
-test.fixme('issue cards are ordered by urgency (item 2.3)', async ({ page, desk }) => {
+test('issue cards are ordered by urgency (item 2.3)', async ({ page, desk }) => {
     const seed = createDeskSeeder(desk);
     try {
         await seedMorning(seed);
         await openDesk(page, desk);
-        await expect(page.getByTestId('ip-work').locator('[data-testid^="ip-issue-"]')).toHaveCount(2, { timeout: 10_000 });
-        const order = await page
-            .getByTestId('ip-work').locator('[data-testid^="ip-issue-"]')
-            .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-testid')));
-        expect(order, 'waiting issue first, then the working one').toEqual(['ip-issue-ATR-102', 'ip-issue-ATR-101']);
+        const issues = page.getByTestId('ip-work');
+        // Match only issue roots, excluding disclosure controls and other card descendants.
+        const cards = issues.getByTestId(/^ip-issue-ATR-(?:101|102)$/);
+        await expect(cards, 'both seeded issue roots').toHaveCount(2, { timeout: 10_000 });
+        await expect(issues.getByTestId('ip-issue-ATR-102'), 'the waiting issue root').toBeVisible({ timeout: 10_000 });
+        await expect(issues.getByTestId('ip-issue-ATR-101'), 'the working issue root').toBeVisible({ timeout: 10_000 });
+        await expect(cards.nth(0), 'waiting issue first').toHaveAttribute('data-testid', 'ip-issue-ATR-102', { timeout: 10_000 });
+        await expect(cards.nth(1), 'working issue second').toHaveAttribute('data-testid', 'ip-issue-ATR-101', { timeout: 10_000 });
     } finally {
         await seed.stopAll();
     }
