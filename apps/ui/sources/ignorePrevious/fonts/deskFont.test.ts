@@ -47,3 +47,34 @@ describe('desk look route scoping', () => {
         expect(DESK_FONT_ROUTES.includes(route)).toBe(false);
     });
 });
+
+it('scopes terminal control geometry and phone copy backing to their owning routes', () => {
+    const doc = document;
+    const unmount = mountDeskFont(doc);
+    const sheet = doc.querySelector('style')!.sheet!;
+    const rules = Array.from(sheet.cssRules);
+    const geometry = rules.filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.style.getPropertyValue('border-radius') === '2px');
+    const phone = rules.find((rule): rule is CSSMediaRule => rule instanceof CSSMediaRule && rule.conditionText.includes('720px'));
+    expect(phone).toBeDefined();
+    const backing = Array.from(phone!.cssRules).find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.cssText.includes('background-color: var(--ip-page-surface)'));
+    expect(backing).toBeDefined();
+    const scope = doc.createElement('div');
+    scope.setAttribute('data-ip-page-scope', '');
+    scope.setAttribute('data-ip-terminal', '');
+    scope.innerHTML = '<div data-testid="welcome-decision-panel"><div data-testid="welcome-question-title"></div><button data-testid="welcome-primary-start"></button></div><input data-testid="restore-manual-secret-input"><button data-testid="restore-manual-submit"></button><div data-testid="ip-voice-page"><button></button></div><button data-testid="unrelated"></button>';
+    doc.body.append(scope);
+    const matches = (element: Element) => geometry.some(rule => element.matches(rule.selectorText));
+    for (const id of ['welcome-primary-start', 'restore-manual-secret-input', 'restore-manual-submit']) expect(matches(scope.querySelector(`[data-testid="${id}"]`)!)).toBe(true);
+    expect(matches(scope.querySelector('[data-testid="ip-voice-page"] button')!)).toBe(true);
+    expect(matches(scope.querySelector('[data-testid="unrelated"]')!)).toBe(false);
+    expect(scope.querySelector('[data-testid="welcome-question-title"]')!.matches(backing!.selectorText)).toBe(true);
+    const focusRule = rules.find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText.includes(':focus-visible'));
+    expect(focusRule?.style.outline).toContain('3px');
+    const input = scope.querySelector<HTMLInputElement>('[data-testid="restore-manual-secret-input"]')!;
+    input.focus();
+    expect(doc.activeElement).toBe(input);
+    scope.removeAttribute('data-ip-terminal');
+    expect(matches(scope.querySelector('[data-testid="welcome-primary-start"]')!)).toBe(false);
+    scope.remove();
+    unmount();
+});
