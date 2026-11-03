@@ -31,3 +31,10 @@ it('C9 native presses toggle the context popover and its backdrop dismisses it',
     await act(async () => backdrop[0].props.onPress());
     expect(screen.findByTestId('ip-context-popover')).toBeNull();
 });
+
+it('explains missing Codex context rather than showing an invented percentage', async () => {
+    const session = createSessionFixture({ metadata: { path: '/scratch', host: 'test', flavor: 'codex' }, latestUsage: null });
+    const screen = await renderScreen(<ContextGauge session={session} />);
+    expect(screen.getTextContent()).toContain('Codex has not reported enough context information yet.');
+    expect(screen.findByTestId('ip-context-gauge')).toBeNull();
+});

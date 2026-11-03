@@ -1,9 +1,9 @@
 import { getAgentStaticModels } from '@happier-dev/agents';
 import { computeSessionConfigOptionControlsForProvider } from '@/sync/domains/sessionControl/configOptionsControl';
 
-export type DeskModel = 'default' | 'claude-opus-5-5' | 'claude-sonnet-5-5' | 'claude-haiku-5-5' | 'claude-fable-5-1';
-export type DeskEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type RunSettings = Readonly<{ model: DeskModel; effort: DeskEffort; ultracode: boolean; permissionMode: 'plan' }>;
+export type DeskModel = string;
+export type DeskEffort = string;
+export type RunSettings = Readonly<{ model: DeskModel; effort: DeskEffort; ultracode: boolean; permissionMode: 'plan' | 'read-only' | null }>;
 export type RunSettingsAction = { type: 'model'; model: DeskModel } | { type: 'effort'; effort: DeskEffort } | { type: 'ultracode'; enabled: boolean };
 export const initialRunSettings: RunSettings = { model: 'claude-opus-5-5', effort: 'high', ultracode: false, permissionMode: 'plan' };
 // The desk deliberately offers fewer models than the provider catalog (M10).

@@ -4,6 +4,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Popover } from '@/components/ui/popover/Popover';
 import { FloatingOverlay } from '@/components/ui/overlays/FloatingOverlay';
 import { formatTokenUsageCount } from '@/components/sessions/usage/tokenUsageFormatting';
+import { resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { t } from '@/text';
 import { sessionContextMeter } from './ContextMeter';
@@ -14,7 +15,15 @@ import { DeskText } from '../typography/DeskText';
 export function ContextGauge({ session }: { session: Session }) {
     const meter = sessionContextMeter(session);
     // Unmount the popup lifecycle as soon as its report disappears.
-    return meter ? <ReportedContextGauge key={session.id} meter={meter} /> : null;
+    return meter ? <ReportedContextGauge key={session.id} meter={meter} />
+        : resolveAgentIdFromFlavor(session.metadata?.flavor) === 'codex' ? <UnreportedCodexContext /> : null;
+}
+
+function UnreportedCodexContext() {
+    const { theme } = useUnistyles();
+    return <DeskText testID="ip-context-unavailable" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
+        {t('ignorePrevious.shogModels.codexContextUnavailable')}
+    </DeskText>;
 }
 
 function ReportedContextGauge({ meter }: { meter: NonNullable<ReturnType<typeof sessionContextMeter>> }) {

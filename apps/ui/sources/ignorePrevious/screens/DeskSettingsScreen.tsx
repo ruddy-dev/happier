@@ -10,6 +10,7 @@ import { robotPresets, terminalPalettes, type RobotPreset, type TerminalPalette 
 import { useDeskPref } from '../deskPrefs';
 import { WorkerSprite } from '../components/WorkerSprite';
 import { DeskFontRoot } from '../fonts/DeskFontRoot';
+import { ShogModelsSettings } from '../components/ShogModelsSettings';
 import { DeskText } from '../typography/DeskText';
 import { DeskNotificationSettings } from '../components/DeskNotificationSettings';
 import { DeskVoiceSettings } from '../components/DeskVoiceSettings';
@@ -98,6 +99,7 @@ export function DeskSettingsScreen() {
                             </View>
                         </> : null}
                     </View>
+                    <ShogModelsSettings />
                     <View style={{ gap: 12 }}>
                         <DeskText accessibilityRole="header" style={{ color: theme.colors.text.secondary }}>{t('ignorePrevious.robots.faces')}</DeskText>
                         <View accessibilityRole="radiogroup" accessibilityLabel={t('ignorePrevious.robots.faces')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

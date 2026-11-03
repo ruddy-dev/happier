@@ -5,10 +5,12 @@ import { getSessionStatus } from '@/utils/sessions/sessionUtils';
 import { isDeskWorkerBusy } from './workerBusy';
 import { useDeskNow } from './useDeskNow';
 
-/** Presentation only. SessionView and AgentInput keep ownership of abort and focus. */
+const continuationInputPermissionModes = { codex: 'read-only', claude: 'plan' } as const;
+
+/** SessionView retains send/admission ownership; the desk supplies its required intent. */
 export function useDeskComposerControls(sessionId: string): SessionViewComposerOverrides {
     const session = useSession(sessionId);
     const now = useDeskNow();
     const sendIsStop = session ? isDeskWorkerBusy(getSessionStatus(session, now).state) : false;
-    return React.useMemo(() => ({ sendIsStop, mic: null, hide: { stop: true } }), [sendIsStop]);
+    return React.useMemo(() => ({ sendIsStop, mic: null, hide: { stop: true }, continuationInputPermissionModes }), [sendIsStop]);
 }

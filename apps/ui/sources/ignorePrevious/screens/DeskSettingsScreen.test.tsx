@@ -5,10 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { renderScreen, standardCleanup } from '@/dev/testkit';
+import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { readReactNativeMmkvStubEntries } from '@/dev/testkit/mocks/mmkv';
 import { storage } from '@/sync/domains/state/storage';
 import { setCoordinatorOverride } from '../deskPrefs';
 import { robotPresets } from '../palette';
+
+const modelRpc = vi.hoisted(() => vi.fn());
+vi.mock('@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc', () => ({ machineRpcWithServerScope: (request: unknown) => modelRpc(request) }));
 
 const state = vi.hoisted(() => ({
     pathname: '/desk/settings',
@@ -62,11 +67,38 @@ describe('/desk/settings', () => {
         state.width = 1440;
         state.dark = true;
         state.navigate.mockClear();
+        modelRpc.mockReset();
+        modelRpc.mockImplementation(async (request: { payload: { id: string } }) => ({ ok: true, result: {
+            availableModels: request.payload.id === 'cli.codex' ? [{ id: 'gpt-6.1-sol', name: 'Sol' }, { id: 'extra-cli-model', name: 'Another model' }] : [{ id: 'claude-opus-5-5', name: 'Opus 5.5' }], supportsFreeform: false,
+        } }));
     });
     afterEach(() => {
         standardCleanup();
         setCoordinatorOverride(null);
         act(() => storage.setState(previous, true));
+    });
+
+    it('shows Shog model preferences and the last-used default without writing on mount', async () => {
+        const screen = await renderScreen(await settingsPage());
+        expect(screen.getTextContent()).toContain('Shog models');
+        expect(screen.getTextContent()).toContain('Last used: claude-opus-5-5');
+        expect(readReactNativeMmkvStubEntries()).toEqual([]);
+    });
+
+    it('lists CLI-reported Shog models by provider and persists a checkbox through remount', async () => {
+        const session = createSessionFixture({ id: 'settings-coordinator', active: true, metadata: { path: '/scratch', host: 'test', machineId: 'settings-machine', flavor: 'claude' } });
+        storage.setState({ isDataReady: true, sessions: { [session.id]: session }, sessionListRenderables: { [session.id]: buildSessionListRenderableFromSession(session) } });
+        setCoordinatorOverride(session.id);
+        const screen = await renderScreen(await settingsPage());
+        expect(screen.getTextContent()).toContain('Claude');
+        expect(screen.getTextContent()).toContain('Codex');
+        expect(screen.findByTestId('ip-shog-model-codex:extra-cli-model')?.props.accessibilityState.checked).toBe(false);
+        expect(screen.findByTestId('ip-shog-model-codex:gpt-6.1-sol')?.props.accessibilityState.checked).toBe(true);
+        await screen.pressByTestIdAsync('ip-shog-model-codex:gpt-6.1-sol');
+        expect(screen.findByTestId('ip-shog-model-codex:gpt-6.1-sol')?.props.accessibilityState.checked).toBe(false);
+        await screen.unmount();
+        const remounted = await renderScreen(await settingsPage());
+        expect(remounted.findByTestId('ip-shog-model-codex:gpt-6.1-sol')?.props.accessibilityState.checked).toBe(false);
     });
 
     it('shows the About credit and fork notice, and Back navigates directly to /desk', async () => {
