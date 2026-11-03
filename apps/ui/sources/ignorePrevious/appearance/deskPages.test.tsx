@@ -6,6 +6,7 @@ import { Platform, StyleSheet, type PressableProps } from 'react-native';
 import { renderScreen } from '@/dev/testkit/render/renderScreen';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { DeskPageScope } from './DeskPageScope';
+import { deskPrefs } from '../deskPrefs';
 
 const route = vi.hoisted(() => ({ pathname: '/', dark: false, capture: null as import('@/dev/testkit/mocks/router').StackOptionsCapture | null }));
 vi.mock('expo-router', async () => {
@@ -49,6 +50,8 @@ vi.mock('react-native-unistyles', async () => {
     const themes = {
         deskPageLight: resolveThemeProfile({ mode: 'light', profile: ignorePreviousLightProfile }),
         deskPageDark: resolveThemeProfile({ mode: 'dark', profile: ignorePreviousProfile }),
+        deskPageTokyo: darkTheme, deskPageKanagawa: darkTheme, deskPageGruvbox: darkTheme,
+        deskPageDracula: darkTheme, deskPageTerminalPaper: lightTheme,
     };
     const Scope = React.createContext<keyof typeof themes | null>(null);
     const base = await createUnistylesMock();
@@ -84,6 +87,8 @@ beforeEach(async () => {
         args[0] === '@/agents/registry/registryUi' ? registry : originalLoad(...args)
     ));
     Platform.OS = 'web';
+    deskPrefs.set('chatStyle', 'mask');
+    deskPrefs.set('terminalPalette', 'tokyo');
     route.capture?.reset();
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(createWelcomeFeaturesResponse()), {
         status: 200, headers: { 'content-type': 'application/json' },
@@ -296,4 +301,24 @@ it('keeps each overlapping dialog in the appearance where it opened', async () =
     } finally {
         await React.act(async () => Modal.hideAll());
     }
+});
+
+// Exercise the real entry screens and then a real unrelated page, with preferences held constant.
+it.each(pages)('$path applies the selected terminal palette and releases it on navigation', async ({ path, load }) => {
+    route.pathname = path;
+    route.dark = false;
+    deskPrefs.set('chatStyle', 'terminal');
+    deskPrefs.set('terminalPalette', 'dracula');
+    const Page = (await load()).default;
+    const screen = await renderScreen(<AuthProvider initialCredentials={null}><Page /></AuthProvider>);
+    expect(screen.findByType(DeskPageScope).props.name).toBe('deskPageDracula');
+    route.pathname = '/settings';
+    const Ordinary = (await import('@/app/(app)/settings/index')).default;
+    await screen.update(<AuthProvider initialCredentials={null}><Ordinary /></AuthProvider>);
+    expect(screen.findAllByType(DeskPageScope)).toHaveLength(0);
+    const families = screen.findAll((node) => String(node.type) === 'Text')
+        .map((node) => StyleSheet.flatten(node.props.style)?.fontFamily);
+    expect(families).toContain('Inter-Regular');
+    expect(families).not.toContain(DESK_FONT_STACK);
+    expect(screen.findAll((node) => node.props['data-ip-page-scope'] !== undefined)).toHaveLength(0);
 });

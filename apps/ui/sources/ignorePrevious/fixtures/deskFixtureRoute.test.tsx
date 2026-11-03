@@ -33,9 +33,10 @@ vi.mock('@react-navigation/native', async () => {
     return createReactNavigationNativeMock();
 });
 
+const fixtureParams = vi.hoisted(() => ({ surface: '' }));
 vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
-    return createExpoRouterMock().module;
+    return createExpoRouterMock({ params: () => fixtureParams }).module;
 });
 
 vi.mock('@/modal', async () => {
@@ -103,6 +104,7 @@ describe('dev/desk-fixture route', () => {
         vi.unstubAllGlobals();
     });
     beforeEach(() => {
+        fixtureParams.surface = '';
         storage.setState(before, true);
         setStoredCoordinatorId(null);
         setCoordinatorOverride(null);
@@ -137,6 +139,19 @@ describe('dev/desk-fixture route', () => {
         expect(screen.findByTestId('ip-work')).toBeNull();
         expect(Object.keys(storage.getState().sessions)).toHaveLength(0);
         expect(getStoredCoordinatorId()).toBeNull();
+        await screen.unmount();
+    });
+
+    it('renders the real Voice page signed out without seeding a desk, and refuses it after sign-in', async () => {
+        vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '1');
+        fixtureParams.surface = 'voice';
+        const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
+        expect(screen.findByTestId('ip-fixture-voice')).not.toBeNull();
+        expect(screen.findByTestId('ip-voice-mode-off')).not.toBeNull();
+        expect(Object.keys(storage.getState().sessions)).toHaveLength(0);
+        await act(async () => auth.set({ isAuthenticated: true }));
+        expect(screen.findByTestId('ip-fixture-voice')).toBeNull();
+        expect(screen.findByTestId('ip-fixture-signed-in')).not.toBeNull();
         await screen.unmount();
     });
 

@@ -66,3 +66,12 @@ describe('desk font route root', () => {
         expect(container.firstElementChild?.tagName).toBe('SPAN');
     });
 });
+
+it('installs a page-scoped keyboard focus indicator, never a global focus rule', async () => {
+    route.pathname = '/restore/manual';
+    await render();
+    const style = document.getElementById('ip-desk-font') as HTMLStyleElement;
+    const rules = Array.from(style.sheet!.cssRules).map((rule) => rule.cssText).join('\n');
+    expect(rules).toContain('[data-ip-page-scope] :focus-visible');
+    expect(rules).toContain('var(--ip-page-focus)');
+});
