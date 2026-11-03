@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TranscriptToolCallsGroupingContext } from '../TranscriptAppearanceContext';
 
 import type { Message, ToolCallMessage } from '@/sync/domains/messages/messageTypes';
 import { getStorage } from '@/sync/domains/state/storage';
@@ -123,6 +124,7 @@ export type TranscriptItemsPipelineDeps = Readonly<{
 }>;
 
 export function useTranscriptItemsPipeline(deps: TranscriptItemsPipelineDeps) {
+    const collapseToolCallsPerTurn = React.useContext(TranscriptToolCallsGroupingContext) === 'collapsed-per-turn';
     const {
         activeTargetWindowTargetRef,
         activeThinkingMessageId,
@@ -198,9 +200,10 @@ export function useTranscriptItemsPipeline(deps: TranscriptItemsPipelineDeps) {
             getMessageById: getTurnMessageById,
             metadataByMessageId: forkMessageMetadataById ?? undefined,
             isGroupExpanded: (toolMessageIds) => toolMessageIds.some((id) => expandedToolCallsAnchorMessageIds.has(id)),
-            collapsedPreviewCount: resolveTranscriptToolCallsCollapsedPreviewCount(transcriptToolCallsCollapsedPreviewCountSetting),
+            collapsedPreviewCount: collapseToolCallsPerTurn ? 0 : resolveTranscriptToolCallsCollapsedPreviewCount(transcriptToolCallsCollapsedPreviewCountSetting),
         });
     }, [
+        collapseToolCallsPerTurn,
         expandedToolCallsAnchorMessageIds,
         forkMessageMetadataById,
         getTurnMessageById,
@@ -639,6 +642,7 @@ export type TranscriptToolAutoExpandEffectDeps = Readonly<{
 }>;
 
 export function useTranscriptToolAutoExpandEffect(deps: TranscriptToolAutoExpandEffectDeps): void {
+    const collapseToolCallsPerTurn = React.useContext(TranscriptToolCallsGroupingContext) === 'collapsed-per-turn';
     const {
         applyToolCallsGroupExpanded,
         expandedToolCallsAnchorMessageIds,
@@ -703,6 +707,7 @@ export function useTranscriptToolAutoExpandEffect(deps: TranscriptToolAutoExpand
     ]);
 
     React.useEffect(() => {
+        if (collapseToolCallsPerTurn) return;
         if (jumpToSeq != null) return;
         if (!sessionId) return;
         if (hasAutoExpandedToolCallsGroups(sessionId)) return;

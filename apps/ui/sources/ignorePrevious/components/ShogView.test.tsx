@@ -174,6 +174,20 @@ describe('ShogView', () => {
         expect(screen.getTextContent()).toContain(count === 0 ? t('ignorePrevious.shogCalm') : t('ignorePrevious.shogWaiting', { count }));
     });
 
+    it('R10 updates the panel when a shared request changes from edit to view and back', async () => {
+        const editor = { ...waitingSession('shared'), accessLevel: 'edit' as const, canApprovePermissions: true };
+        const viewer = { ...waitingSession('viewer'), accessLevel: 'view' as const, canApprovePermissions: false };
+        seed([editor, viewer, waitingSession('owner')]);
+        const screen = await renderShog();
+        expect(redEyes(screen)).toBe(2);
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.shogWaiting', { count: 2 }));
+        act(() => storage.getState().applySessions([{ ...editor, accessLevel: 'view', canApprovePermissions: false }]));
+        expect(redEyes(screen)).toBe(1);
+        expect(screen.getTextContent()).toContain(t('ignorePrevious.shogWaiting', { count: 1 }));
+        act(() => storage.getState().applySessions([editor]));
+        expect(redEyes(screen)).toBe(2);
+    });
+
     it('F4 keeps all eyes pale until the first waits snapshot is ready', async () => {
         seed([waitingSession('worker')]);
         act(() => storage.setState({ isDataReady: false }));

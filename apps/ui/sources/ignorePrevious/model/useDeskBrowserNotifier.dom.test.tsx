@@ -13,6 +13,7 @@ import { readNowMs } from '@/hooks/time/nowMsClockStore';
 import { deskPrefs } from '../deskPrefs';
 import { DESK_TICK_MS } from './useDeskNow';
 import { DeskBrowserNotifier, useDeskBrowserNotifier } from './useDeskBrowserNotifier';
+import { readDeskWaits } from './useDeskWaits';
 import * as waitingItems from './waitingItems';
 
 const platform = vi.hoisted(() => ({ os: 'web' }));
@@ -65,12 +66,12 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-function worker(id: string, ids: string[] = [], thinking = false) {
+function worker(id: string, ids: string[] = [], thinking = false, access: Pick<NonNullable<Parameters<typeof createSessionFixture>[0]>, 'accessLevel' | 'canApprovePermissions'> = {}) {
     const old = storage.getState().sessions[id];
     const now = Date.now();
     act(() => {
         storage.getState().applySessions([createSessionFixture({
-        id, active: true, activeAt: now, updatedAt: now, thinking, thinkingAt: now,
+        id, active: true, activeAt: now, updatedAt: now, thinking, thinkingAt: now, ...access,
         metadata: { path: '/tmp/desk-worker', host: 'test-host', flavor: 'claude' },
         agentStateVersion: (old?.agentStateVersion ?? 0) + 1,
         agentState: { requests: Object.fromEntries(ids.map(requestId => [requestId, {
@@ -84,9 +85,9 @@ function worker(id: string, ids: string[] = [], thinking = false) {
 function ready() { act(() => storage.getState().applyReady()); }
 function mount() { act(() => root.render(<DeskBrowserNotifier coordinatorId="coordinator" />)); }
 
-function unloadedWorker(id: string) {
+function unloadedWorker(id: string, access: Pick<NonNullable<Parameters<typeof createSessionFixture>[0]>, 'accessLevel' | 'canApprovePermissions'> = {}) {
     act(() => storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(createSessionFixture({
-        id, active: true, activeAt: Date.now(), updatedAt: Date.now(),
+        id, active: true, activeAt: Date.now(), updatedAt: Date.now(), ...access,
         metadata: { path: '/tmp/desk-worker', host: 'test-host', flavor: 'claude' },
         pendingPermissionRequestCount: 1, pendingUserActionRequestCount: 0,
     }))]));
@@ -114,6 +115,73 @@ function waitingRecord() {
 }
 
 describe('desk browser notifier', () => {
+    it.each(['every', 'blocked'] as const)('R10/R24: %s alerts for editable/no-approval waits but not view-only waits', setting => {
+        deskPrefs.set('deskNotify', setting);
+        ready();
+        mount();
+        const sharedWait = createSessionFixture({ id: 'viewer', active: true, activeAt: Date.now(),
+            accessLevel: 'view', canApprovePermissions: false, pendingPermissionRequestCount: 1,
+            agentState: { requests: { request: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: Date.now() } } },
+        });
+        act(() => {
+            storage.getState().applySessions([sharedWait]);
+            storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession({ ...sharedWait, id: 'viewer-unloaded' })]);
+        });
+        expect(BrowserNotification.instances).toHaveLength(0);
+        const editor = { ...sharedWait, id: 'editor-unloaded', accessLevel: 'edit' as const };
+        act(() => storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(editor)]));
+        expect(BrowserNotification.instances).toHaveLength(1);
+        // Details replace an already alerted placeholder without a duplicate alert.
+        act(() => storage.getState().applySessions([editor]));
+        expect(BrowserNotification.instances).toHaveLength(1);
+        act(() => storage.getState().applySessions([{ ...editor, id: 'editor-loaded' }]));
+        expect(BrowserNotification.instances).toHaveLength(setting === 'every' ? 2 : 1);
+    });
+
+    it('R10: a view-only unloaded row cannot absorb the first alert after gaining edit access without approval', () => {
+        deskPrefs.set('deskNotify', 'every');
+        const viewer = createSessionFixture({ id: 'viewer', active: true, activeAt: Date.now(),
+            accessLevel: 'view', canApprovePermissions: false, pendingPermissionRequestCount: 1,
+        });
+        act(() => storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(viewer)]));
+        ready();
+        mount();
+        expect(BrowserNotification.instances).toHaveLength(0);
+        act(() => storage.getState().mergeSessionListRenderables([
+            buildSessionListRenderableFromSession({ ...viewer, accessLevel: 'edit' }),
+        ]));
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
+    it.each([
+        ['every', 'loaded'], ['every', 'unloaded'],
+        ['blocked', 'loaded'], ['blocked', 'unloaded'],
+    ] as const)('R10: %s excludes %s view-only alerts while preserving readable waits and notGranted admission', (setting, source) => {
+        deskPrefs.set('deskNotify', setting);
+        ready();
+        mount();
+        const putWait = (access: { accessLevel: 'view' | 'edit'; canApprovePermissions: boolean }) => {
+            if (source === 'loaded') worker('viewer', ['one'], false, access);
+            else unloadedWorker('viewer', access);
+        };
+        putWait({ accessLevel: 'view', canApprovePermissions: false });
+        const waits = readDeskWaits();
+        expect(waits.count).toBe(0);
+        if (source === 'loaded') {
+            expect(waits.items).toMatchObject([{ sessionId: 'viewer', disabledReason: 'readOnly', detail: 'private work detail' }]);
+        } else {
+            expect(waits.unloaded).toMatchObject([{ sessionId: 'viewer' }]);
+        }
+        expect(BrowserNotification.instances).toHaveLength(0);
+        // R10 excludes readOnly specifically, rather than every disabled approval.
+        putWait({ accessLevel: 'edit', canApprovePermissions: false });
+        expect(readDeskWaits().count).toBe(1);
+        if (source === 'loaded') expect(readDeskWaits().items[0]?.disabledReason).toBe('notGranted');
+        expect(BrowserNotification.instances).toHaveLength(1);
+        putWait({ accessLevel: 'edit', canApprovePermissions: true });
+        expect(BrowserNotification.instances).toHaveLength(1);
+    });
+
     it('rechecks a hidden thinking worker without a store write or desk clock tick and alerts once', () => {
         worker('busy', [], true);
         worker('worker', ['one']);

@@ -80,6 +80,7 @@ describe('WaitingPanel double Allow (W2)', () => {
         state.rpc.mockResolvedValue(undefined);
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.openApprovals();
+        await scenario.screen.pressByTestIdAsync('ip-waiting-toggle-r1');
         const allow = findTestInstanceByTypeContainingText(scenario.screen.tree, 'Pressable', 'Allow Bash');
         await pressTestInstanceAsync(allow, 'Allow Bash');
         expect(state.rpc).toHaveBeenCalledTimes(1);
@@ -92,6 +93,7 @@ describe('WaitingPanel double Allow (W2)', () => {
         state.rpc.mockReturnValue(inFlight.promise);
         scenario = await startDeskScenario({ script, coordinator: 'c1' });
         await scenario.openApprovals();
+        await scenario.screen.pressByTestIdAsync('ip-waiting-toggle-r1');
         await scenario.screen.pressByTestIdAsync('ip-waiting-allow-r1');
         await scenario.screen.pressByTestIdAsync('ip-waiting-allow-r1');
         inFlight.resolve(undefined);

@@ -4,6 +4,9 @@ import type { Message } from '@/sync/domains/messages/messageTypes';
 import {
     buildPendingSessionRequestsSourceSignature,
     collectTranscriptRequestStates,
+    isPendingSessionRequestActionable,
+    observePendingSessionRequest,
+    type SessionPendingRequest,
     deriveLatestPendingRequestObservedAtFromSession,
     derivePendingRequestFlagsFromSession,
     listPendingSessionRequests,
@@ -13,6 +16,17 @@ import {
 } from './listPendingSessionRequests';
 
 describe('buildPendingSessionRequestsSourceSignature', () => {
+    it('preserves literal JSON keys and array order while ignoring object field order', () => {
+        const signatureFor = (json: string) => buildPendingSessionRequestsSourceSignature(createSessionFixture({
+            active: true,
+            agentState: { requests: { r: { tool: 'CustomJSONTool', createdAt: 100, arguments: JSON.parse(json) } } },
+        }));
+        const signature = signatureFor('{"payload":{"label":"same","__proto__":{"destination":"old","steps":["first","second"]}}}');
+        expect(signatureFor('{"payload":{"__proto__":{"steps":["first","second"],"destination":"old"},"label":"same"}}')).toBe(signature);
+        expect(signatureFor('{"payload":{"label":"same","__proto__":{"destination":"new","steps":["first","second"]}}}')).not.toBe(signature);
+        expect(signatureFor('{"payload":{"label":"same","__proto__":{"destination":"old","steps":["second","first"]}}}')).not.toBe(signature);
+    });
+
     it('ignores session seq and timestamp churn that cannot change pending request derivation', () => {
         const session = createSessionFixture({
             active: true,
@@ -441,7 +455,7 @@ describe('transcript request states cache', () => {
         const cache: TranscriptRequestStatesCache = {
             states: (() => {
                 const states = new Map<string, TranscriptRequestState>();
-                collectTranscriptRequestStates(messages, null, states);
+                collectTranscriptRequestStates(messages, states);
                 return states;
             })(),
         };
@@ -467,5 +481,53 @@ describe('transcript request states cache', () => {
         // never re-walk the (now grown) message array.
         messages.push(pendingToolCallMessage('m2', 80));
         expect(deriveLatestPendingRequestObservedAtFromSession(session, messages, cache)).toBe(50);
+    });
+
+    it('uses the same completion-independent fold for cached and direct reused-ID requests', () => {
+        const pending = pendingToolCallMessage('m1', 300);
+        if (pending.kind !== 'tool-call') throw new Error('Expected tool call fixture');
+        const terminal: Message = { ...pending, id: 'older', createdAt: 200,
+            tool: { ...pending.tool, createdAt: 200, permission: { id: 'm1-perm', status: 'approved' } } };
+        const messages = [terminal, pending];
+        const session = createSessionFixture({ active: true, pendingPermissionRequestCount: 1,
+            pendingUserActionRequestCount: 0, pendingRequestObservedAt: 100,
+            agentState: { requests: {}, completedRequests: { 'm1-perm': {
+                tool: 'bash', arguments: { command: 'ls' }, createdAt: 300,
+                completedAt: 400, status: 'approved',
+            } } } });
+        const states = new Map<string, TranscriptRequestState>();
+        collectTranscriptRequestStates(messages, states);
+        const cached = derivePendingRequestFlagsFromSession(session, undefined, { states });
+        expect(derivePendingRequestFlagsFromSession(session, messages)).toEqual(cached);
+        // The current occurrence is covered, but its stale projection remains unknown;
+        // an older occurrence's terminal is not proof about this projection.
+        expect(cached.hasPendingPermissionRequests).toBe(true);
+        expect(listPendingSessionRequests(session, messages)).toEqual([]);
+        expect(listPendingSessionRequests(session, undefined, { states })).toEqual([]);
+    });
+});
+
+
+describe('publication action identity', () => {
+    const displayed: SessionPendingRequest = { id: 'r', kind: 'permission', tool: 'Bash', arguments: { command: 'echo B' }, createdAt: 200 };
+    it.each([
+        [200, 500, false], [200, 200, true], [null, 500, true], [200, null, true], [null, null, true],
+    ] as const)('compares known times but preserves missing-time producers: %s / %s', (before, after, expected) => {
+        expect(isPendingSessionRequestActionable({ ...displayed, createdAt: before }, { ...displayed, createdAt: after })).toBe(expected);
+        expect(isPendingSessionRequestActionable({ ...displayed, createdAt: before }, { ...displayed, createdAt: after, arguments: { command: 'echo A' } })).toBe(false);
+    });
+    it('keeps tool publication time distinct from transcript ordering/completion evidence', () => {
+        const states = new Map<string, TranscriptRequestState>();
+        const message: Message = { kind: 'tool-call', id: 'raw', localId: null, createdAt: 300, children: [],
+            tool: { id: 'r', name: 'Bash', input: displayed.arguments, createdAt: 200, startedAt: null, completedAt: null,
+                state: 'running', description: null, permission: { id: 'r', status: 'pending' } } };
+        collectTranscriptRequestStates([message], states);
+        expect(states.get('r')).toMatchObject({ status: 'pending', createdAt: 300, request: { createdAt: 200 } });
+        const session = createSessionFixture({ active: true, agentState: { requests: { r: { tool: 'Bash', arguments: displayed.arguments, createdAt: 150 } } } });
+        // Producer time 150, tool time 200, transcript time 300 refer to the same payload.
+        expect(observePendingSessionRequest(session, 'r', states.get('r'))).toMatchObject({ status: 'pending' });
+        collectTranscriptRequestStates([{ ...message, tool: { ...message.tool, permission: { id: 'r', status: 'approved' } } }], states);
+        // Terminal matching remains payload-based across those clocks.
+        expect(observePendingSessionRequest(session, 'r', states.get('r'))).toEqual({ status: 'terminal' });
     });
 });

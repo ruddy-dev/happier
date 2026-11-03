@@ -11,6 +11,7 @@ import { t } from '@/text';
 import { StructuredResultView } from '@/components/tools/renderers/system/StructuredResultView';
 import { normalizeToolCallForRendering } from '@/components/tools/normalization/core/normalizeToolCallForRendering';
 import { PermissionFooter } from '../permissions/PermissionFooter';
+import { pendingRequestFromTool } from '../permissions/usePendingRequestActionability';
 import { useSetting } from '@/sync/domains/state/storage';
 import { useUnistyles } from 'react-native-unistyles';
 import { Text, TextSelectabilityScope } from '@/components/ui/text/Text';
@@ -40,6 +41,7 @@ interface ToolFullViewProps {
 
 export function ToolFullView({ tool, owningMessageId, sessionId, metadata, messages = [], jumpChildId, forcePermissionFooterInTranscript = false, interaction }: ToolFullViewProps) {
     const { theme } = useUnistyles();
+    const permissionRequest = React.useMemo(() => pendingRequestFromTool(tool), [tool]);
     // This view opens one historical row on its own screen, so the row's own
     // Agent — published by the opener — outranks the Session's current one.
     const historicalAgentId = useHistoricalTranscriptAgentId();
@@ -127,6 +129,7 @@ export function ToolFullView({ tool, owningMessageId, sessionId, metadata, messa
                 sessionId={normalizedSessionId}
                 toolName={normalizedToolName}
                 toolInput={toolForRendering.input}
+                permissionRequest={permissionRequest}
                 metadata={metadata || null}
                 canApprovePermissions={interaction?.canApprovePermissions ?? true}
                 disabledReason={interaction?.permissionDisabledReason}
@@ -171,6 +174,7 @@ export function ToolFullView({ tool, owningMessageId, sessionId, metadata, messa
             <TextSelectabilityScope selectable>
                 <SpecializedFullView
                     tool={toolForRendering}
+                    permissionRequest={permissionRequest}
                     metadata={metadata || null}
                     messages={messages}
                     sessionId={sessionId}
@@ -222,6 +226,7 @@ export function ToolFullView({ tool, owningMessageId, sessionId, metadata, messa
                     <TextSelectabilityScope selectable>
                         <SpecializedFullView
                             tool={toolForRendering}
+                            permissionRequest={permissionRequest}
                             metadata={metadata || null}
                             messages={messages}
                             sessionId={sessionId}

@@ -78,6 +78,14 @@ async function readProjection<T>(coordinatorId: string, path: string, parse: (te
     }
 }
 
+/** Read only the existing projection for the selected coordinator; never initiate a row read. */
+export function useQuestionContextData(coordinatorId: string | undefined) {
+    React.useSyncExternalStore(subscribe, getRevision, getRevision);
+    const dir = wqDirectory(process.env.EXPO_PUBLIC_IP_WQ_DIR, COORDINATOR_PATH);
+    const cache = coordinatorId && matches(currentCache, coordinatorId, dir) ? currentCache : null;
+    return cache ? { items: cache.items, projectNames: cache.projects?.names } : null;
+}
+
 /** Owns the desk's optional wq projection and its known-project issue resolution. */
 export function useWorkCardData(coordinatorId: string | null, workers: DeskSessions, nowMs: number): WorkCardData {
     const dir = wqDirectory(process.env.EXPO_PUBLIC_IP_WQ_DIR, COORDINATOR_PATH);

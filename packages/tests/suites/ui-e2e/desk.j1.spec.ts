@@ -22,15 +22,23 @@ test('the desk says who is waiting, working and idle, from a cold load', async (
         // Every value the agent tile ever shows, so a 0 before the list arrives can't slip by between polls.
         await page.addInitScript(() => {
             const seen: string[] = [];
+            const approvalCounts: string[] = [];
             (window as unknown as { __deskAgentTile: string[] }).__deskAgentTile = seen;
+            (window as unknown as { __deskApprovalCounts: string[] }).__deskApprovalCounts = approvalCounts;
             new MutationObserver(() => {
                 const text = document.querySelector('[data-testid="ip-count-all"]')?.textContent;
                 if (text && seen[seen.length - 1] !== text) seen.push(text);
+                const count = document.querySelector('[data-testid="ip-approvals-open"] [data-testid="ip-approvals-count"]')?.textContent;
+                if (count && approvalCounts[approvalCounts.length - 1] !== count) approvalCounts.push(count);
             }).observe(document, { subtree: true, childList: true, characterData: true });
         });
         await openDesk(page, desk);
 
-        await expect(page.getByTestId('ip-approvals-count'), 'Waiting on you').toHaveText('1', { timeout: 10_000 });
+        const approvals = page.getByTestId('ip-approvals-open');
+        const approvalCount = approvals.getByTestId('ip-approvals-count');
+        await expect(approvalCount, 'Waiting on you, loaded request count and unit').toHaveText('1 request', { timeout: 10_000 });
+        await expect(approvalCount).toBeVisible();
+        await expect(approvals).toHaveAccessibleName('Show what waits on you, 1 request');
         const issues = page.getByTestId('ip-work');
         await expect(issues.getByTestId('ip-issue-ATR-101'), 'the ATR-101 card').toBeVisible({ timeout: 10_000 });
         await expect(issues.getByTestId('ip-issue-ATR-102'), 'the ATR-102 card').toBeVisible({ timeout: 10_000 });
@@ -48,21 +56,30 @@ test('the desk says who is waiting, working and idle, from a cold load', async (
         await expect(issues.getByText('No issue', { exact: true })).toHaveCount(0);
         const tile = await page.evaluate(() => (window as unknown as { __deskAgentTile: string[] }).__deskAgentTile);
         expect(tile, 'what the Agents tile showed on the way').not.toContain('0');
+        const approvalCounts = await page.evaluate(() => (window as unknown as { __deskApprovalCounts: string[] }).__deskApprovalCounts);
+        expect(approvalCounts, 'the loaded badge was observed').toContain('1 request');
+        // Before sync, a dash is unresolved, never a numeric zero or a count without its unit.
+        for (const count of approvalCounts) {
+            expect(['– requests', '1 request'], 'what the Waiting badge showed on the way').toContain(count);
+        }
     } finally {
         await seed.stopAll();
     }
 });
 
-test.fixme('issue cards are ordered by urgency (item 2.3)', async ({ page, desk }) => {
+test('issue cards are ordered by urgency (item 2.3)', async ({ page, desk }) => {
     const seed = createDeskSeeder(desk);
     try {
         await seedMorning(seed);
         await openDesk(page, desk);
-        await expect(page.getByTestId('ip-work').locator('[data-testid^="ip-issue-"]')).toHaveCount(2, { timeout: 10_000 });
-        const order = await page
-            .getByTestId('ip-work').locator('[data-testid^="ip-issue-"]')
-            .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-testid')));
-        expect(order, 'waiting issue first, then the working one').toEqual(['ip-issue-ATR-102', 'ip-issue-ATR-101']);
+        const issues = page.getByTestId('ip-work');
+        // Match only issue roots, excluding disclosure controls and other card descendants.
+        const cards = issues.getByTestId(/^ip-issue-ATR-(?:101|102)$/);
+        await expect(cards, 'both seeded issue roots').toHaveCount(2, { timeout: 10_000 });
+        await expect(issues.getByTestId('ip-issue-ATR-102'), 'the waiting issue root').toBeVisible({ timeout: 10_000 });
+        await expect(issues.getByTestId('ip-issue-ATR-101'), 'the working issue root').toBeVisible({ timeout: 10_000 });
+        await expect(cards.nth(0), 'waiting issue first').toHaveAttribute('data-testid', 'ip-issue-ATR-102', { timeout: 10_000 });
+        await expect(cards.nth(1), 'working issue second').toHaveAttribute('data-testid', 'ip-issue-ATR-101', { timeout: 10_000 });
     } finally {
         await seed.stopAll();
     }

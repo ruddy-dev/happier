@@ -60,7 +60,8 @@ function sortJsonValue(value: unknown): unknown {
         return value;
     }
 
-    const sorted: Record<string, unknown> = {};
+    // JSON keys are data, including __proto__; never invoke inherited setters.
+    const sorted: Record<string, unknown> = Object.create(null);
     for (const key of Object.keys(value).sort()) {
         sorted[key] = sortJsonValue(value[key]);
     }

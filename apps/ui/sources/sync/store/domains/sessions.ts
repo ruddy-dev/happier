@@ -9,7 +9,12 @@ import type { NormalizedMessage } from '../../typesRaw';
 import type { SessionListViewItem } from '../../domains/session/listing/sessionListViewData';
 import { readSessionArchivePending, type SessionArchiveOperation, type SessionArchiveOperations } from '../../domains/session/listing/sessionArchiveState';
 import { readStoredSessionMessagesFromStateLike } from '../../domains/messages/readStoredSessionMessages';
-import { isTranscriptRenderableAggregate } from '../../domains/messages/transcriptRenderableAggregate';
+import {
+    buildTranscriptRenderableAggregate,
+    canReuseTranscriptRenderableAggregateRequestStates,
+    isTranscriptRenderableAggregate,
+    withTranscriptRenderableAggregateCompletedRequests,
+} from '../../domains/messages/transcriptRenderableAggregate';
 import {
     areSessionListRenderablesEqual,
     buildSessionListRenderableFromSession,
@@ -934,16 +939,39 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
                     }
                 }
 
-                // Reuse the incrementally-maintained transcript aggregate when
-                // it is still valid; the builder self-checks completedRequests
-                // identity and falls back to the messages walk otherwise.
-                const sessionMessagesForRenderable = updatedSessionMessages[session.id];
+                // Completion coverage belongs to the pending-request owner, so the aggregate's
+                // transcript contributions can be published for new completions without a fold.
+                // A missing/invalidated partial aggregate stays unknown; only loaded history rebuilds.
+                let sessionMessagesForRenderable = updatedSessionMessages[session.id];
+                if (sessionMessagesForRenderable) {
+                    const aggregate = sessionMessagesForRenderable.renderableAggregate;
+                    const completed = mergedSessions[session.id]!.agentState?.completedRequests ?? null;
+                    if ((aggregate && !canReuseTranscriptRenderableAggregateRequestStates(aggregate, completed))
+                        || (!aggregate && sessionMessagesForRenderable.isLoaded === true)) {
+                        if (updatedSessionMessages === state.sessionMessages) updatedSessionMessages = { ...state.sessionMessages };
+                        sessionMessagesForRenderable = updatedSessionMessages[session.id] = {
+                            ...sessionMessagesForRenderable,
+                            renderableAggregate: aggregate ? withTranscriptRenderableAggregateCompletedRequests(aggregate, completed)
+                                : buildTranscriptRenderableAggregate({
+                                messages: renderableMessages ?? readStoredSessionMessagesFromStateLike(sessionMessagesForRenderable),
+                                completedRequests: completed,
+                            }),
+                        };
+                    }
+                }
                 const nextRenderableBase = buildSessionListRenderableFromSession(
                     mergedSessions[session.id]!,
-                    renderableMessages,
+                    // Exclude partial history from unread/activity and prevent an implicit
+                    // storage read. Its maintained request map still supplies pending evidence.
+                    renderableMessages ?? [],
                     sessionMessagesForRenderable?.isLoaded === true
                     && isTranscriptRenderableAggregate(sessionMessagesForRenderable.renderableAggregate)
                         ? sessionMessagesForRenderable.renderableAggregate
+                        : undefined,
+                    sessionMessagesForRenderable?.isLoaded !== true
+                    && isTranscriptRenderableAggregate(sessionMessagesForRenderable?.renderableAggregate)
+                        ? { states: sessionMessagesForRenderable.renderableAggregate.requestStates,
+                            projection: sessionMessagesForRenderable.renderableAggregate.requestProjection }
                         : undefined,
                 );
                 const previousRenderable = state.sessionListRenderables?.[session.id];

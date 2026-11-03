@@ -34,11 +34,14 @@ import { WorkflowActivityView } from '../workflow/WorkflowActivityView';
 import { KnownCanonicalToolNameV2Schema, type KnownCanonicalToolNameV2 } from '@happier-dev/protocol';
 import { normalizeToolNameForView } from '@/components/tools/normalization/policy/normalizeToolNameForView';
 import type { TranscriptInteraction } from '@/utils/sessions/deriveTranscriptInteraction';
+import type { SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 
 export type ToolViewDetailLevel = 'title' | 'summary' | 'full';
 
 export type ToolViewProps = {
     tool: ToolCall;
+    /** Original occurrence, before rendering normalizes the tool name/input. */
+    permissionRequest?: SessionPendingRequest;
     metadata: Metadata | null;
     messages: Message[];
     sessionId?: string;

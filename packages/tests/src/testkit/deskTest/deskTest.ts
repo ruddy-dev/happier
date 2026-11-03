@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, test as base } from '@playwright/test';
 
 import { createTestAuthMtls } from '../auth';
 import { startServerLight, type StartedServer } from '../process/serverLight';
@@ -11,13 +11,13 @@ import { isUiWebExportCurrent } from '../process/uiWebExport';
 import { createRunDirs } from '../runDir';
 import { collectBrowserDiagnostics } from '../uiE2e/browserDiagnostics';
 import { startForwardedHeaderProxy } from '../uiE2e/forwardedHeaderProxy';
-import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../uiE2e/pageNavigation';
-import { waitForInitialAppUi } from '../uiE2e/waitForInitialAppUi';
+import { normalizeLoopbackBaseUrl } from '../uiE2e/pageNavigation';
 import { DESK_UI_ENV } from './deskUiEnv';
 import { assertServerPort } from './originGuard';
 import type { BlockedRequest } from './deskRequestGuard';
 import { runDeskGuardFixture } from './deskGuardFixture';
 export type { BlockedRequest } from './deskRequestGuard';
+export { openDesk } from './openDesk';
 
 export type DeskTestOptions = {
     /** Origins the page may reach, besides the configured `baseURL`. */
@@ -158,10 +158,3 @@ export const deskTest = deskGuardTest.extend<DeskFixtures, DeskWorkerFixtures>({
         await use(page);
     },
 });
-
-/** Signs in on the plain login, then opens the desk with a fresh load, as Luke does each morning. */
-export async function openDesk(page: Page, desk: DeskAccount): Promise<void> {
-    await gotoDomContentLoadedWithRetries(page, `${desk.uiBaseUrl}/?happier_hmr=0`, 180_000);
-    await waitForInitialAppUi({ page, timeoutMs: 120_000 });
-    await gotoDomContentLoadedWithRetries(page, `${desk.uiBaseUrl}/desk`, 120_000);
-}

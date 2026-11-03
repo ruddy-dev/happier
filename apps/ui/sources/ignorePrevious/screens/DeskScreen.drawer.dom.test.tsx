@@ -7,8 +7,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { lightTheme } from '@/theme';
+import { t } from '@/text';
 import type { WaitingItem } from '../model/waitingItems';
-import { getApprovalsOpen, setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
+import { deskPrefs, getApprovalsOpen, setApprovalsOpen, setStoredCoordinatorId, setWorkCollapsed } from '../deskPrefs';
+import { deskThemes } from '../palette';
 import { DeskScreen } from './DeskScreen';
 
 const routerHandle = vi.hoisted(() => ({ navigate: vi.fn() }));
@@ -75,6 +77,7 @@ beforeEach(() => {
 afterEach(async () => {
     await act(async () => root.unmount()); container.remove(); storage.setState(previous, true);
     setApprovalsOpen(false); setStoredCoordinatorId(null); setWorkCollapsed(false);
+    deskPrefs.set('chatStyle', 'mask'); deskPrefs.set('terminalPalette', 'tokyo');
 });
 function element(id: string) {
     const found = container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
@@ -173,15 +176,17 @@ it('Medium 2: explicit close clears dirty state before the drawer is opened agai
 it('shows desk chrome and phone panes at the agreed boundary', async () => {
     await render(1440);
     const bar = element('ip-top-bar');
-    expect([...bar.children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-sessions', 'ip-top-usage', 'ip-top-waiting', 'ip-top-settings']);
+    expect([...bar.children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-brand', 'ip-top-sessions', 'ip-top-usage', 'ip-top-waiting', 'ip-top-settings']);
+    expect(element('ip-top-brand').textContent).toContain('Ignore Previous');
     expect(container.querySelectorAll('[data-testid="ip-approvals-open"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
-    expect(element('ip-top-usage').textContent).toBe('Usage');
-    expect(element('ip-approvals-count').textContent).toBe('0');
+    expect(element('ip-top-usage-inline').textContent).toBe('Not available');
+    expect(element('ip-approvals-count').textContent).toBe('0 requests');
     await render(390);
     expect(element('ip-top-sessions')).toBeTruthy();
     expect(getComputedStyle(element('ip-work').parentElement!).display).toBe('none');
     await click('ip-tab-work');
+    expect(getComputedStyle(element('ip-tab-work')).borderTopWidth).toBe('2px');
     expect(element('ip-work')).toBeTruthy();
     expect(getComputedStyle(element('composer').closest('[data-testid="ip-coordinator-pane-wrapper"]')!).display).toBe('none');
     await click('ip-tab-shog');
@@ -249,29 +254,127 @@ it('closes the sheet and navigates when a session is selected', async () => {
 it.each([390, 820])('keeps phone top bar controls and accessible tabs at %i', async width => {
     await render(width);
     expect([...element('ip-top-bar').children].map(node => node.getAttribute('data-testid'))).toEqual(['ip-top-brand', 'ip-top-sessions', 'ip-top-usage', 'ip-top-settings']);
-    expect(element('ip-top-brand').textContent).toContain('Sleeper Agents');
+    expect(element('ip-top-brand').textContent).toContain('Ignore Previous');
     expect(container.querySelectorAll('[data-testid="ip-settings-open"]')).toHaveLength(1);
     expect(element('ip-tab-work').getAttribute('role')).toBe('tab');
     expect(element('ip-tab-waiting').getAttribute('role')).toBe('tab');
     expect(element('ip-tab-waiting').closest('[role="tablist"]')).not.toBeNull();
     expect(element('ip-tab-shog').getAttribute('aria-selected')).toBe('true');
 });
-it('M12: gives Usage the same visible and accessible text without a percentage', async () => {
-    await render(1440);
+it('uses the selected desk palette for phone tabs and provides real focusable targets', async () => {
+    deskPrefs.set('chatStyle', 'terminal'); deskPrefs.set('terminalPalette', 'tokyo');
+    await render(390);
+    const shog = element('ip-tab-shog');
+    expect(shog.style.backgroundColor).toBe('rgb(192, 202, 245)');
+    expect(getComputedStyle(shog).minHeight).toBe('48px');
+    expect(getComputedStyle(element('ip-tab-work')).minHeight).toBe('48px');
+    expect(getComputedStyle(element('ip-tab-waiting')).minHeight).toBe('48px');
+    await click('ip-tab-work');
+    expect(element('ip-tab-work').getAttribute('aria-selected')).toBe('true');
+    expect(element('ip-tab-work').style.backgroundColor).toBe('rgb(192, 202, 245)');
+    await act(async () => deskPrefs.set('terminalPalette', 'gruvbox'));
+    const sample = document.createElement('span'); sample.style.backgroundColor = deskThemes.gruvbox.ink;
+    expect(element('ip-tab-work').style.backgroundColor).toBe(sample.style.backgroundColor);
+    await act(async () => deskPrefs.set('chatStyle', 'mask'));
+    expect(element('ip-tab-work').style.backgroundColor).not.toBe('');
+    deskPrefs.set('terminalPalette', 'tokyo');
+});
+it('keeps a populated Waiting tab within its share of the 390px bar and opens its drawer', async () => {
+    await act(async () => seedCards(['first', 'second', 'third']));
+    await render(390);
+    const tab = element('ip-tab-waiting');
+    expect(element('ip-approvals-count').textContent).toBe('3 requests');
+    expect(tab.getAttribute('aria-label')).toContain('3 requests');
+    expect(getComputedStyle(tab).flexGrow).toBe('1');
+    expect(getComputedStyle(tab).flexBasis).toBe('0%');
+    expect(getComputedStyle(tab).flexDirection).toBe('column');
+    await click('ip-tab-waiting');
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(element('ip-waiting-count').textContent).toBe('3 requests');
+    await click('ip-approvals-close');
+    expect(document.activeElement).toBe(tab);
+});
+it.each([
+    { width: 390, style: 'terminal' as const }, { width: 1440, style: 'terminal' as const },
+    { width: 390, style: 'mask' as const }, { width: 1440, style: 'mask' as const },
+])('R41: full DeskScreen exposes unavailable Usage rows and returns focus at $width in $style', async ({ width, style }) => {
+    deskPrefs.set('chatStyle', style);
+    await render(width);
     const usage = element('ip-top-usage');
-    expect(usage.getAttribute('aria-label')).toBe(usage.textContent);
-    expect(usage.textContent).toBe('Usage');
+    expect(usage.getAttribute('aria-label')).toContain('Usage');
+    expect(usage.getAttribute('aria-label')).toContain('Not available');
+    if (width > 820) expect(element('ip-top-usage-inline').textContent).toBe('Not available');
+    expect(element('ip-top-brand-mask').querySelector('svg')).not.toBeNull();
     expect(element('ip-top-bar').textContent).not.toContain('%');
+    await click('ip-top-usage');
+    const panel = document.querySelector<HTMLElement>('[data-testid="ip-usage-popover"]')!;
+    expect(panel.getAttribute('role')).toBe('dialog');
+    for (const id of ['maxWeek', 'lastFiveHours', 'fableShare'] as const) {
+        const row = panel.querySelector<HTMLElement>(`[data-testid="ip-usage-row-${id}"]`)!;
+        expect(row.textContent).toContain(t(`ignorePrevious.usage.${id}`));
+        expect(row.textContent).toContain(t('ignorePrevious.usage.notAvailable'));
+        if (id === 'fableShare') expect(row.textContent).toContain(t('ignorePrevious.usage.estimate'));
+    }
+    expect(panel.textContent).not.toMatch(/[\d%]/);
+    await act(async () => panel.querySelector<HTMLElement>('[data-testid="ip-usage-close"]')!.click());
+    expect(document.querySelector('[data-testid="ip-usage-popover"]')).toBeNull();
+    expect(document.activeElement).toBe(usage);
+});
+it('R41: changing the selected session never attributes its context reading to account usage', async () => {
+    const reported = createSessionFixture({ id: 'reported-worker', active: true, latestUsage: {
+        inputTokens: 1200, outputTokens: 300, cacheCreation: 0, cacheRead: 0,
+        contextSize: 1500, contextSizeIsReported: true, contextWindowTokens: 200_000, timestamp: 1,
+    } });
+    const unreported = createSessionFixture({ id: 'unreported-worker', active: true });
+    storage.getState().applySessions([reported, unreported]);
+    setStoredCoordinatorId(reported.id);
+    await render(1440);
+    expect(element('ip-top-usage-inline').textContent).toBe('Not available');
+    await click('ip-top-usage');
+    const panel = document.querySelector<HTMLElement>('[data-testid="ip-usage-popover"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent).not.toMatch(/[\d%]/);
+    await act(async () => setStoredCoordinatorId(unreported.id));
+    expect(element('ip-top-usage-inline').textContent).toBe('Not available');
+    expect(document.querySelector('[data-testid="ip-usage-popover"]')).toBe(panel);
+    expect(panel?.textContent).not.toMatch(/[\d%]/);
+    expect(storage.getState().sessions[reported.id]?.latestUsage?.contextSize).toBe(1500);
+    expect(storage.getState().sessions[unreported.id]?.latestUsage).toBeFalsy();
+});
+it.each([320, 390, 821, 1100, 1440])('R41: Sessions, Waiting and Settings remain operable at %i', async width => {
+    await render(width);
+    await click('ip-top-sessions');
+    expect(element('ip-sessions-sheet')).toBeTruthy();
+    await escape();
+    const waitingId = width <= 820 ? 'ip-tab-waiting' : 'ip-approvals-open';
+    expect(element(waitingId).getAttribute('aria-label')).toBe(t('ignorePrevious.openApprovals', { count: 0 }));
+    await click(waitingId);
+    expect(drawer()).not.toBeNull();
+    await escape();
+    await click('ip-settings-open');
+    expect(routerHandle.navigate).toHaveBeenCalledWith('/desk/settings');
+});
+it('R10/R24: top-bar Waiting excludes view-only requests and counts unloaded details', async () => {
+    seedCards(['first']);
+    storage.getState().applySessions([
+        createSessionFixture({ id: 'viewer', active: true, accessLevel: 'view', canApprovePermissions: false,
+            agentState: { requests: { hidden: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: 1 } } } }),
+        createSessionFixture({ id: 'unloaded', active: true, pendingPermissionRequestCount: 1 }),
+    ]);
+    await render(1440);
+    expect(element('ip-approvals-count').textContent).toBe('2 requests');
+    await click('ip-approvals-open');
+    expect(drawer()).not.toBeNull();
 });
 it('uses a muted zero while preserving the waiting label', async () => {
     await render(1440);
     const zero = getComputedStyle(element('ip-approvals-count')).color;
     const token = document.createElement('span'); token.style.color = lightTheme.colors.text.secondary; document.body.append(token);
     expect(zero).toBe(getComputedStyle(token).color); token.remove();
-    const label = element('ip-approvals-open').textContent!.replace('0', '');
+    const label = element('ip-approvals-open').textContent!.replace(element('ip-approvals-count').textContent!, '');
     await act(async () => seedCards(['first']));
     expect(getComputedStyle(element('ip-approvals-count')).color).not.toBe(zero);
-    expect(element('ip-approvals-open').textContent!.replace('1', '')).toBe(label);
+    expect(element('ip-approvals-open').textContent!.replace(element('ip-approvals-count').textContent!, '')).toBe(label);
 });
 it('returns focus to the current waiting opener after crossing the boundary', async () => {
     await render(1000); await click('ip-approvals-open'); await render(820); await escape();

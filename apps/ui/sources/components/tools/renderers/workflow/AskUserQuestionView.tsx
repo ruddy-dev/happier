@@ -1,10 +1,13 @@
 import * as React from 'react';
+import { TranscriptAppearanceContext, type TranscriptQuestionColors } from '@/components/sessions/transcript/TranscriptAppearanceContext';
+import { DeskQuestionCard } from '@/ignorePrevious/components/DeskQuestionCard';
 import { View, TouchableOpacity, type GestureResponderEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { ToolViewProps } from '../core/_registry';
 import { resolvePermissionRequestId } from '../core/resolvePermissionRequestId';
 import { ToolSectionView } from '../../shell/presentation/ToolSectionView';
 import { createPermissionActionDispatchGuard } from '../../shell/permissions/permissionActionDispatchGuard';
+import { usePendingRequestActionability, pendingRequestFromTool } from '@/components/tools/shell/permissions/usePendingRequestActionability';
 import { sessionAllowWithAnswers } from '@/sync/ops';
 import { storage, useSession, useSettingMutable } from '@/sync/domains/state/storage';
 import { Modal } from '@/modal';
@@ -126,7 +129,7 @@ function keepFreeformTouchInsideInput(event: GestureResponderEvent): void {
 
 // Styles MUST be defined outside the component to prevent infinite re-renders
 // with react-native-unistyles. The theme is passed as a function parameter.
-const styles = StyleSheet.create((theme) => ({
+const defaultStyles = StyleSheet.create((theme) => ({
     container: {
         gap: 16,
     },
@@ -282,8 +285,42 @@ const styles = StyleSheet.create((theme) => ({
     },
 }));
 
-export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId, interaction }) => {
+// Only the real question consumes these colors. Keep the ordinary Unistyles path intact.
+function scopedQuestionStyles(colors: TranscriptQuestionColors) {
+    return {
+        ...defaultStyles,
+        headerChip: [defaultStyles.headerChip, { backgroundColor: colors.surface }],
+        headerText: [defaultStyles.headerText, { color: colors.secondary }],
+        questionText: [defaultStyles.questionText, { color: colors.text }],
+        optionButton: [defaultStyles.optionButton, { borderColor: colors.border }],
+        optionButtonSelected: [defaultStyles.optionButtonSelected, { backgroundColor: colors.surface, borderColor: colors.accent }],
+        // Observer and fixture text stays readable; canInteract still owns every control.
+        optionButtonDisabled: { opacity: 1 },
+        radioOuter: [defaultStyles.radioOuter, { borderColor: colors.secondary }],
+        radioOuterSelected: [defaultStyles.radioOuterSelected, { borderColor: colors.accent }],
+        radioInner: [defaultStyles.radioInner, { backgroundColor: colors.accent }],
+        checkboxOuter: [defaultStyles.checkboxOuter, { borderColor: colors.secondary }],
+        checkboxOuterSelected: [defaultStyles.checkboxOuterSelected, { borderColor: colors.accent, backgroundColor: colors.accent }],
+        optionLabel: [defaultStyles.optionLabel, { color: colors.text }],
+        optionDescription: [defaultStyles.optionDescription, { color: colors.secondary }],
+        freeformInput: [defaultStyles.freeformInput, { color: colors.text, backgroundColor: colors.surface, borderColor: colors.border }],
+        freeformDescription: [defaultStyles.freeformDescription, { color: colors.secondary }],
+        submitButton: [defaultStyles.submitButton, { backgroundColor: colors.button }],
+        submitButtonText: [defaultStyles.submitButtonText, { color: colors.buttonText }],
+        submittedHeader: [defaultStyles.submittedHeader, { color: colors.secondary }],
+        submittedValue: [defaultStyles.submittedValue, { color: colors.text }],
+    };
+}
+
+function QuestionChrome({ enabled, active, actionable, contextText, children }: { enabled: boolean; active: boolean; actionable: boolean; contextText: readonly string[]; children: React.ReactNode }) {
+    return enabled ? <DeskQuestionCard active={active} actionable={actionable} contextText={contextText}>{children}</DeskQuestionCard> : <>{children}</>;
+}
+
+export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permissionRequest, sessionId, interaction }) => {
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const colors = appearance?.questionColors;
+    const styles = React.useMemo(() => colors ? scopedQuestionStyles(colors) : defaultStyles, [theme, colors]);
     const [selections, setSelections] = React.useState<Map<number, Set<number>>>(new Map());
     const [freeformAnswers, setFreeformAnswers] = React.useState<Map<number, string>>(new Map());
     const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -323,6 +360,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
         return null;
     }
 
+    const contextText = questions.flatMap(q => [q.header, q.question].filter((v): v is string => typeof v === 'string'));
     const effectiveFreeformAnswers = new Map<number, string>();
     questions.forEach((question, questionIndex) => {
         if (freeformAnswers.has(questionIndex)) {
@@ -334,7 +372,8 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
 
     const isRunning = tool.state === 'running';
     const canApprovePermissions = interaction?.canApprovePermissions ?? true;
-    const canInteract = isRunning && !isSubmitted && canApprovePermissions && hasActiveAskUserQuestionRequest;
+    const { actionable, isActionable } = usePendingRequestActionability(sessionId, permissionRequest ?? pendingRequestFromTool(tool));
+    const canInteract = actionable && isRunning && !isSubmitted && canApprovePermissions && hasActiveAskUserQuestionRequest;
     const disabledMessage =
         interaction?.permissionDisabledReason === 'public'
             ? t('session.sharing.permissionApprovalsDisabledPublic')
@@ -372,7 +411,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                                 onPress={attachedSessionTerminal.open}
                                 activeOpacity={0.7}
                             >
-                                <Icon name="terminal" size={20} color={theme.colors.text.secondary} />
+                                <Icon name="terminal" size={20} color={colors?.secondary ?? theme.colors.text.secondary} />
                                 <View style={styles.optionContent}>
                                     <Text style={styles.optionLabel}>{t('tools.askUserQuestion.claudeDialogNotice.openTerminal')}</Text>
                                     <Text style={styles.optionDescription}>{t('tools.askUserQuestion.claudeDialogNotice.description')}</Text>
@@ -448,7 +487,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
     }, [canInteract, questions]);
 
     const handleSubmit = React.useCallback(async () => {
-        if (!sessionId || !allQuestionsAnswered || isSubmitting) return;
+        if (!sessionId || !canApprovePermissions || !allQuestionsAnswered || isSubmitting || !isActionable()) return;
 
         // Format answers as readable text
         const responseLines: string[] = [];
@@ -564,12 +603,13 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                 Modal.alert(t('common.error'), t('errors.failedToSendMessage'));
             }
         }
-    }, [actionDispatchGuard, requestKey, sessionId, questions, selections, effectiveFreeformAnswers, allQuestionsAnswered, input?.happierDialog, isSubmitting, setResumeChoice, setWorkspaceTrust, toolCallId]);
+    }, [actionDispatchGuard, requestKey, sessionId, isActionable, canApprovePermissions, questions, selections, effectiveFreeformAnswers, allQuestionsAnswered, input?.happierDialog, isSubmitting, setResumeChoice, setWorkspaceTrust, toolCallId]);
 
     // Show submitted state
     if (isSubmitted || tool.state === 'completed') {
         const answersFromResult = parseAskUserQuestionAnswersFromToolResult(tool.result);
         return (
+            <QuestionChrome enabled={appearance !== null} active={false} actionable={false} contextText={contextText}>
             <ToolSectionView>
                 <View style={styles.submittedContainer}>
                     {questions.map((q, qIndex) => {
@@ -599,14 +639,16 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                     })}
                 </View>
             </ToolSectionView>
+            </QuestionChrome>
         );
     }
 
     return (
+        <QuestionChrome enabled={appearance !== null} active={isRunning} actionable={canInteract} contextText={contextText}>
         <ToolSectionView>
             <View testID="ask-user-question" style={styles.container}>
                 {!canApprovePermissions && isRunning ? (
-                    <Text style={{ color: theme.colors.text.secondary }}>
+                    <Text style={{ color: colors?.secondary ?? theme.colors.text.secondary }}>
                         {disabledMessage}
                     </Text>
                 ) : null}
@@ -619,7 +661,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                         onPress={attachedSessionTerminal.open}
                         activeOpacity={0.7}
                     >
-                        <Icon name="terminal" size={20} color={theme.colors.text.secondary} />
+                        <Icon name="terminal" size={20} color={colors?.secondary ?? theme.colors.text.secondary} />
                         <View style={styles.optionContent}>
                             <Text style={styles.optionLabel}>{t('tools.askUserQuestion.claudeDialogNotice.openTerminal')}</Text>
                             <Text style={styles.optionDescription}>{t('tools.askUserQuestion.claudeDialogNotice.description')}</Text>
@@ -644,6 +686,11 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                             </View>
                             <Text style={styles.questionText}>{question.question}</Text>
                             <View style={styles.optionsContainer}>
+                                {colors && !canInteract && options.length > 0 ? (
+                                    <Text testID={`ask-user-question.options-unavailable:${qIndex}`} style={styles.optionDescription}>
+                                        {t('common.unavailable')}
+                                    </Text>
+                                ) : null}
                                 {options.length === 0 || question.freeform ? (
                                     <View>
                                         <TextInput
@@ -668,7 +715,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                                                 }
                                             }}
                                             placeholder={question.freeform?.placeholder ?? t('tools.askUserQuestion.otherPlaceholder')}
-                                            placeholderTextColor={theme.colors.input.placeholder}
+                                            placeholderTextColor={colors?.secondary ?? theme.colors.input.placeholder}
                                             editable={canInteract}
                                             multiline={question.freeform?.multiline === true}
                                             textAlignVertical={question.freeform?.multiline === true ? 'top' : 'center'}
@@ -706,7 +753,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                                                     isSelected && styles.checkboxOuterSelected,
                                                 ]}>
                                                     {isSelected && (
-                                                        <Icon name="check" size={14} color={theme.colors.button.primary.tint} />
+                                                        <Icon name="check" size={14} color={colors?.onAccent ?? theme.colors.button.primary.tint} />
                                                     )}
                                                 </View>
                                             ) : (
@@ -758,7 +805,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                             activeOpacity={0.7}
                         >
                             {isSubmitting ? (
-                                <ActivitySpinner size="small" color={theme.colors.button.primary.tint} />
+                                <ActivitySpinner size="small" color={colors?.buttonText ?? theme.colors.button.primary.tint} />
                             ) : (
                                 <Text style={styles.submitButtonText}>{t('tools.askUserQuestion.submit')}</Text>
                             )}
@@ -767,5 +814,6 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId,
                 )}
             </View>
         </ToolSectionView>
+        </QuestionChrome>
     );
 });

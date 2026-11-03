@@ -147,6 +147,8 @@ describe('landing demo route', () => {
         expect(route.alert).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('worker'));
         await screen.pressByTestIdAsync('ip-open-demo-weather-fix');
         await screen.pressByTestIdAsync('ip-approvals-open');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-search-r1');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-approval-r1');
         await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session')!);
         await screen.pressByTestIdAsync('ip-top-sessions');
         await screen.pressByTestIdAsync('ip-sessions-row-demo-weather-tests');
@@ -175,6 +177,8 @@ describe('landing demo route', () => {
         expect(text).toContain('RECIPE-8 Add ingredient search');
         expect(text).toContain('NOTES-3 Export notes as Markdown');
         await screen.pressByTestIdAsync('ip-approvals-open');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-search-r1');
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-approval-r1');
         expect(screen.getTextContent()).toContain('How should ingredient search match recipes?');
         const option = screen.findByTestId('ip-waiting-option-demo-recipe-search-r1-0-0');
         expect(option).not.toBeNull();
@@ -239,6 +243,7 @@ describe('landing demo route', () => {
         await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * questionIndex); });
         expect(screen.getTextContent()).not.toContain('How should ingredient search match recipes?');
         await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS); });
+        await screen.pressByTestIdAsync('ip-waiting-toggle-demo-recipe-search-r1');
         expect(screen.getTextContent()).toContain('How should ingredient search match recipes?');
         expect(screen.findByTestId('ip-waiting-send-demo-recipe-search-r1')?.props.disabled).toBe(true);
         await act(async () => { vi.advanceTimersByTime(DEMO_STEP_MS * (demoScript.length - questionIndex - 1)); });
