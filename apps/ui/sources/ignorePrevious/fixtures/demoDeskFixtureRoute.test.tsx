@@ -30,16 +30,16 @@ vi.mock('@/hooks/ui/useReducedMotionPreference', async () => {
     return createReducedMotionModuleMock(() => motion.reduced);
 });
 
-const route = vi.hoisted(() => ({ data: undefined as string | undefined }));
+const route = vi.hoisted(() => ({ data: undefined as string | undefined, navigate: vi.fn(), alert: vi.fn(), options: null as Readonly<Record<string, unknown>> | null }));
 
 vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
-    return createExpoRouterMock({ params: () => ({ data: route.data }) }).module;
+    return createExpoRouterMock({ params: () => ({ data: route.data }), router: { navigate: route.navigate, push: route.navigate }, stackOptionsCapture: { record: value => { route.options = typeof value === 'function' ? value() : value; }, reset: () => { route.options = null; }, getRaw: () => route.options, getResolved: () => route.options } }).module;
 });
 
 vi.mock('@/modal', async () => {
     const { createModalModuleMock } = await import('@/dev/testkit/mocks/modal');
-    return createModalModuleMock().module;
+    return createModalModuleMock({ spies: { alert: route.alert } }).module;
 });
 
 // The whole chat surface is Happier's; the fixture replaces the coordinator body with a stub, and the
@@ -75,7 +75,7 @@ const auth = vi.hoisted(() => {
 
 vi.mock('@/auth/context/AuthContext', async () => {
     const React = await import('react');
-    return { useAuth: () => React.useSyncExternalStore(auth.subscribe, auth.get, auth.get) };
+    return { useAuth: () => React.useSyncExternalStore(auth.subscribe, auth.get, auth.get), getCurrentAuth: () => null };
 });
 
 // Pins the active server so the account's warm cache has a key to be written under.
@@ -106,6 +106,38 @@ describe('landing demo route', () => {
         setCoordinatorOverride(null);
         setStoredCoordinatorId(storedBefore);
         route.data = undefined;
+        route.navigate.mockClear();
+        route.alert.mockClear();
+    });
+
+    it.each([true, false])('C: public presentation is limited to data=demo (%s)', async isDemo => {
+        route.data = isDemo ? 'demo' : undefined;
+        const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
+        await vi.waitFor(() => expect(screen.findByTestId('ip-fixture-coordinator-body')).not.toBeNull());
+        expect(route.options?.headerShown).toBe(isDemo ? false : undefined);
+        expect(screen.getTextContent().includes('Creature preview')).toBe(!isDemo);
+        expect(screen.getTextContent().includes('Fresh start preview')).toBe(!isDemo);
+        expect(screen.findByTestId('ip-demo-note') !== null).toBe(isDemo);
+        expect(screen.findByTestId('ip-connection-status') !== null).toBe(!isDemo);
+        expect(screen.findByTestId('ip-demo-play') !== null).toBe(isDemo);
+        await screen.unmount();
+    });
+
+    it('C: demo worker Open stays local across Work, Waiting and Sessions', async () => {
+        route.data = 'demo';
+        const screen = await renderScreen(<DeskFixturePage />, { wrapper: Panes });
+        await vi.waitFor(() => expect(screen.findByTestId('ip-fixture-coordinator-body')).not.toBeNull());
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Details')!);
+        await screen.pressByTestIdAsync('ip-open-worker-demo-weather-tests');
+        expect(route.alert).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('worker'));
+        await screen.pressByTestIdAsync('ip-open-demo-weather-fix');
+        await screen.pressByTestIdAsync('ip-approvals-open');
+        await pressTestInstanceAsync(findTestInstanceByTypeContainingText(screen.tree, 'Pressable', 'Open session')!);
+        await screen.pressByTestIdAsync('ip-top-sessions');
+        await screen.pressByTestIdAsync('ip-sessions-row-demo-weather-tests');
+        expect(route.alert).toHaveBeenCalledTimes(4);
+        expect(route.navigate).not.toHaveBeenCalled();
+        await screen.unmount();
     });
 
     it('C: data=demo lists demo workers and the ordinary option-card question, with sends inert', async () => {

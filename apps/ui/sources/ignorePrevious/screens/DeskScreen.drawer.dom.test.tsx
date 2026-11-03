@@ -241,7 +241,7 @@ it('searches sheet rows by issue key', async () => {
 });
 it('closes the sheet and navigates when a session is selected', async () => {
     seedSheetWorkers(); await render(1440); await click('ip-top-sessions'); await click('ip-sessions-row-issued');
-    expect(routerHandle.navigate).toHaveBeenCalledWith('/session/issued');
+    expect(routerHandle.navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/session\/issued(?:\?serverId=[^&]+)?$/), expect.objectContaining({ dangerouslySingular: expect.any(Function) }));
     expect(container.querySelector('[data-testid="ip-sessions-sheet"]')).toBeNull();
 });
 
