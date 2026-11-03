@@ -22,7 +22,7 @@ export function mountDeskFont(doc: Document): () => void {
 [data-ip-font="desk"] { font-family: ${DESK_FONT_STACK}; }
 [data-ip-page-scope] :focus-visible { outline: 3px solid var(--ip-page-focus) !important; outline-offset: 2px; }
 /* Item owns an inside ring; grouped rows clip an outside outline. */
-[data-ip-terminal][data-ip-voice] [data-ip-item-focus]:focus-visible { outline-style: none !important; }
+[data-ip-page-scope][data-ip-voice] [data-ip-item-focus]:focus-visible { outline-style: none !important; }
 [data-ip-terminal][data-ip-voice] :is(button, input, select, textarea, [role="button"]) { border-radius: 2px !important; }
 /* The mobile welcome copy crosses the inherited planet; opaque theme canvas keeps it readable. */
 @media (max-width: 720px) {
