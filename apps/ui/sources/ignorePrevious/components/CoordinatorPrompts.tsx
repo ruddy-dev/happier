@@ -8,6 +8,24 @@ import { t } from '@/text';
 
 import { readDeskWaits, useDeskWaitsSummary, type DeskWaits } from '../model/useDeskWaits';
 import { DeskText } from '../typography/DeskText';
+import { usePhoneControlPaint } from './usePhoneControlPaint';
+
+function PromptChip({ testID, label, onPress, phone }: { testID: string; label: string; onPress: () => void; phone: boolean }) {
+    const { theme } = useUnistyles();
+    const { terminal, paint } = usePhoneControlPaint();
+    const [focused, setFocused] = React.useState(false);
+    const styled = phone && terminal;
+    return <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} onPress={onPress}
+        onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        style={{ flexShrink: 0, minHeight: phone ? 48 : undefined, justifyContent: 'center', paddingHorizontal: 10,
+            paddingVertical: 6, borderRadius: styled ? 0 : 10, borderWidth: phone && focused ? 2 : 1,
+            borderColor: phone && focused ? paint.ink : styled ? paint.rule : theme.colors.border.default,
+            backgroundColor: styled ? paint.panel2 : theme.colors.surface.inset }}>
+        <DeskText style={{ color: styled ? paint.mute : theme.colors.text.primary, fontSize: 13, fontWeight: styled ? '500' : '600' }}>
+            {styled ? `[ ${label} ]` : label}
+        </DeskText>
+    </Pressable>;
+}
 
 /** The waiting list as the coordinator reads it: what each request runs, not only the agent's description. */
 function waitingList({ items, unloaded }: DeskWaits): string {
@@ -36,7 +54,6 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  * Your turn into the composer; the user sends it and still presses Allow or Deny themselves.
  */
 export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinatorId: string; phone?: boolean }) {
-    const { theme } = useUnistyles();
     const { count } = useDeskWaitsSummary(coordinatorId);
     // A chip never wipes what is already typed: the prompt goes after the draft, a blank line apart.
     const fill = (text: string) => {
@@ -47,22 +64,7 @@ export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinat
     };
 
     const chip = (testID: string, label: string, onPress: () => void) => (
-        <Pressable
-            testID={testID}
-            accessibilityRole="button"
-            onPress={onPress}
-            style={{
-                flexShrink: 0,
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: theme.colors.border.default,
-                backgroundColor: theme.colors.surface.inset,
-            }}
-        >
-            <DeskText style={{ color: theme.colors.text.primary, fontSize: 13, fontWeight: '600' }}>{label}</DeskText>
-        </Pressable>
+        <PromptChip testID={testID} label={label} onPress={onPress} phone={phone} />
     );
 
     const contents = <>
