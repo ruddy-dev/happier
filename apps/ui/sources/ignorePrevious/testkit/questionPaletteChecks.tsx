@@ -9,7 +9,7 @@ import type { Theme } from '@/theme';
 import { parseThemeColor, themeContrastRatioOverLayers } from '@/theme/themeContrastMath';
 import { CoordinatorTranscriptAppearanceProvider } from '../useCoordinatorTranscriptAppearance';
 import { deskPrefs } from '../deskPrefs';
-import { terminalPalettes, type TerminalPalette } from '../palette';
+import { deskThemes, terminalPalettes, type TerminalPalette } from '../palette';
 
 const tool = makeToolCall({ id: 'palette-question', name: 'AskUserQuestion', state: 'running', input: { questions: [{
     header: 'Release', question: 'Which release?', multiSelect: false,
@@ -61,13 +61,18 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         const screen = await renderScreen(<CoordinatorTranscriptAppearanceProvider>{question()}</CoordinatorTranscriptAppearanceProvider>);
         const card = StyleSheet.flatten(screen.findByTestId('ip-question-card')!.props.style);
         expect(card.backgroundColor).toBe(paint.panel);
+        expect(card.borderLeftWidth).toBe(3);
+        expect(card.borderLeftColor).toBe(paint.yel);
+        const heading = textNode(screen.root, 'Question for you');
+        expect(backgroundBehind(heading)).toBe(paint.panel);
+        expect(StyleSheet.flatten(heading.props.style).color).toBe(paint.warn);
         const checkText = (text: string, background: string) => {
             const color = StyleSheet.flatten(textNode(screen.root, text).props.style).color;
             expect(contrast(color, [background]), text).toBeGreaterThanOrEqual(4.5);
         };
         checkText('Which release?', card.backgroundColor);
         checkText('Release', backgroundBehind(textNode(screen.root, 'Release')));
-        checkText('Question for you', paint.yel);
+        checkText('Question for you', backgroundBehind(textNode(screen.root, 'Question for you')));
         for (const text of ['Stable', 'Use the stable release', 'Explain your choice']) checkText(text, paint.panel);
         const input = screen.findByTestId('ask-user-question.freeform:0')!;
         const inputPaint = StyleSheet.flatten(input.props.style);
@@ -150,6 +155,15 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         expect(input!.props.value).toBe('Keep this draft');
         expect(StyleSheet.flatten(textNode(screen.root, 'Which release?').props.style).color).toBe(theme.colors.text.primary);
         expect(StyleSheet.flatten(input!.props.style).backgroundColor).toBe(theme.colors.surface.base);
+        const slip = theme.dark ? deskThemes.night : deskThemes.paper;
+        const slipCard = StyleSheet.flatten(screen.findByTestId('ip-question-card')!.props.style);
+        expect(slipCard.borderColor).toBe(slip.edge);
+        expect(slipCard.borderLeftColor ?? slipCard.borderColor).toBe(slip.edge);
+        expect(slipCard.borderLeftWidth ?? slipCard.borderWidth).toBe(slipCard.borderWidth);
+        expect(slipCard.borderRadius).toBeGreaterThan(0);
+        const heading = textNode(screen.root, 'Question for you');
+        expect(backgroundBehind(heading)).toBe(slip.yel);
+        expect(contrast(StyleSheet.flatten(heading.props.style).color, [backgroundBehind(heading)])).toBeGreaterThanOrEqual(4.5);
         const plain = await renderScreen(question());
         expect(plain.findByTestId('ip-question-card')).toBeNull();
         expect(StyleSheet.flatten(textNode(plain.root, 'Which release?').props.style).color).toBe(theme.colors.text.primary);
