@@ -17,6 +17,8 @@ export function reduceHoldSpace(state: HoldSpaceState, event: HoldSpaceEvent): H
         if (event.type === 'blur' || event.type === 'hidden' || (event.type === 'keyup' && event.key === ' ')) {
             return { next: { phase: 'idle' }, action: null, preventDefault: false };
         }
+        // A fresh press means the interrupted press's keyup was lost: treat it as a new press.
+        if (event.type === 'keydown' && event.key === ' ' && !event.repeat) return reduceHoldSpace({ phase: 'idle' }, event);
         return { next: state, action: null, preventDefault: event.type === 'keydown' && event.key === ' ' };
     }
     if (state.phase === 'holding') {
