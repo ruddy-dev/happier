@@ -11,6 +11,12 @@ import { MultiTextInput, type MultiTextInputHandle } from '@/components/ui/forms
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import { t } from '@/text';
+import { apiSocket } from '@/sync/api/session/apiSocket';
+import { applyDeskFixture } from '../fixtures/applyDeskFixture';
+import { DeskDemoContext } from '../deskFixtureGate';
+import demo from '../fixtures/demo/desk-demo.json';
+import { getDemoConversation } from '../fixtures/demoConversation';
+import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { deskPrefs } from '../deskPrefs';
 import { CoordinatorComposer } from './CoordinatorComposer';
 
@@ -34,6 +40,7 @@ vi.mock('react-native-unistyles', async () => {
 
 let container: HTMLDivElement;
 let root: Root;
+let releaseFixture: (() => void) | undefined;
 let before: ReturnType<typeof storage.getState>;
 const handle = React.createRef<MultiTextInputHandle>();
 const secondHandle = React.createRef<MultiTextInputHandle>();
@@ -62,8 +69,10 @@ beforeEach(() => {
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => {
-    await act(async () => root.unmount()); container.remove(); storage.setState(before, true);
+    await act(async () => { await root.unmount(); releaseFixture?.(); });
+    container.remove(); releaseFixture = undefined; storage.setState(before, true);
     deskPrefs.set('chatStyle', 'mask');
+    vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
 it('R45 keeps the real global waits summary visible on empty drafts, including cold-load unknown and unloaded requests', async () => {
@@ -194,12 +203,50 @@ it('R45 appends status after real controls inside the actual composer box, leavi
     expect(find('agent-input-action-footer')).not.toBeNull();
 });
 
-it('R45 uses the real fixture composer controls and production placeholder while send stays disabled', async () => {
+async function renderFixture(demoRoute = false) {
+    storage.getState().applySettingsLocal({ agentInputEnterToSend: true });
+    await installAgentAssetLoader();
     const { CoordinatorBodyStub } = await import('../fixtures/CoordinatorBodyStub');
-    await act(async () => root.render(<SafeAreaInsetsContext.Provider value={safeArea}><CoordinatorComposer><CoordinatorBodyStub
+    await act(async () => root.render(<DeskDemoContext.Provider value={demoRoute}><SafeAreaInsetsContext.Provider value={safeArea}><CoordinatorComposer><CoordinatorBodyStub
         footerLeadingActions={<RunSettingsMenu />}
         statusTrailingActions={<span data-testid="fixture-context">Context</span>} />
-    </CoordinatorComposer></SafeAreaInsetsContext.Provider>));
+    </CoordinatorComposer></SafeAreaInsetsContext.Provider></DeskDemoContext.Provider>));
+}
+
+it.each([false, true])('R45 fixture state controls exclude demo identity with demo context %s and preserve playback permissions', async (demoRoute) => {
+    releaseFixture = applyDeskFixture();
+    await renderFixture();
+    for (const state of ['idle', 'busy', 'readonly']) expect(find(`ip-fixture-composer-${state}`)).not.toBeNull();
+    expect(find('agent-input-root')).not.toBeNull();
+    await act(async () => {
+        releaseFixture?.();
+        releaseFixture = applyDeskFixture(Date.now(), 'demo');
+    });
+    await renderFixture(demoRoute);
+    const session = storage.getState().sessions[demo.coordinatorId];
+    const player = getDemoConversation()!;
+    const playback = player.getSnapshot();
+    expect(session.accessLevel).toBe('view');
+    await act(async () => {
+        for (const state of ['busy', 'readonly', 'idle']) find(`ip-fixture-composer-${state}`)?.click();
+    });
+    expect(storage.getState().sessions[demo.coordinatorId]).toBe(session);
+    expect(player.getSnapshot()).toBe(playback);
+    expect(find('ip-fixture-composer-states')).toBeNull();
+    for (const state of ['idle', 'busy', 'readonly']) expect(find(`ip-fixture-composer-${state}`)).toBeNull();
+    expect(find('agent-input-root')).not.toBeNull();
+    const input = container.querySelector<HTMLTextAreaElement>('[data-testid="session-composer-input"]')!;
+    expect(input.readOnly || input.disabled).toBe(true);
+});
+
+it('R45 fixture idle Claude Plan uses production controls while synthetic send stays disabled', async () => {
+    releaseFixture = applyDeskFixture();
+    await renderFixture();
+    expect(find('ip-fixture-composer-idle')).not.toBeNull();
+    expect(find('agent-input-session-mode-chip')?.textContent).toContain('Plan');
+    expect(find('session-composer-send')?.getAttribute('aria-label')).toBe(t('common.send'));
+    expect(find('agent-input-abort')).toBeNull();
+    expect(container.querySelector(`[aria-label="${t('voiceAssistant.label')}"]`)).toBeNull();
     const input = container.querySelector<HTMLTextAreaElement>('[data-testid="session-composer-input"]')!;
     expect(input.placeholder).toBe(t('ignorePrevious.composer.placeholder'));
     expect(find('agent-input-root')).not.toBeNull();
@@ -224,6 +271,67 @@ it('R45 uses the real fixture composer controls and production placeholder while
     expect(input.value).toBe('preview\ntext');
     expect(status()).toBe(t('ignorePrevious.composer.writing'));
     expect(find('agent-input-drop-zone')!.contains(find('ip-composer-status-strip'))).toBe(true);
+});
+
+it('R45 fixture busy Codex permission state keeps Stop local for click and shortcut, with send disabled', async () => {
+    const release = applyDeskFixture();
+    try {
+        await renderFixture();
+        expect(find('ip-fixture-composer-busy')).not.toBeNull();
+        await act(async () => find('ip-fixture-composer-busy')!.click());
+        const submit = find('session-composer-send')!;
+        expect(submit.getAttribute('aria-label')).toBe(t('runs.stop.stopRunA11y'));
+        expect(submit.getAttribute('aria-disabled')).not.toBe('true');
+        expect(find('agent-input-permission-chip')?.textContent).toContain(t('agentInput.codexPermissionMode.safeYolo'));
+        expect(storage.getState().sessions['fx-coord'].metadata?.flavor).toBe('codex');
+        expect(find('agent-input-abort')).toBeNull();
+        expect(container.querySelector(`[aria-label="${t('voiceAssistant.label')}"]`)).toBeNull();
+        const input = container.querySelector<HTMLTextAreaElement>('[data-testid="session-composer-input"]')!;
+        await act(async () => {
+            input.focus();
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'offline draft');
+            input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+        });
+        const rpc = vi.spyOn(apiSocket, 'sessionRPC');
+        const send = vi.spyOn(apiSocket, 'send');
+        const request = vi.spyOn(apiSocket, 'request');
+        try {
+            await act(async () => submit.click());
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
+            await act(async () => {
+                input.focus();
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', shiftKey: true, bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', shiftKey: true, bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            });
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
+            expect(rpc).not.toHaveBeenCalled();
+            expect(send).not.toHaveBeenCalled();
+            expect(request).not.toHaveBeenCalled();
+            expect(input.value).toBe('offline draft');
+            expect(storage.getState().sessions['fx-coord'].thinking).toBe(true);
+        } finally { rpc.mockRestore(); send.mockRestore(); request.mockRestore(); }
+        await act(async () => find('ip-fixture-composer-idle')!.click());
+        expect(submit.getAttribute('aria-label')).toBe(t('common.send'));
+        expect(submit.getAttribute('aria-disabled')).toBe('true');
+        expect(find('agent-input-session-mode-chip')?.textContent).toContain('Plan');
+        expect(input.value).toBe('offline draft');
+    } finally { await act(async () => release()); }
+});
+
+it('R45 fixture read-only signal suppresses busy Stop and typing', async () => {
+    const release = applyDeskFixture();
+    try {
+        await renderFixture();
+        expect(find('ip-fixture-composer-readonly')).not.toBeNull();
+        await act(async () => find('ip-fixture-composer-readonly')!.click());
+        const input = container.querySelector<HTMLTextAreaElement>('[data-testid="session-composer-input"]')!;
+        expect(input.readOnly || input.disabled).toBe(true);
+        expect(input.placeholder).toBe(t('session.sharing.viewOnlyMode'));
+        expect(find('session-composer-send')?.getAttribute('aria-label')).toBe(t('common.send'));
+        expect(find('session-composer-send')?.getAttribute('aria-disabled')).toBe('true');
+        expect(storage.getState().sessions['fx-coord'].thinking).toBe(true);
+    } finally { await act(async () => release()); }
 });
 
 it('R45 reports column one before a leading newline', async () => {
