@@ -9,7 +9,7 @@ import type { IssueGroup } from '../model/groupWorkers';
 import { bulbColour, useDeskPaint } from '../palette';
 import { BulbLabel, bulbWord } from './BulbLabel';
 import { WorkerActions } from './WorkerActions';
-import { WorkerUsageLimitLine } from './WorkerUsageLimitLine';
+import { WorkerUsageLimitLine, WorkerUsageLimitSummary } from './WorkerUsageLimitLine';
 import { WorkerPrBadge } from './WorkerPrBadge';
 import { WorkerSprite, type WorkerSpriteProps } from './WorkerSprite';
 import { spriteForModel } from '../sprites';
@@ -47,6 +47,8 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
     const freshnessWorker = stateWorker ?? newest;
     const unheardMinutes = freshnessWorker?.unheardMinutes;
     const limitedWorkers = open ? [] : group.workers.filter(worker => worker.usageLimit);
+    const titleCounts = new Map<string, number>();
+    if (open) for (const worker of group.workers) titleCounts.set(worker.title, (titleCounts.get(worker.title) ?? 0) + 1);
     const count = t('ignorePrevious.workList.workerCount', { count: group.workers.length });
     const secondary = { color: paint.mute, fontSize: 13 };
     const stage = item ? wqStage(item.status) : null;
@@ -101,11 +103,12 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                 </View>
             </Pressable>
             {limitedWorkers.length > 0 ? (
-                <View style={{ paddingHorizontal: 12, paddingBottom: 8, gap: 2 }}>
-                    {limitedWorkers.map(worker => worker.usageLimit ? (
-                        <WorkerUsageLimitLine key={worker.sessionId} status={worker.usageLimit} sessionId={worker.sessionId}
-                            workerTitle={group.workers.length > 1 ? worker.title : undefined} />
-                    ) : null)}
+                <View style={{ paddingHorizontal: 12, paddingBottom: 8, minWidth: 0, maxWidth: '100%' }}>
+                    {limitedWorkers.length === 1 && limitedWorkers[0].usageLimit ? (
+                        <WorkerUsageLimitLine status={limitedWorkers[0].usageLimit} sessionId={limitedWorkers[0].sessionId} compact />
+                    ) : (
+                        <WorkerUsageLimitSummary statuses={limitedWorkers.flatMap(worker => worker.usageLimit ? [worker.usageLimit] : [])} issueKey={group.issueKey ?? 'none'} />
+                    )}
                 </View>
             ) : null}
             {open
@@ -140,6 +143,11 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                                   <Text style={{ color: paint.ink, fontSize: 13 }}>{'>_'}</Text>
                               </Pressable>
                           </View>
+                          {(titleCounts.get(worker.title) ?? 0) > 1 ? (
+                              <Text testID={`ip-worker-session-${worker.sessionId}`} style={secondary}>
+                                  {t('ignorePrevious.usageLimit.workerSession', { id: worker.sessionId })}
+                              </Text>
+                          ) : null}
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                               <BulbLabel bulb={worker.bulb} />
                               <View style={{ marginLeft: 'auto' }}><WorkerPrBadge sessionId={worker.sessionId} /></View>
