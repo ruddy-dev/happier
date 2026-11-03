@@ -223,6 +223,8 @@ conflict with upstream. These upstream files are edited and are where a merge ca
 | `apps/ui/sources/components/account/auth/RemoteWelcomeDecisionPanel.tsx` | ATR-93 adds neutral test IDs to the heading group and loading block for scoped mobile styling; content and semantics remain upstream-owned. |
 | `apps/ui/sources/components/account/auth/useRemoteAuthEntryOptions.test.tsx` | ATR-93 checks the existing heading semantics and loading block contents. |
 | `apps/ui/sources/app/(app)/restore/manual.tsx` | ATR-56 wraps the existing secret-key restore content in the opt-in appearance scope; recovery, reveal and authentication behavior remain upstream-owned. |
+| `apps/ui/sources/components/ui/lists/ItemGroup.tsx` | ATR-93 adds stable card and inner-boundary test IDs for Terminal Voice route styling; existing chrome and overflow behavior remain unchanged. |
+| `apps/ui/sources/components/ui/lists/ItemGroup.surfaceChrome.test.tsx` | ATR-93 checks that the styling hooks identify the painted card and its inner clipping boundary. |
 | `apps/ui/sources/app/(app)/settings/voice.tsx` | ATR-56 adds the opt-in appearance wrapper around the existing Voice settings content; ATR-93 marks its content root for route-scoped control styling. |
 | `apps/ui/sources/components/ui/text/Text.tsx` | ATR-56 appends the existing desk font stack to Text and TextInput only inside the local appearance context; scaling, selection and unrelated fonts remain unchanged. |
 | `apps/ui/sources/unistyles.web.ts` | ATR-56 registers two named scopes derived from the existing Ignore Previous profiles; leaves the global light/dark preference and startup selection unchanged. |

@@ -47,6 +47,10 @@ export function mountDeskFont(doc: Document): () => void {
 [data-ip-terminal] [data-testid="ip-voice-page"] :is(button, input, select, textarea, [role="button"]) {
     border-radius: 2px !important;
 }
+[data-ip-terminal] [data-testid="ip-voice-page"] [data-testid="item-group-card"],
+[data-ip-terminal] [data-testid="ip-voice-page"] [data-testid="item-group-card-inner"] {
+    border-radius: 2px !important;
+}
 `;
         installation = { style, mounts: 0 };
         installations.set(doc, installation);
