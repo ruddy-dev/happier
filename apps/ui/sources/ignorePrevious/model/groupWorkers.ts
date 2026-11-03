@@ -1,5 +1,6 @@
 import { BULB_RANK, issueBulb, type Bulb } from './bulb';
 import type { WorkerUsageLimit } from './workerUsageLimit';
+import type { WaitingDisabledReason } from './waitingItems';
 
 export type WorkerRow = {
     sessionId: string;
@@ -8,6 +9,8 @@ export type WorkerRow = {
     /** Model id from the full record; absent/null until known, never inferred from agent flavour. */
     model?: string | null;
     bulb: Bulb;
+    /** A pending worker you may watch but cannot answer; shared by Work counts and attention. */
+    approvalDisabledReason?: WaitingDisabledReason;
     usageLimit?: WorkerUsageLimit | null;
     /** Null until the session's full record has loaded. */
     permissionMode: string | null;

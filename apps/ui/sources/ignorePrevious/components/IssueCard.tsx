@@ -153,6 +153,13 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                               <BulbLabel bulb={worker.bulb} />
                               <View style={{ marginLeft: 'auto' }}><WorkerPrBadge sessionId={worker.sessionId} /></View>
                           </View>
+                          {worker.approvalDisabledReason ? (
+                              <Text style={secondary}>
+                                  {t(worker.approvalDisabledReason === 'readOnly'
+                                      ? 'session.sharing.permissionApprovalsDisabledReadOnly'
+                                      : 'session.sharing.permissionApprovalsDisabledNotGranted')}
+                              </Text>
+                          ) : null}
                           {worker.usageLimit ? <WorkerUsageLimitLine status={worker.usageLimit} sessionId={worker.sessionId} /> : null}
                           {worker.unheardMinutes != null ? (
                               <Text testID={`ip-worker-stale-${worker.sessionId}`} style={secondary}>

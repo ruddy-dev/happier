@@ -36,7 +36,7 @@ export type DeskWaits = Readonly<{ items: WaitingItem[]; unloaded: UnloadedWait[
  * Only live sessions' requests reach the desk, so activity is not the question here. Fails closed:
  * a refusal with no reason the desk can name reads as "not granted".
  */
-function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisabledReason {
+export function approvalDisabledReason(row: SessionListRenderableSession): WaitingDisabledReason {
     const interaction = deriveTranscriptInteraction({
         kind: 'session',
         accessLevel: row.accessLevel,

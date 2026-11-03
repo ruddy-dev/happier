@@ -24,7 +24,7 @@ import { workerUsageLimit } from '../model/workerUsageLimit';
 import { buildWorkerArchivePrState, deriveIssueArchive } from '../model/issueArchive';
 import { useDeskNow } from '../model/useDeskNow';
 import { useWorkCardData } from '../model/useWorkCardData';
-import { useDeskWaits } from '../model/useDeskWaits';
+import { approvalDisabledReason, useDeskWaits } from '../model/useDeskWaits';
 import { bulbColour, useDeskPaint } from '../palette';
 import { sessionContextMeter } from './ContextMeter';
 import { BulbLabel, bulbWord } from './BulbLabel';
@@ -49,6 +49,10 @@ export function toWorkerRows(
         const meter = loaded ? sessionContextMeter(loaded) : null;
         // Freshness is judged against the desk clock, so a worker that falls silent goes stale without a store write.
         const state = getSessionStatus(row, nowMs).state;
+        // Rights are on the list row, including before hydration and after a grant refresh.
+        // Keep runtime freshness authoritative: only a current prompt is reclassified.
+        const disabledReason = state === 'permission_required' || state === 'action_required'
+            ? approvalDisabledReason(row) : null;
         const unheardMinutes = workerUnheardMinutes(row, nowMs);
         const usageLimit = workerUsageLimit(row, loaded ? loaded.metadata?.[SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY] ?? null : undefined);
         return {
@@ -58,7 +62,8 @@ export function toWorkerRows(
             issueKey: issueKeys.get(row.id) ?? null,
             model: loaded ? appliedModel ?? getModelOverrideForSpawn(loaded)?.modelId
                 ?? resolveMetadataModelOverride(loaded).modelId ?? loaded.modelMode ?? null : null,
-            bulb: bulbFromSessionState(state, usageLimit !== null),
+            bulb: disabledReason ? 'waiting' : bulbFromSessionState(state, usageLimit !== null),
+            approvalDisabledReason: disabledReason,
             usageLimit,
             permissionMode: loaded ? (loaded.permissionMode ?? 'default') : null,
             updatedAt: row.updatedAt,
@@ -226,7 +231,11 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
                     const stateSession = group.stateWorker ? lookup.get(group.stateWorker.sessionId) : undefined;
                     const stuckStatus = group.bulb === 'stuck' && stateSession ? getSessionStatus(stateSession, nowMs) : null;
                     let attention: string | undefined;
-                    if (group.bulb === 'turn') {
+                    if (group.stateWorker?.approvalDisabledReason) {
+                        attention = t(group.stateWorker.approvalDisabledReason === 'readOnly'
+                            ? 'session.sharing.permissionApprovalsDisabledReadOnly'
+                            : 'session.sharing.permissionApprovalsDisabledNotGranted');
+                    } else if (group.bulb === 'turn') {
                         attention = attentionBySession.get(group.stateWorker?.sessionId ?? '') ?? t('ignorePrevious.needsLook');
                     } else if (stuckStatus) {
                         attention = stuckStatus.state === 'failed' ? t('ignorePrevious.workList.failed') : stuckStatus.statusText;
