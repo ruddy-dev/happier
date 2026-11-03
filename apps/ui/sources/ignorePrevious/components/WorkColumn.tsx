@@ -21,8 +21,7 @@ import { useCoordinatorId } from '../model/useCoordinatorId';
 import { workerLastActivityAt, workerUnheardMinutes } from '../model/workerFreshness';
 import { isDeskWorkerBusy } from '../model/workerBusy';
 import { workerUsageLimit } from '../model/workerUsageLimit';
-import { deriveIssueArchive } from '../model/issueArchive';
-import { buildWorkerPrBadge } from '../model/workerPrBadge';
+import { buildWorkerArchivePrState, deriveIssueArchive } from '../model/issueArchive';
 import { useDeskNow } from '../model/useDeskNow';
 import { useWorkCardData } from '../model/useWorkCardData';
 import { bulbColour, useDeskPaint } from '../palette';
@@ -118,8 +117,8 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
         () => (coordinatorId ? desk.list.filter((row) => row.id !== coordinatorId) : desk.list),
         [desk.list, coordinatorId],
     );
-    const allWorkers = React.useMemo(() => [...live, ...desk.archived, ...desk.unreadable]
-        .filter(row => row.id !== coordinatorId), [live, desk.archived, desk.unreadable, coordinatorId]);
+    const allWorkers = React.useMemo(() => [...live, ...desk.unreadable]
+        .filter(row => row.id !== coordinatorId), [live, desk.unreadable, coordinatorId]);
     const workers = React.useMemo(() => ({ ...desk, list: allWorkers }), [desk, allWorkers]);
     const [details, setDetails] = React.useState(false);
     const [openKeys, setOpenKeys] = React.useState<ReadonlySet<string>>(() => new Set());
@@ -129,7 +128,7 @@ export function WorkColumn({ compact, faceStyle, calm }: { compact?: 'column' | 
     const { issueKeys } = workData;
     // One store-only projection. A merge observed while cards are folded still updates admission.
     const prStates = storage(useShallow(state => Object.fromEntries(allWorkers.map(row => [row.id,
-        buildWorkerPrBadge(state.getSessionProjectScmSnapshot(row.id), nowMs)?.state ?? null,
+        buildWorkerArchivePrState(state.getSessionProjectScmSnapshot(row.id), nowMs),
     ]))));
     const archiveStates = React.useMemo(() => {
         const byIssue = new Map<string, SessionListRenderableSession[]>();

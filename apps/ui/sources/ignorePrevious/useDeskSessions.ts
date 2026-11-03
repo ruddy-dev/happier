@@ -9,8 +9,6 @@ import { getSessionStatus } from '@/utils/sessions/sessionUtils';
 export type DeskSessions = Readonly<{
     /** The sessions the desk shows: the sidebar's list, without hidden system sessions or archived ones. */
     list: readonly SessionListRenderableSession[];
-    /** Archived rows retain issue and PR associations for partial Archive and the later archive view. */
-    archived: readonly SessionListRenderableSession[];
     /** Full records for the sessions loaded so far, for detail the list doesn't carry (requests, usage, mode). */
     lookup: ReadonlyMap<string, Session>;
     /**
@@ -46,7 +44,6 @@ export function selectDeskSessions(state: DeskSource): DeskSessions {
     const renderables = state.isDataReady
         ? Object.values(state.sessionListRenderables).sort((a, b) => b.updatedAt - a.updatedAt) : [];
     const list = renderables.filter((session) => !session.archivedAt && isUserFacingSession(session));
-    const archived = renderables.filter((session) => Boolean(session.archivedAt) && isUserFacingSession(session));
     const unreadable = renderables.filter((session) => !session.archivedAt
         && session.metadataUnavailable === true
         && isUserFacingSession({ ...session, metadataUnavailable: false })
@@ -54,7 +51,6 @@ export function selectDeskSessions(state: DeskSource): DeskSessions {
     const lookup = new Map(state.isDataReady ? Object.values(state.sessions).map((session) => [session.id, session] as const) : []);
     const next = {
         list: previousDesk && shallow(previousDesk.list, list) ? previousDesk.list : list,
-        archived: previousDesk && shallow(previousDesk.archived, archived) ? previousDesk.archived : archived,
         unreadable: previousDesk && shallow(previousDesk.unreadable, unreadable) ? previousDesk.unreadable : unreadable,
         lookup: previousDesk && shallow(previousDesk.lookup, lookup) ? previousDesk.lookup : lookup,
         ready: state.isDataReady,

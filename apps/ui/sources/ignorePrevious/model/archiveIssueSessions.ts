@@ -6,10 +6,10 @@ import { sessionArchiveWithServerScope } from '@/sync/ops/sessions';
 import { getStoredCoordinatorId } from '../deskPrefs';
 import { selectDeskSessions } from '../useDeskSessions';
 import { pickCoordinatorSessionId } from './coordinator';
-import { deriveIssueArchive } from './issueArchive';
+import { beginIssueArchive, isIssueArchiveTarget } from './issueArchiveOperation';
+import { buildWorkerArchivePrState, deriveIssueArchive } from './issueArchive';
 import { resolveSessionIssue } from './resolveIssue';
 import { COORDINATOR_PATH } from './useCoordinatorId';
-import { buildWorkerPrBadge } from './workerPrBadge';
 
 /** Re-read issue membership and lifecycle before each request; never invoke a stop operation. */
 export async function archiveIssueSessions(issueKey: string, knownProjectCodes?: ReadonlySet<string>): Promise<readonly string[]> {
@@ -17,39 +17,43 @@ export async function archiveIssueSessions(issueKey: string, knownProjectCodes?:
     const read = () => {
         const state = storage.getState();
         const desk = selectDeskSessions(state);
-        const coordinatorId = pickCoordinatorSessionId(desk.list.map(row => ({
+        const coordinatorId = pickCoordinatorSessionId(desk.list.filter(row => !isIssueArchiveTarget(row.id)).map(row => ({
             id: row.id, path: row.metadata?.path ?? '', active: row.active, archived: Boolean(row.archivedAt), updatedAt: row.updatedAt,
         })), { storedId: getStoredCoordinatorId(), coordinatorPath: COORDINATOR_PATH });
-        const sessions = [...desk.list, ...desk.archived, ...desk.unreadable].filter(row =>
+        const sessions = [...desk.list, ...desk.unreadable].filter(row =>
             resolveSessionIssue(row, desk.lookup.get(row.id), state.sessionScmStatus[row.id]?.branch ?? null, knownProjectCodes) === issueKey);
         const now = Date.now();
-        const prStates = Object.fromEntries(sessions.map(row => [row.id, buildWorkerPrBadge(state.getSessionProjectScmSnapshot(row.id), now)?.state ?? null]));
-        return { sessions, model: deriveIssueArchive(issueKey, sessions, prStates, coordinatorId, now) };
+        const prStates = Object.fromEntries(sessions.map(row => [row.id, buildWorkerArchivePrState(state.getSessionProjectScmSnapshot(row.id), now)]));
+        return deriveIssueArchive(issueKey, sessions, prStates, coordinatorId, now);
     };
 
-    const targets = read().model.archivableSessionIds;
-    const failed: string[] = [];
-    for (const id of targets) {
-        if (getActiveServerSnapshot().serverId !== serverId) {
-            failed.push(id);
-            continue;
+    const targets = read().archivableSessionIds;
+    if (targets.length === 0) return [];
+    const finish = beginIssueArchive(issueKey, targets);
+    if (!finish) return [];
+    try {
+        const remaining = new Set(targets);
+        while (remaining.size > 0) {
+            if (getActiveServerSnapshot().serverId !== serverId) return [...remaining];
+            const current = read();
+            // Recheck every remaining target before consuming any merged evidence. A resumed,
+            // reassigned or newly blocked target has not succeeded, so keep evidence for retry.
+            const ineligible = [...remaining].filter(id => !current.archivableSessionIds.includes(id));
+            if (ineligible.length > 0) return ineligible;
+            // The model orders non-evidence targets first on every recheck.
+            const id = current.archivableSessionIds.find(id => remaining.has(id))!;
+            try {
+                const result = await archiveSessionWithPendingState(id, () => sessionArchiveWithServerScope(id, { serverId }), serverId);
+                // A success without an archive timestamp has not established retirement.
+                if (result === false || !result.success || !result.archivedAt) return [id];
+            } catch {
+                // The card reports the failed worker without exposing transport payloads.
+                return [id];
+            }
+            remaining.delete(id);
         }
-        const current = read();
-        const row = current.sessions.find(row => row.id === id);
-        // Already archived, resumed, reassigned or selected as coordinator while another request ran.
-        if (!row || row.archivedAt || row.active) continue;
-        if (!current.model.archivableSessionIds.includes(id)) {
-            failed.push(id);
-            continue;
-        }
-        try {
-            const result = await archiveSessionWithPendingState(id, () => sessionArchiveWithServerScope(id, { serverId }), serverId);
-            // A success without an archive timestamp has not established retirement.
-            if (result === false || !result.success || !result.archivedAt) failed.push(id);
-        } catch {
-            // The card reports exactly which workers failed, without exposing transport payloads.
-            failed.push(id);
-        }
+        return [];
+    } finally {
+        finish();
     }
-    return failed;
 }

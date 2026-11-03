@@ -3,6 +3,7 @@ import * as React from 'react';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
 
 import { useDeskPref } from '../deskPrefs';
+import { useIssueArchiveTargets } from './issueArchiveOperation';
 import { pickCoordinatorSessionId } from './coordinator';
 
 /** The folder the coordinator runs in, for picking it without a stored choice. */
@@ -14,11 +15,12 @@ export const COORDINATOR_PATH = process.env.EXPO_PUBLIC_IP_COORDINATOR_PATH ?? n
  * context, so a card opened through `Modal.show` sees the same id as the desk.
  */
 export function useCoordinatorId(list: readonly SessionListRenderableSession[]): string | null {
+    const archiveTargets = useIssueArchiveTargets();
     const [storedId] = useDeskPref('coordinatorSessionId');
     return React.useMemo(
         () =>
             pickCoordinatorSessionId(
-                list.map((s) => ({
+                list.filter(s => !archiveTargets.has(s.id)).map((s) => ({
                     id: s.id,
                     path: s.metadata?.path ?? '',
                     active: s.active,
@@ -27,6 +29,6 @@ export function useCoordinatorId(list: readonly SessionListRenderableSession[]):
                 })),
                 { storedId, coordinatorPath: COORDINATOR_PATH },
             ),
-        [list, storedId],
+        [list, storedId, archiveTargets],
     );
 }

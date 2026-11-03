@@ -31,6 +31,7 @@ import { drawerPlacement, isDeskPhoneWidth } from '../model/drawerPlacement';
 import { DeskTopBar } from '../components/DeskTopBar';
 import { SessionsSheet } from '../components/SessionsSheet';
 import { useDeskSessions } from '../useDeskSessions';
+import { isIssueArchiveTarget, useIssueArchiveTargets } from '../model/issueArchiveOperation';
 import { DeskBrowserNotifier } from '../model/useDeskBrowserNotifier';
 
 const WIDE = 1100;
@@ -46,6 +47,7 @@ function CoordinatorPicker({
     onCancel?: () => void;
 }) {
     const { theme } = useUnistyles();
+    const archiveTargets = useIssueArchiveTargets();
     const choices = React.useMemo(
         () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
         [sessions],
@@ -75,10 +77,12 @@ function CoordinatorPicker({
                     testID={`ip-pick-${session.id}`}
                     accessibilityRole="button"
                     accessibilityLabel={getSessionName(session)}
+                    accessibilityState={{ disabled: archiveTargets.has(session.id) }}
+                    disabled={archiveTargets.has(session.id)}
                     onPress={() => onPick(session.id)}
                     style={{ padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface.elevated }}
                 >
-                    <Text style={{ color: theme.colors.text.primary, fontSize: 15 }} numberOfLines={1}>
+                    <Text style={{ color: archiveTargets.has(session.id) ? theme.colors.text.secondary : theme.colors.text.primary, fontSize: 15 }} numberOfLines={1}>
                         {getSessionName(session)}
                     </Text>
                 </Pressable>
@@ -167,6 +171,7 @@ export function DeskScreen() {
     const [changing, setChanging] = React.useState(false);
     // Every desk consumer of the coordinator id hears the stored pick. The stored id is never cleared.
     const pick = React.useCallback((id: string) => {
+        if (isIssueArchiveTarget(id)) return;
         setStoredCoordinatorId(id);
         setChanging(false);
     }, []);
