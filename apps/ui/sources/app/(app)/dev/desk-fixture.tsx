@@ -10,6 +10,7 @@ import { DeskScreen } from '@/ignorePrevious/screens/DeskScreen';
 import { storage } from '@/sync/domains/state/storage';
 import { resolveWarmCacheAccountScope } from '@/sync/domains/state/warmCachePersistence';
 import { useProfile } from '@/sync/store/hooks';
+import VoiceSettingsScreen from '@/app/(app)/settings/voice';
 
 /**
  * Dev-only route: the real desk over a fixed scenario written into the store, with no server.
@@ -73,6 +74,13 @@ function FixtureDesk() {
     ) : null;
 }
 
+function FixtureVoice() {
+    const auth = useAuth();
+    const profile = useProfile();
+    if (auth.isAuthenticated || auth.credentials != null || Boolean(profile.id)) return <SignedInNotice />;
+    return <View testID="ip-fixture-voice" style={{ flex: 1 }}><VoiceSettingsScreen /></View>;
+}
+
 // Dev-only screen: plain English, like the route title, and nothing a user of a normal build can reach.
 function SignedInNotice() {
     const { theme } = useUnistyles();
@@ -91,12 +99,12 @@ const SCREEN_OPTIONS = { title: 'Desk fixture' };
 const DEMO_SCREEN_OPTIONS = { headerShown: false };
 
 export default function DeskFixturePage() {
-    const { data } = useLocalSearchParams<{ data?: string }>();
+    const { data, surface } = useLocalSearchParams<{ data?: string; surface?: string }>();
     if (!isDeskFixtureBuild()) return <Redirect href="/" />;
     return (
         <>
             <Stack.Screen options={data === 'demo' ? DEMO_SCREEN_OPTIONS : SCREEN_OPTIONS} />
-            <FixtureDesk />
+            {surface === 'voice' ? <FixtureVoice /> : <FixtureDesk />}
         </>
     );
 }

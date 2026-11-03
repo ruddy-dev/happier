@@ -25,6 +25,7 @@ export function VoiceProviderSection(props: {
   return (
     <ItemGroup title={t('settingsVoice.modeTitle')}>
       <Item
+        testID="ip-voice-mode-off"
         title={t('settingsVoice.mode.off')}
         subtitle={t('settingsVoice.mode.offSubtitle')}
         rightElement={isOff ? <Icon name="check-circle" size={24} color={theme.colors.accent.blue} /> : null}

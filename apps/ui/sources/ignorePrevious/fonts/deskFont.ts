@@ -20,6 +20,7 @@ export function mountDeskFont(doc: Document): () => void {
     font-display: swap;
 }
 [data-ip-font="desk"] { font-family: ${DESK_FONT_STACK}; }
+[data-ip-page-scope] :focus-visible { outline: 3px solid var(--ip-page-focus) !important; outline-offset: 2px; }
 `;
         installation = { style, mounts: 0 };
         installations.set(doc, installation);
