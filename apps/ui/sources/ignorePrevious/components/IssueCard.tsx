@@ -55,6 +55,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
     const contextProject = item ? projectName : undefined;
     const title = item?.title ?? newest?.title ?? label;
     const summary = [contextProject, title !== label ? label : null, stage ? t('ignorePrevious.workCard.stage', { stage: t(`ignorePrevious.workCard.${stage}`) }) : null].filter(Boolean).join('. ');
+    const state = [bulbWord(group.bulb), attention].filter(Boolean).join('. ');
 
     return (
         <View
@@ -76,7 +77,7 @@ export const IssueCard = React.memo(function IssueCard({ group, open, onToggle, 
                 accessibilityRole="button"
                 accessibilityState={{ expanded: open }}
                 aria-expanded={open}
-                accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: title, state: attention ?? bulbWord(group.bulb), count, summary, unheard: unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: unheardMinutes }) : '' })}
+                accessibilityLabel={t('ignorePrevious.workList.cardLabel', { key: title, state, count, summary, unheard: unheardMinutes != null ? t('ignorePrevious.connection.unheard', { minutes: unheardMinutes }) : '' })}
                 onPress={onToggle}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8, paddingLeft: 12, paddingRight: 8, minWidth: 0, borderRadius: terminal ? 0 : 8 }}
             >
