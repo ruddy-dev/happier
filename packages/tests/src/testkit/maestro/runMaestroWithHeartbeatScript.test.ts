@@ -3,11 +3,13 @@ import { mkdtemp, mkdir, writeFile, chmod, readdir, readFile, cp, symlink } from
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { waitFor } from '../timing';
-import { isProcessAlive, terminateProcessTreeByPid } from '../process/processTree';
+import { isProcessAlive, observeOwnedProcessTree } from '../process/processTree';
+
+import { spawnTestProcess } from '../process/testSpawn';
 
 const execFileAsync = promisify(execFile);
 
@@ -304,7 +306,7 @@ describe('scripts/run-maestro-with-heartbeat.mjs', () => {
         await chmod(maestroStubPath, 0o755);
 
         const scriptPath = join(repoRoot, 'packages/tests/scripts/run-maestro-with-heartbeat.mjs');
-        const child = spawn(
+        const child = spawnTestProcess(
             process.execPath,
             [
                 scriptPath,
@@ -351,6 +353,9 @@ describe('scripts/run-maestro-with-heartbeat.mjs', () => {
             expect(isProcessAlive(marker.maestroPid)).toBe(true);
             expect(isProcessAlive(marker.grandchildPid)).toBe(true);
 
+            observeOwnedProcessTree(child.ownership);
+            expect(child.ownership.processes.has(marker.maestroPid)).toBe(true);
+            expect(child.ownership.processes.has(marker.grandchildPid)).toBe(true);
             child.kill('SIGTERM');
 
             await waitFor(() => child.exitCode !== null, {
@@ -371,8 +376,7 @@ describe('scripts/run-maestro-with-heartbeat.mjs', () => {
                 context: 'maestro grandchild shutdown',
             });
         } finally {
-            if (!child.killed) child.kill('SIGTERM');
-            await terminateProcessTreeByPid(child.pid ?? 0, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
+            await child.stop();
         }
     }, TEST_TIMEOUT_MS);
 });

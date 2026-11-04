@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { readProcessInstanceFingerprintSync } from '@happier-dev/cli-common/processInstance';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { stopDaemonFromHomeDir } from './daemon';
-import { terminateProcessTreeByPid, isProcessAlive } from '../process/processTree';
+import { isProcessAlive } from '../process/processTree';
 import { spawnDetachedInlineNodeTestProcess, spawnTestProcess } from '../process/testSpawn';
 
 afterEach(() => {
@@ -89,6 +90,7 @@ describe('stopDaemonFromHomeDir', () => {
     const fakeTsxCliPath = join(runtimeDir, 'node_modules', 'tsx', 'dist', 'cli.mjs');
     const sourceEntrypointPath = join(homeDir, '.project', 'tmp', 'cli-dist-snapshot', 'src', 'index.ts');
     let daemonPid: number | null = null;
+    let daemon: ReturnType<typeof spawnTestProcess> | undefined;
     try {
       await mkdir(join(fakeTsxCliPath, '..'), { recursive: true });
       await mkdir(join(sourceEntrypointPath, '..'), { recursive: true });
@@ -99,7 +101,7 @@ describe('stopDaemonFromHomeDir', () => {
       );
       await writeFile(sourceEntrypointPath, '// snapshot entrypoint placeholder\n', 'utf8');
 
-      const daemon = spawnTestProcess(process.execPath, [
+      daemon = spawnTestProcess(process.execPath, [
         '--preserve-symlinks',
         fakeTsxCliPath,
         sourceEntrypointPath,
@@ -125,11 +127,12 @@ describe('stopDaemonFromHomeDir', () => {
       await stopDaemonFromHomeDir(homeDir, {
         gracefulTimeoutMs: 0,
         hardKill: true,
+        ownership: daemon.ownership,
       });
 
       expect(isProcessAlive(daemonPid!)).toBe(false);
     } finally {
-      if (daemonPid) await terminateProcessTreeByPid(daemonPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
+      await daemon?.stop();
       await rm(homeDir, { recursive: true, force: true });
     }
   });
@@ -142,14 +145,16 @@ describe('stopDaemonFromHomeDir', () => {
 
     const homeDir = await mkdtemp(join(tmpdir(), 'happier-daemon-stop-orphans-'));
     let daemonPid: number | null = null;
+    let daemon: ReturnType<typeof spawnTestProcess> | undefined;
     let sessionPid: number | null = null;
+    let session: ReturnType<typeof spawnDetachedInlineNodeTestProcess> | undefined;
     try {
-      const daemon = spawnTestProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+      daemon = spawnTestProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
       daemonPid = daemon.pid ?? null;
       expect(typeof daemonPid).toBe('number');
       expect(daemonPid && daemonPid > 1).toBe(true);
 
-      const session = spawnDetachedInlineNodeTestProcess('setInterval(() => {}, 1000)', {
+      session = spawnDetachedInlineNodeTestProcess('setInterval(() => {}, 1000)', {
         stdio: 'ignore',
       });
       sessionPid = session.pid ?? null;
@@ -166,7 +171,7 @@ describe('stopDaemonFromHomeDir', () => {
       await mkdir(markerDir, { recursive: true });
       await writeFile(
         join(markerDir, `pid-${sessionPid}.json`),
-        JSON.stringify({ pid: sessionPid, happyHomeDir: homeDir, processCommandHash, startedBy: 'daemon' }),
+        JSON.stringify({ pid: sessionPid, happyHomeDir: homeDir, processCommandHash, processInstanceFingerprint: readProcessInstanceFingerprintSync(sessionPid!), startedBy: 'daemon' }),
         'utf8',
       );
 
@@ -182,13 +187,13 @@ describe('stopDaemonFromHomeDir', () => {
       await stopDaemonFromHomeDir(homeDir, {
         gracefulTimeoutMs: 0,
         hardKill: true,
+        ownership: daemon.ownership,
         inspectProcess: () => ({ ok: true, command: 'node dist/index.mjs daemon start-sync', looksLikeDaemon: true }),
       });
 
       expect(isProcessAlive(sessionPid!)).toBe(false);
     } finally {
-      if (sessionPid) await terminateProcessTreeByPid(sessionPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
-      if (daemonPid) await terminateProcessTreeByPid(daemonPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
+      await Promise.all([session?.stop(), daemon?.stop()]);
       await rm(homeDir, { recursive: true, force: true });
     }
   });
@@ -200,14 +205,16 @@ describe('stopDaemonFromHomeDir', () => {
 
     const homeDir = await mkdtemp(join(tmpdir(), 'happier-daemon-stop-graceful-orphans-'));
     let daemonPid: number | null = null;
+    let daemon: ReturnType<typeof spawnTestProcess> | undefined;
     let sessionPid: number | null = null;
+    let session: ReturnType<typeof spawnDetachedInlineNodeTestProcess> | undefined;
     try {
-      const daemon = spawnTestProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+      daemon = spawnTestProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
       daemonPid = daemon.pid ?? null;
       expect(typeof daemonPid).toBe('number');
       expect(daemonPid && daemonPid > 1).toBe(true);
 
-      const session = spawnDetachedInlineNodeTestProcess('setInterval(() => {}, 1000)', {
+      session = spawnDetachedInlineNodeTestProcess('setInterval(() => {}, 1000)', {
         stdio: 'ignore',
       });
       sessionPid = session.pid ?? null;
@@ -224,7 +231,7 @@ describe('stopDaemonFromHomeDir', () => {
       await mkdir(markerDir, { recursive: true });
       await writeFile(
         join(markerDir, `pid-${sessionPid}.json`),
-        JSON.stringify({ pid: sessionPid, happyHomeDir: homeDir, processCommandHash, startedBy: 'daemon' }),
+        JSON.stringify({ pid: sessionPid, happyHomeDir: homeDir, processCommandHash, processInstanceFingerprint: readProcessInstanceFingerprintSync(sessionPid!), startedBy: 'daemon' }),
         'utf8',
       );
 
@@ -233,13 +240,7 @@ describe('stopDaemonFromHomeDir', () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => {
-          if (daemonPid) {
-            try {
-              process.kill(daemonPid, 'SIGTERM');
-            } catch {
-              // ignore shutdown races
-            }
-          }
+          await daemon?.stop();
           return new Response(JSON.stringify({ status: 'stopping' }), {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -250,13 +251,13 @@ describe('stopDaemonFromHomeDir', () => {
       await stopDaemonFromHomeDir(homeDir, {
         gracefulTimeoutMs: 5_000,
         hardKill: true,
+        ownership: daemon.ownership,
         inspectProcess: () => ({ ok: true, command: 'node dist/index.mjs daemon start-sync', looksLikeDaemon: true }),
       });
 
       expect(isProcessAlive(sessionPid!)).toBe(false);
     } finally {
-      if (sessionPid) await terminateProcessTreeByPid(sessionPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
-      if (daemonPid) await terminateProcessTreeByPid(daemonPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
+      await Promise.all([session?.stop(), daemon?.stop()]);
       await rm(homeDir, { recursive: true, force: true });
     }
   });

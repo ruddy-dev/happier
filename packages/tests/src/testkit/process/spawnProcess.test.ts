@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { waitFor } from '../timing';
-import { isProcessAlive, terminateProcessTreeByPid } from './processTree';
+import { isProcessAlive } from './processTree';
 import { spawnLoggedProcess } from './spawnProcess';
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -39,9 +39,11 @@ describe('spawnLoggedProcess', () => {
     if (process.platform === 'win32') return;
 
     const rootDir = await mkdtemp(join(tmpdir(), 'happier-spawn-observation-'));
-    // The OS process-list boundary is empty; the polling and cleanup lifecycle stay real.
-    const snapshot = vi.mocked(childProcess.spawnSync).mockReturnValue({
-      pid: 0, output: [null, '', null], stdout: '', stderr: '', status: 0, signal: null,
+    // Keep the spawned root's identity inspection real; only its tree listing is empty.
+    const actual = await vi.importActual<typeof childProcess>('node:child_process');
+    const snapshot = vi.mocked(childProcess.spawnSync).mockImplementation((command, args, options) => {
+      if (args?.includes('-axo')) return { pid: 0, output: [null, '', null], stdout: '', stderr: '', status: 0, signal: null };
+      return actual.spawnSync(command, args as string[], options!);
     });
     vi.useFakeTimers();
     const proc = spawnLoggedProcess({
@@ -80,16 +82,17 @@ describe('spawnLoggedProcess', () => {
 
     const childScript = [
       "const { spawn } = require('node:child_process');",
-      "const { writeFileSync } = require('node:fs');",
+      "const { existsSync, writeFileSync } = require('node:fs');",
       "const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });",
       'grandchild.unref();',
       `writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({ childPid: process.pid, grandchildPid: grandchild.pid }), 'utf8');`,
-      'setTimeout(() => process.exit(0), 1000);',
+      `setInterval(() => { if (existsSync(${JSON.stringify(markerPath + '.release')})) process.exit(0); }, 25);`,
       '',
     ].join('\n');
 
+    let proc: ReturnType<typeof spawnLoggedProcess> | undefined;
     try {
-      const proc = spawnLoggedProcess({
+      proc = spawnLoggedProcess({
         command: process.execPath,
         args: ['-e', childScript],
         cwd: rootDir,
@@ -98,7 +101,11 @@ describe('spawnLoggedProcess', () => {
       });
 
       const { grandchildPid } = await waitForMarker(markerPath);
-      await waitFor(() => proc.child.exitCode !== null, {
+      await waitFor(() => proc!.ownership!.processes.has(grandchildPid), {
+        timeoutMs: 10_000, intervalMs: 25, context: 'spawn owner captured descendant identity',
+      });
+      await writeFile(markerPath + '.release', 'release');
+      await waitFor(() => proc!.child.exitCode !== null, {
         timeoutMs: 10_000,
         intervalMs: 25,
         context: 'spawnLoggedProcess direct child exit',
@@ -111,16 +118,7 @@ describe('spawnLoggedProcess', () => {
         context: 'spawnLoggedProcess explicit stop detached descendant cleanup',
       });
     } finally {
-      try {
-        const raw = await readFile(markerPath, 'utf8');
-        const parsed = JSON.parse(raw) as { grandchildPid?: unknown };
-        const grandchildPid = Number(parsed.grandchildPid);
-        if (Number.isInteger(grandchildPid) && grandchildPid > 1) {
-          await terminateProcessTreeByPid(grandchildPid, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
-        }
-      } catch {
-        // ignore cleanup failures
-      }
+      await proc?.stop();
       await rm(rootDir, { recursive: true, force: true });
     }
   }, 15_000);
@@ -137,16 +135,17 @@ describe('spawnLoggedProcess', () => {
 
     const childScript = [
       "const { spawn } = require('node:child_process');",
-      "const { writeFileSync } = require('node:fs');",
+      "const { existsSync, writeFileSync } = require('node:fs');",
       "const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });",
       'grandchild.unref();',
       `writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({ childPid: process.pid, grandchildPid: grandchild.pid }), 'utf8');`,
-      'setTimeout(() => process.exit(0), 250);',
+      `setInterval(() => { if (existsSync(${JSON.stringify(markerPath + '.release')})) process.exit(0); }, 25);`,
       '',
     ].join('\n');
 
+    let proc: ReturnType<typeof spawnLoggedProcess> | undefined;
     try {
-      const proc = spawnLoggedProcess({
+      proc = spawnLoggedProcess({
         command: process.execPath,
         args: ['-e', childScript],
         cwd: rootDir,
@@ -155,7 +154,11 @@ describe('spawnLoggedProcess', () => {
       });
 
       const { grandchildPid } = await waitForMarker(markerPath);
-      await waitFor(() => proc.child.exitCode !== null, {
+      await waitFor(() => proc!.ownership!.processes.has(grandchildPid), {
+        timeoutMs: 10_000, intervalMs: 25, context: 'spawn owner captured descendant identity',
+      });
+      await writeFile(markerPath + '.release', 'release');
+      await waitFor(() => proc!.child.exitCode !== null, {
         timeoutMs: 10_000,
         intervalMs: 25,
         context: 'spawnLoggedProcess auto cleanup direct child exit',
@@ -168,16 +171,7 @@ describe('spawnLoggedProcess', () => {
         context: 'spawnLoggedProcess auto cleanup detached descendant',
       });
     } finally {
-      try {
-        const raw = await readFile(markerPath, 'utf8');
-        const parsed = JSON.parse(raw) as { grandchildPid?: unknown };
-        const grandchildPid = Number(parsed.grandchildPid);
-        if (Number.isInteger(grandchildPid) && grandchildPid > 1) {
-          await terminateProcessTreeByPid(grandchildPid, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
-        }
-      } catch {
-        // ignore cleanup failures
-      }
+      await proc?.stop();
       await rm(rootDir, { recursive: true, force: true });
     }
   }, 15_000);
@@ -194,16 +188,17 @@ describe('spawnLoggedProcess', () => {
 
     const childScript = [
       "const { spawn } = require('node:child_process');",
-      "const { writeFileSync } = require('node:fs');",
+      "const { existsSync, writeFileSync } = require('node:fs');",
       "const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });",
       'grandchild.unref();',
       `writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({ childPid: process.pid, grandchildPid: grandchild.pid }), 'utf8');`,
-      'setTimeout(() => process.exit(0), 250);',
+      `setInterval(() => { if (existsSync(${JSON.stringify(markerPath + '.release')})) process.exit(0); }, 25);`,
       '',
     ].join('\n');
 
+    let proc: ReturnType<typeof spawnLoggedProcess> | undefined;
     try {
-      const proc = spawnLoggedProcess({
+      proc = spawnLoggedProcess({
         command: process.execPath,
         args: ['-e', childScript],
         cwd: rootDir,
@@ -213,7 +208,11 @@ describe('spawnLoggedProcess', () => {
       });
 
       const { grandchildPid } = await waitForMarker(markerPath);
-      await waitFor(() => proc.child.exitCode !== null, {
+      await waitFor(() => proc!.ownership!.processes.has(grandchildPid), {
+        timeoutMs: 10_000, intervalMs: 25, context: 'spawn owner captured descendant identity',
+      });
+      await writeFile(markerPath + '.release', 'release');
+      await waitFor(() => proc!.child.exitCode !== null, {
         timeoutMs: 10_000,
         intervalMs: 25,
         context: 'spawnLoggedProcess preserve direct child exit',
@@ -228,16 +227,7 @@ describe('spawnLoggedProcess', () => {
         context: 'spawnLoggedProcess preserve explicit stop detached descendant cleanup',
       });
     } finally {
-      try {
-        const raw = await readFile(markerPath, 'utf8');
-        const parsed = JSON.parse(raw) as { grandchildPid?: unknown };
-        const grandchildPid = Number(parsed.grandchildPid);
-        if (Number.isInteger(grandchildPid) && grandchildPid > 1) {
-          await terminateProcessTreeByPid(grandchildPid, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
-        }
-      } catch {
-        // ignore cleanup failures
-      }
+      await proc?.stop();
       await rm(rootDir, { recursive: true, force: true });
     }
   }, 15_000);
