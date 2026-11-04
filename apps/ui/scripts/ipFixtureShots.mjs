@@ -85,6 +85,14 @@ export function buildStorageSeed(theme) {
     };
 }
 
+export async function installStorageSeed(context, theme, origin) {
+    await context.addInitScript(({ seed, origin }) => {
+        // Init scripts also run in the initial opaque document and other origins.
+        if (location.origin !== origin) return;
+        for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, value);
+    }, { seed: buildStorageSeed(theme), origin });
+}
+
 function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
@@ -407,9 +415,7 @@ async function main() {
             try {
                 await installNetworkGuard(context, blocked);
                 if (side === 'app' && shot.theme) {
-                    await context.addInitScript(seed => {
-                        for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, value);
-                    }, buildStorageSeed(shot.theme));
+                    await installStorageSeed(context, shot.theme, origin);
                 }
                 const page = await context.newPage();
                 const name = `${shot.name} ${side}`;

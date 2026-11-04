@@ -2,7 +2,7 @@ import { CoordinatorTranscriptAppearanceProvider } from '../useCoordinatorTransc
 import { DeskContextDataContext } from '../model/questionContext';
 import { useQuestionContextData } from '../model/useWorkCardData';
 import * as React from 'react';
-import { Platform, View, useWindowDimensions } from 'react-native';
+import { Platform, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 
@@ -79,7 +79,13 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
     useDeskPopup({ open: shogOpen, onClose: closeShog, openerRef: shogOpenerRef,
         pointerOpenerRef: shogCreatureOpenerRef, contentRef: shogContentRef, returnFocusOnClose: true });
     // Mockup 12 keeps this overlay below the header and above the transcript, clear of the composer.
-    const shogHeight = Math.max(200, Math.min(470, windowHeight - 340));
+    const [transcriptHeight, setTranscriptHeight] = React.useState<number | null>(null);
+    const onTranscriptLayout = React.useCallback((event: LayoutChangeEvent) => {
+        setTranscriptHeight(event.nativeEvent.layout.height);
+    }, []);
+    const phone = isDeskPhoneWidth(windowWidth);
+    const shogHeightCap = Math.max(200, Math.min(470, windowHeight - 340));
+    const shogHeight = phone && transcriptHeight !== null ? Math.min(shogHeightCap, transcriptHeight) : shogHeightCap;
     const [chatWidth, setChatWidth] = React.useState(0);
     const enterToSend = useSetting(Platform.OS === 'web' ? 'agentInputEnterToSend' : 'agentInputEnterToSendNative');
     const showEnterHint = enterToSend === true && !isMobileLayoutWidth(windowWidth) && !isMobileLayoutWidth(chatWidth);
@@ -120,9 +126,9 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
                     </FloatingOverlay>
                 </View> : null}
             </View>
-            {!isDeskPhoneWidth(windowWidth) && <CoordinatorPrompts coordinatorId={sessionId} />}
+            {!phone && <CoordinatorPrompts coordinatorId={sessionId} />}
             <View style={{ flex: 1 }}>
-                <CoordinatorComposer key={sessionId} coordinatorId={sessionId} phone={isDeskPhoneWidth(windowWidth)}>
+                <CoordinatorComposer key={sessionId} coordinatorId={sessionId} phone={phone} onTranscriptLayout={phone ? onTranscriptLayout : undefined}>
                 <DeskContextDataContext.Provider value={contextData}><CoordinatorTranscriptAppearanceProvider>
                     {FixtureBody ? (
                         <React.Suspense fallback={null}>

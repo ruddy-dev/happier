@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { LayoutChangeEvent, StyleProp, ViewStyle } from 'react-native';
 
 type DraftStatus = Readonly<{ writing: boolean; multiline: boolean; line: number; column: number }>;
 
@@ -36,6 +36,7 @@ export const CoordinatorComposerInputContext = React.createContext<Readonly<{
     prompt: React.ReactNode;
     panelFooter: React.ReactNode;
     panelLeading: React.ReactNode;
+    onTranscriptLayout?: (event: LayoutChangeEvent) => void;
     phone?: boolean;
     terminal?: boolean;
     controlInk?: string;
@@ -45,6 +46,11 @@ export const CoordinatorComposerInputContext = React.createContext<Readonly<{
     textStyle?: Readonly<{ fontFamily: string; color: string }>;
     placeholderColor?: string;
 }> | null>(null);
+
+/** The keyboard scaffold measures the space above the complete composer, including shortcuts. */
+export function useCoordinatorTranscriptLayout() {
+    return React.useContext(CoordinatorComposerInputContext)?.onTranscriptLayout;
+}
 
 export function useCoordinatorComposerLayout() {
     const context = React.useContext(CoordinatorComposerInputContext);

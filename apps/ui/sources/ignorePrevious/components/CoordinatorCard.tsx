@@ -5,13 +5,14 @@ import { useSession } from '@/sync/store/hooks';
 import { t } from '@/text';
 import { getSessionStatus } from '@/utils/sessions/sessionUtils';
 
+import { useDeskPref } from '../deskPrefs';
 import { coordinatorStateLine } from '../model/coordinatorStateLine';
 import { useDeskNow } from '../model/useDeskNow';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
-import { useDeskPaint } from '../palette';
 import { DeskText } from '../typography/DeskText';
 import { sessionContextMeter } from './ContextMeter';
 import { MaskFace } from './MaskFace';
+import { useWorkPaint } from './WorkAppearance';
 
 /** A separate coordinator shortcut, outside Work's worker rows and counts. */
 export function CoordinatorCard({ sessionId, form, onOpen }: {
@@ -33,7 +34,9 @@ export function CoordinatorCard({ sessionId, form, onOpen }: {
     const meter = form === 'full' && session ? sessionContextMeter(session) : null;
     const percent = meter ? t('ignorePrevious.contextGauge.percent', { percent: meter.percent }) : null;
     const contextLabel = percent ? t('ignorePrevious.coordinatorCard.context', { percent }) : null;
-    const { paint, borderWidth } = useDeskPaint();
+    const { paint, borderWidth } = useWorkPaint();
+    const [style] = useDeskPref('chatStyle');
+    const terminal = style === 'terminal';
     const signal = state?.kind === 'waiting' ? paint.turnSignal : state?.kind === 'thinking' ? paint.work
         : state?.kind === 'offline' ? paint.off : paint.idleSignal;
     const rail = form === 'rail';
@@ -46,13 +49,13 @@ export function CoordinatorCard({ sessionId, form, onOpen }: {
             style={{ flexDirection: rail ? 'column' : 'row', alignItems: 'center', gap: full ? 10 : 8,
                 minWidth: 0, maxWidth: '100%', width: rail ? 62 : '100%',
                 minHeight: Platform.OS === 'web' ? 36 : 48, paddingVertical: full ? 8 : 5, paddingHorizontal: rail ? 2 : 10,
-                borderWidth: rail ? 0 : borderWidth, borderColor: paint.edge, borderRadius: rail ? 10 : 12,
+                borderWidth: rail && !terminal ? 0 : borderWidth, borderColor: paint.edge, borderRadius: terminal ? 0 : rail ? 10 : 12,
                 backgroundColor: paint.bg }}>
             <MaskFace size={full ? 38 : rail ? 28 : 22}
                 bulb={waitingCount === null ? 'idle' : waitingCount > 0 ? 'turn' : 'rest'} />
             <View style={{ flex: rail ? undefined : 1, minWidth: 0, gap: full ? 4 : 0 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: rail ? 'center' : 'flex-start', gap: 8, minWidth: 0 }}>
-                    <DeskText style={{ color: paint.ink, fontSize: full ? 15 : 13.5, fontWeight: '600' }}>
+                    <DeskText style={{ color: paint.ink, fontSize: full && !terminal ? 15 : 13.5, fontWeight: terminal ? '700' : '600' }}>
                         {t('ignorePrevious.coordinatorNickname')}
                     </DeskText>
                     {state ? <View accessible={false} style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: signal }} /> : null}
