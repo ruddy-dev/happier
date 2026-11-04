@@ -241,47 +241,33 @@ export function DeskScreen() {
     const coordinatorCard = (form: 'full' | 'slim' | 'rail') => coordinatorId ? (
         <CoordinatorCard sessionId={coordinatorId} form={form} onOpen={() => { setChanging(false); setPhonePane('shog'); }} />
     ) : null;
-    const collapse = (
-        <PanelToggle
-            testID="ip-work-collapse"
-            colour={workPaint.text.secondary}
-            icon={wide ? 'sidebar-left-close' : 'caret-up'}
-            label={t('ignorePrevious.collapseWork')}
-            onPress={() => collapseWork(true)}
-        />
-    );
-    const expand = (
-        <PanelToggle
-            testID="ip-work-expand"
-            colour={workPaint.text.secondary}
-            icon={wide ? 'sidebar-left-open' : 'caret-down'}
-            label={t('ignorePrevious.expandWork')}
-            onPress={() => collapseWork(false)}
-        />
-    );
     const divider = wide
         ? { borderRightWidth: 1, borderRightColor: workPaint.controlBorder }
         : { borderBottomWidth: 1, borderBottomColor: workPaint.controlBorder };
 
     let work: React.ReactNode;
     if (wide) {
-        work = workCollapsed ? (
+        work = (
             <ScrollView
-                testID="ip-work-rail"
+                testID={workCollapsed ? 'ip-work-rail' : 'ip-work'}
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ width: 76, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }}
-                contentContainerStyle={{ gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }}
+                style={{ width: workCollapsed ? 76 : 330, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }}
+                contentContainerStyle={workCollapsed
+                    ? { gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }
+                    : { gap: 8, padding: 10 }}
             >
-                {expand}
-                {coordinatorCard('rail')}
-                <WorkColumn compact="column" />
-            </ScrollView>
-        ) : (
-            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 330, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
-                <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
-                {coordinatorCard('slim')}
-                <WorkColumn />
+                <View style={workCollapsed ? undefined : { alignItems: 'flex-end' }}>
+                    <PanelToggle
+                        testID={workCollapsed ? 'ip-work-expand' : 'ip-work-collapse'}
+                        colour={workPaint.text.secondary}
+                        icon={workCollapsed ? 'sidebar-left-open' : 'sidebar-left-close'}
+                        label={t(workCollapsed ? 'ignorePrevious.expandWork' : 'ignorePrevious.collapseWork')}
+                        onPress={() => collapseWork(!workCollapsed)}
+                    />
+                </View>
+                {coordinatorCard(workCollapsed ? 'rail' : 'slim')}
+                <WorkColumn compact={workCollapsed ? 'column' : undefined} />
             </ScrollView>
         );
     } else {
