@@ -313,7 +313,7 @@ describe('sync record-only hydration', () => {
         } finally { failureLog.mockRestore(); }
     });
 
-    it('fetches only missing late records, dedupes concurrent registrations, caps at four, and retries failures only after set changes', async () => {
+    it('fetches only missing late records, dedupes registrations, caps at four, and does not retry failures when other demand changes', async () => {
         await harness.sync.refreshSessions({ awaitSessionListHydration: true });
         const gates = new Map<string, ReturnType<typeof createDeferred<void>>>();
         let active = 0;
@@ -352,8 +352,8 @@ describe('sync record-only hydration', () => {
         await new Promise(resolve => setTimeout(resolve, 30));
         expect(exactIds.filter(id => id === 'late-failed')).toHaveLength(1);
         register('late-new');
-        await vi.waitFor(() => expect(exactIds.filter(id => id === 'late-failed')).toHaveLength(2));
         await vi.waitFor(() => expect(storage.getState().sessions['late-new']).toBeDefined());
+        expect(exactIds.filter(id => id === 'late-failed')).toHaveLength(1);
         expect(exactIds.filter(id => id === 'late-0')).toHaveLength(1);
         expect(harness.http.mock.calls.some(([path]) => /\/(messages|turns)(\?|$)/.test(path))).toBe(false);
     });

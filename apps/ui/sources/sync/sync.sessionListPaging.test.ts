@@ -187,6 +187,32 @@ describe('canonical session list paging read API', () => {
         expect(harness.sync.getSessionListPagingState('archived').status).toBe('exhausted');
     });
 
+    it.each(['current', 'archived'] as const)('compares metadata with accepted %s versions without treating unknown rows or newer exact records as stale', async kind => {
+        let version = 2;
+        harness.http.mockImplementation(async path => {
+            const append = new URL(path, 'http://localhost').searchParams.has('cursor');
+            return jsonResponse({ sessions: [{ ...plainWorkerRecord('versioned'), metadataVersion: append ? 1 : version,
+                archivedAt: kind === 'archived' ? 10 : null }], includedActive: true,
+            hasNext: !append, nextCursor: append ? null : 'tail' });
+        });
+        const replace = () => kind === 'current' ? harness.sync.refreshSessions({ awaitSessionListHydration: true }) : harness.sync.fetchArchivedSessions();
+        expect(harness.sync.isSessionListMetadataVersionStale('versioned', 1)).toBe(false);
+        await replace();
+        expect(harness.sync.isSessionListMetadataVersionStale('unknown', 1)).toBe(false);
+        expect(harness.sync.isSessionListMetadataVersionStale('versioned', 1)).toBe(true);
+        expect(harness.sync.isSessionListMetadataVersionStale('versioned', 2)).toBe(false);
+        expect(harness.sync.isSessionListMetadataVersionStale('versioned', 3)).toBe(false);
+        if (kind === 'current') await harness.sync.fetchMoreSessions();
+        else await harness.sync.fetchMoreArchivedSessions();
+        expect(harness.sync.isSessionListMetadataVersionStale('versioned', 1)).toBe(true);
+        // A replacement starts a new evidence chain; stale versions are not sticky.
+        version = 1;
+        await replace();
+        expect(harness.sync.isSessionListMetadataVersionStale('versioned', 1)).toBe(false);
+        harness.sync.disconnectServer();
+        expect(harness.sync.isSessionListMetadataVersionStale('versioned', 0)).toBe(false);
+    });
+
     it('requires current archive page membership and version evidence across partial pages, failure, retry and replacement', async () => {
         const cached = createSessionFixture({ id: 'cached', archivedAt: 10, metadataVersion: 1 });
         storage.getState().applySessions([cached]);

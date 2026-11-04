@@ -87,6 +87,45 @@ function record(id: string, name: string) {
     return { ...plainWorkerRecord(id), active: false, archivedAt: 10,
         metadata: JSON.stringify({ v: 1, name, path: '/fixture/project', tag: 'ATR-18-work' }), agentState: null };
 }
+
+async function staleTitleHead(tailKind: 'current' | 'archived') {
+    const cached = createSessionFixture({ id: 'stale-title', serverId, encryptionMode: 'e2ee', metadataVersion: 1,
+        metadata: { name: 'Needle cached title', path: '/fixture/project', host: 'fixture', tag: 'ATR-7-work' } });
+    storage.getState().applySessions([cached]);
+    const latest = { ...plainWorkerRecord(cached.id), encryptionMode: 'e2ee' as const, metadataVersion: 2, agentState: null,
+        metadata: JSON.stringify({ name: 'Renamed current title', path: '/fixture/project', host: 'fixture', tag: 'ATR-98-work' }) };
+    const metadata = createDeferred<typeof cached.metadata>();
+    const entered = createDeferred<void>();
+    const detail = createDeferred<Response>();
+    const tail = createDeferred<Response>();
+    const archiveTail = createDeferred<Response>();
+    const owner = harness.sync as unknown as { encryption: SessionListEncryption };
+    const decrypt = vi.fn((_version: number, value: string) => {
+        entered.resolve();
+        return value === latest.metadata ? metadata.promise : Promise.resolve(JSON.parse(value) as typeof cached.metadata);
+    });
+    vi.spyOn(owner.encryption, 'getSessionEncryption').mockReturnValue({ decryptMetadata: decrypt, decryptAgentState: async () => ({}) });
+    vi.spyOn(owner.encryption, 'initializeSessions').mockResolvedValue();
+    const original = harness.http.getMockImplementation()!;
+    harness.http.mockImplementation(async path => {
+        const url = new URL(path, 'http://localhost');
+        if (url.pathname === `/v2/sessions/${cached.id}`) return detail.promise;
+        if (url.pathname === '/v2/sessions/later-title-match') return jsonResponse({ session: {
+            ...record('later-title-match', 'Needle real match'), archivedAt: tailKind === 'archived' ? 10 : null,
+        } });
+        if (url.pathname === '/v2/sessions') return url.searchParams.has('cursor') ? tail.promise
+            : jsonResponse({ sessions: [latest], includedActive: true, hasNext: true, nextCursor: 'title-current-tail' });
+        if (url.pathname === '/v2/sessions/archived') return url.searchParams.has('cursor') ? archiveTail.promise
+            : jsonResponse({ sessions: [], hasNext: tailKind === 'archived', nextCursor: tailKind === 'archived' ? 'title-archive-tail' : null });
+        return original(path);
+    });
+    await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+    await entered.promise;
+    // Both the full record and displayed projection are v1, despite the accepted v2 row.
+    expect(storage.getState().sessions[cached.id].metadataVersion).toBe(1);
+    expect(storage.getState().sessionListRenderables[cached.id].metadataVersion).toBe(1);
+    return { cached, latest, metadata, detail, tail, archiveTail, decrypt };
+}
 beforeEach(async () => {
     previousStorage = storage.getState();
     storage.setState(storage.getInitialState(), true);
@@ -116,6 +155,133 @@ afterEach(async () => {
 });
 
 describe('Sessions sheet, real scoped store and archive paging', () => {
+    it('uses timely current hydration as a real title match without paging or a redundant exact read', async () => {
+        const scenario = await staleTitleHead('current');
+        await act(async () => scenario.metadata.resolve(JSON.parse(scenario.latest.metadata)));
+        await vi.waitFor(() => expect(storage.getState().sessions[scenario.cached.id]?.metadataVersion).toBe(2));
+        await open(); await archivesLoaded();
+        await search('renamed');
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+        expect(element('ip-sessions-row-stale-title').textContent).toContain('Renamed current title');
+        expect(harness.http.mock.calls.some(([path]) => path.includes('cursor='))).toBe(false);
+        expect(harness.http.mock.calls.some(([path]) => path === '/v2/sessions/stale-title')).toBe(false);
+    });
+
+    it.each([1, 2, 3])('uses exact record version %s against the accepted v2 title while background hydration is deferred', async version => {
+        const scenario = await staleTitleHead('current');
+        try {
+            await open(); await archivesLoaded();
+            await vi.waitFor(() => expect(harness.http.mock.calls.some(([path]) => path === '/v2/sessions/stale-title')).toBe(true));
+            await act(async () => scenario.detail.resolve(jsonResponse({ session: { ...scenario.latest, metadataVersion: version,
+                metadata: JSON.stringify({ name: 'Needle exact record', path: '/fixture/project', host: 'fixture', tag: 'ATR-98-work' }) } })));
+            await vi.waitFor(() => expect(storage.getState().sessions[scenario.cached.id]?.metadata?.name).toBe('Needle exact record'));
+            await search('needle');
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+            expect(harness.sync.isSessionListMetadataVersionStale(scenario.cached.id, version)).toBe(version < 2);
+            if (version < 2) {
+                expect(node('ip-sessions-row-stale-title')).toBeNull();
+                await vi.waitFor(() => expect(harness.http.mock.calls.some(([path]) => path.includes('cursor=title-current-tail'))).toBe(true));
+                await act(async () => scenario.tail.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null })));
+                await archivesLoaded();
+                expect(node('ip-sessions-search-partial')).not.toBeNull();
+                expect(node('ip-sessions-no-matches')).toBeNull();
+            } else {
+                expect(element('ip-sessions-row-stale-title').textContent).toContain('Needle exact record');
+                expect(harness.http.mock.calls.some(([path]) => path.includes('cursor='))).toBe(false);
+            }
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+            expect(harness.http.mock.calls.filter(([path]) => path === '/v2/sessions/stale-title')).toHaveLength(1);
+        } finally {
+            await act(async () => {
+                scenario.tail.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null }));
+                scenario.metadata.resolve(JSON.parse(scenario.latest.metadata));
+            });
+        }
+        if (version > 2) expect(storage.getState().sessions[scenario.cached.id]?.metadataVersion).toBe(version);
+    });
+
+    it.each(['clear', 'query', 'close', 'scope'] as const)('stops stale-title automatic progression on %s while the current page is pending', async cancellation => {
+        const scenario = await staleTitleHead('current');
+        try {
+            await open(); await archivesLoaded();
+            await search('needle');
+            await vi.waitFor(() => expect(harness.http.mock.calls.some(([path]) => path.includes('cursor=title-current-tail'))).toBe(true));
+            if (cancellation === 'close') await click('ip-sessions-close');
+            else if (cancellation === 'scope') await act(async () => storage.setState({ profileScope: { serverId: 'different-server', accountId: 'different-account' } }));
+            else {
+                if (cancellation === 'query') await act(async () => storage.getState().applySessions([
+                    createSessionFixture({ id: 'new-title-match', serverId, metadata: { name: 'Replacement', path: '/fixture', host: 'fixture' } }),
+                ]));
+                await search(cancellation === 'clear' ? '' : 'replacement');
+            }
+            await act(async () => scenario.tail.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'must-not-fetch' })));
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+            expect(harness.http.mock.calls.filter(([path]) => path.includes('cursor=title-current-tail'))).toHaveLength(1);
+            expect(harness.http.mock.calls.some(([path]) => path.includes('cursor=must-not-fetch'))).toBe(false);
+            if (cancellation === 'query') expect(node('ip-sessions-row-new-title-match')).not.toBeNull();
+            if (cancellation === 'clear') expect(element('ip-sessions-row-stale-title').textContent).toContain('Needle cached title');
+        } finally {
+            await act(async () => {
+                scenario.tail.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null }));
+                scenario.detail.resolve(jsonResponse(null, 503));
+                scenario.metadata.resolve(JSON.parse(scenario.latest.metadata));
+            });
+        }
+    });
+
+    it.each([
+        ['current', 'deferred'], ['current', 'failed'], ['archived', 'deferred'], ['archived', 'failed'],
+    ] as const)('continues past a readable stale cached title to a later %s match with %s hydration', async (kind, hydration) => {
+        const scenario = await staleTitleHead(kind);
+        try {
+            if (hydration === 'failed') {
+                scenario.metadata.reject(new Error('Metadata boundary unavailable'));
+                scenario.detail.resolve(jsonResponse(null, 503));
+            }
+            await open(); await archivesLoaded();
+            expect(element('ip-sessions-row-stale-title').textContent).toContain('Needle cached title');
+            await search('needle');
+            await vi.waitFor(async () => {
+                await act(async () => {});
+                expect(harness.http.mock.calls.some(([path]) => path.includes('cursor=title-current-tail'))).toBe(true);
+            });
+            expect(node('ip-sessions-row-stale-title')).toBeNull();
+            expect(node('ip-sessions-search-partial')).not.toBeNull();
+            if (kind === 'archived') {
+                // Finish current coverage first; the unresolved cached row stays partial.
+                await act(async () => scenario.tail.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null })));
+                await vi.waitFor(async () => {
+                    await act(async () => {});
+                    expect(harness.http.mock.calls.some(([path]) => path.includes('cursor=title-archive-tail'))).toBe(true);
+                });
+                await act(async () => scenario.archiveTail.resolve(jsonResponse({ sessions: [record('later-title-match', 'Needle real match')],
+                    hasNext: true, nextCursor: 'after-real-match' })));
+            } else {
+                await act(async () => scenario.tail.resolve(jsonResponse({ sessions: [{ ...record('later-title-match', 'Needle real match'), archivedAt: null }],
+                    includedActive: true, hasNext: true, nextCursor: 'after-real-match' })));
+            }
+            await vi.waitFor(async () => { await act(async () => {}); expect(node('ip-sessions-row-later-title-match')).not.toBeNull(); });
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+            const cursors = harness.http.mock.calls.flatMap(([path]) => {
+                const cursor = new URL(path, 'http://localhost').searchParams.get('cursor');
+                return cursor ? [cursor] : [];
+            });
+            expect(cursors).toEqual(kind === 'current' ? ['title-current-tail'] : ['title-current-tail', 'title-archive-tail']);
+            expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname === '/v2/sessions/stale-title')).toHaveLength(1);
+            expect(node('ip-sessions-no-matches')).toBeNull();
+            expect(node('ip-sessions-search-partial')).not.toBeNull();
+            await search('');
+            expect(element('ip-sessions-row-stale-title').textContent).toContain('Needle cached title');
+        } finally {
+            await act(async () => {
+                scenario.tail.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null }));
+                scenario.archiveTail.resolve(jsonResponse({ sessions: [], hasNext: false, nextCursor: null }));
+                scenario.detail.resolve(jsonResponse(null, 503));
+                scenario.metadata.resolve(JSON.parse(scenario.latest.metadata));
+            });
+        }
+    });
+
     it.each([false, true])('suppresses a previously permitted cached match after policy tightens and reaches a later allowed match, mixed head=%s', async mixed => {
         const blocked = { ...record('cached-blocked', 'Needle blocked cached title'), archivedAt: null, updatedAt: 400 };
         const retained = { ...record('cached-allowed', 'Retained allowed neighbor'), archivedAt: null, updatedAt: 100, encryptionMode: 'e2ee' as const };
