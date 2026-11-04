@@ -510,6 +510,25 @@ describe('transcript request states cache', () => {
 
 describe('publication action identity', () => {
     const displayed: SessionPendingRequest = { id: 'r', kind: 'permission', tool: 'Bash', arguments: { command: 'echo B' }, createdAt: 200 };
+    it.each(['matching', 'different payload', 'older completion', 'different ID'] as const)(
+        'observes removed occurrence completion with %s evidence', evidence => {
+            const session = createSessionFixture({ active: true, pendingPermissionRequestCount: 1,
+                agentState: { requests: {}, completedRequests: { r: { tool: 'Bash',
+                    arguments: { command: evidence === 'different payload' ? 'echo A' : 'echo B' },
+                    createdAt: 100, completedAt: evidence === 'older completion' ? 150 : 250, status: 'denied' } } } });
+            expect(observePendingSessionRequest(session, 'r', undefined)).toEqual({ status: 'absent' });
+            expect(observePendingSessionRequest(session, 'r', undefined,
+                evidence === 'different ID' ? { ...displayed, id: 'another' } : displayed))
+                .toEqual({ status: evidence === 'matching' ? 'terminal' : 'absent' });
+        },
+    );
+    it('keeps a later live replacement pending despite completion of the watched occurrence', () => {
+        const replacement = { tool: 'Bash', arguments: displayed.arguments, createdAt: 300 };
+        const session = createSessionFixture({ active: true, agentState: { requests: { r: replacement },
+            completedRequests: { r: { ...replacement, createdAt: 200, completedAt: 250, status: 'denied' } } } });
+        expect(observePendingSessionRequest(session, 'r', undefined, displayed))
+            .toMatchObject({ status: 'pending', request: { createdAt: 300 } });
+    });
     it.each([
         [200, 500, false], [200, 200, true], [null, 500, true], [200, null, true], [null, null, true],
     ] as const)('compares known times but preserves missing-time producers: %s / %s', (before, after, expected) => {

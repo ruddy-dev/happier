@@ -7,6 +7,7 @@ import { createWaitingHistory, WaitingPanel } from './WaitingPanel';
 import { t } from '@/text';
 import { createDeferred } from '@/dev/testkit/hooks/createDeferred';
 import type { SessionPermissionResult } from '@/sync/ops/sessions';
+import { Modal } from '@/modal';
 
 const boundary = vi.hoisted(() => ({ allow: vi.fn(), deny: vi.fn(), answer: vi.fn() }));
 // Operations are the outgoing boundary; request projection, store and dispatch guard stay real.
@@ -221,6 +222,52 @@ it.each(['success', 'failure'] as const)('a removed request cannot pass late %s 
     expect(boundary.allow).toHaveBeenCalledTimes(2);
 });
 
+it('J3 late error after same-session departure', async () => {
+    const pending = createDeferred<SessionPermissionResult>();
+    boundary.allow.mockReturnValueOnce(pending.promise);
+    vi.mocked(Modal.alert).mockClear();
+    const original = worker('worker', 'echo target');
+    const independent = { tool: 'Bash', arguments: { command: 'echo independent' }, createdAt: 2 };
+    original.agentState!.requests!.independent = independent;
+    original.pendingPermissionRequestCount = 2;
+    original.pendingUserActionRequestCount = 0;
+    seed([original]);
+    expect(storage.getState().sessionMessages.worker).toBeUndefined();
+    const history = createWaitingHistory();
+    const screen = await renderScreen(<WaitingPanel history={history} />);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    const staleAllow = screen.findByTestId('ip-waiting-allow-shared')!.props.onPress;
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    expect(screen.findByTestId('ip-waiting-allow-shared')?.props.accessibilityState).toMatchObject({ disabled: true, busy: true });
+    act(() => storage.getState().applySessions([{ ...original, agentStateVersion: original.agentStateVersion + 1,
+        pendingPermissionRequestCount: 1, agentState: { requests: { independent }, completedRequests: {
+            shared: { ...original.agentState!.requests!.shared, completedAt: 3, status: 'denied' },
+        } } }]));
+    expect(screen.findByTestId('ip-answered-shared')).not.toBeNull();
+    expect(screen.getTextContent()).toContain(t('ignorePrevious.waiting.elsewhere'));
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-independent'));
+    expect(screen.findByTestId('ip-waiting-allow-independent')?.props.disabled).toBe(false);
+    await act(async () => pending.resolve({ ok: false, errorCode: 'permission_request_expired', errorMessage: 'Request expired', requestId: 'shared' }));
+    expect(Modal.alert).not.toHaveBeenCalled();
+    expect(screen.findByTestId('ip-answered-shared')).not.toBeNull();
+    expect(screen.getTextContent()).toContain(t('ignorePrevious.waiting.elsewhere'));
+    expect(screen.findByTestId('ip-waiting-allow-independent')?.props.disabled).toBe(false);
+    expect(boundary.allow).toHaveBeenCalledExactlyOnceWith('worker', 'shared');
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-independent'));
+    expect(boundary.allow.mock.calls).toEqual([['worker', 'shared'], ['worker', 'independent']]);
+    const current = storage.getState().sessions.worker;
+    act(() => storage.getState().applySessions([{ ...current, agentStateVersion: current.agentStateVersion + 1,
+        pendingPermissionRequestCount: 2, agentState: { ...current.agentState, requests: { independent,
+            shared: { ...original.agentState!.requests!.shared, createdAt: 4 },
+        } } }]));
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-toggle-shared'));
+    expect(screen.findByTestId('ip-waiting-allow-shared')?.props.disabled).toBe(false);
+    await act(async () => staleAllow());
+    expect(boundary.allow).toHaveBeenCalledTimes(2);
+    await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    expect(boundary.allow.mock.calls).toEqual([['worker', 'shared'], ['worker', 'independent'], ['worker', 'shared']]);
+});
+
 it('R46: starts compact; opening and collapsing never answer; full detail precedes Allow', async () => {
     const command = 'echo start ' + 'argument '.repeat(40) + '&& echo final-command-tail';
     seed([worker('worker', command)]);
@@ -383,11 +430,13 @@ it('keeps a question draft with its request through reorder, collapse, reconnect
 
 it.each(['permission_request_not_found', 'permission_request_expired'])('never retries a request rejected as %s after collapse or a readiness dip', async errorCode => {
     boundary.allow.mockResolvedValue({ ok: false, errorCode }); seed([worker('worker', 'echo expired')]);
+    vi.mocked(Modal.alert).mockClear();
     const history = createWaitingHistory();
     const screen = await renderScreen(<WaitingPanel history={history} />);
     const toggle = () => screen.findByTestId('ip-waiting-toggle-shared');
     await pressTestInstanceAsync(toggle());
     await pressTestInstanceAsync(screen.findByTestId('ip-waiting-allow-shared'));
+    expect(Modal.alert).toHaveBeenCalledExactlyOnceWith(t('ignorePrevious.waiting.alreadyAnsweredTitle'), t('ignorePrevious.waiting.alreadyAnswered'));
     await pressTestInstanceAsync(toggle());
     act(() => storage.setState({ isDataReady: false }));
     act(() => storage.getState().applyReady());
