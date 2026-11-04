@@ -28,13 +28,31 @@ describe('testSpawn', () => {
     const child = spawnDetachedInlineNodeTestProcess('setInterval(() => {}, 1000)');
     const pid = child.pid;
 
-    expect(pid).toBeTypeOf('number');
-    expect(isProcessAlive(pid!)).toBe(true);
+    let didExit = false;
+    let finishWaiting: (() => void) | undefined;
+    const onExit = () => {
+      didExit = true;
+      finishWaiting?.();
+    };
+    child.once('exit', onExit);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
 
     try {
+      expect(pid).toBeTypeOf('number');
+      expect(isProcessAlive(pid!)).toBe(true);
       await child.stop();
+      // stop() accepts an owned zombie; Node must reap it before PID absence.
+      if (!didExit) {
+        await new Promise<void>((resolve, reject) => {
+          finishWaiting = resolve;
+          timeout = setTimeout(() => reject(new Error('Timed out waiting for detached inline node process to exit')), 20_000);
+        });
+      }
+      expect(didExit).toBe(true);
       expect(isProcessAlive(pid!)).toBe(false);
     } finally {
+      clearTimeout(timeout);
+      child.removeListener('exit', onExit);
       await child.stop();
     }
   });
