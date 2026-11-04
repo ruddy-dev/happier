@@ -137,19 +137,22 @@ export function observeOwnedProcessTree(ownership: ProcessTreeOwnership): void {
   try {
     const snapshot = listProcesses();
     const byPid = new Map(snapshot.map(entry => [entry.pid, entry]));
-    const queue = [...ownership.processes.keys()];
+    // Publish new authority only after the whole observation succeeds.
+    const processes = new Map(ownership.processes);
+    const groups = new Set(ownership.groups);
+    const queue = [...processes.keys()];
     const visited = new Set<number>();
     while (queue.length) {
       const pid = queue.shift()!;
       if (visited.has(pid)) continue;
       visited.add(pid);
-      const expected = ownership.processes.get(pid)!;
+      const expected = processes.get(pid)!;
       const current = byPid.get(pid);
       // Never use a replaced/exited root as authority for new descendants.
       if (!current || !sameIdentity(expected, current) || !matchesPersistedFingerprint(pid, expected)) continue;
-      if (current.pgid === pid) ownership.groups.add(pid);
+      if (current.pgid === pid) groups.add(pid);
       for (const child of snapshot) {
-        if (child.pid <= 1 || child.ppid !== pid || ownership.processes.has(child.pid)) continue;
+        if (child.pid <= 1 || child.ppid !== pid || processes.has(child.pid)) continue;
         if (process.platform === 'win32') {
           // Windows retains the creator PID after it exits. A younger process
           // reusing that PID cannot own the older child. Compare full UTC/O
@@ -165,11 +168,13 @@ export function observeOwnedProcessTree(ownership: ProcessTreeOwnership): void {
         if (!child.command || !child.startTime) {
           throw new Error(`Owned process termination was not confirmed: child identity unavailable for ${child.pid}`);
         }
-        ownership.processes.set(child.pid, { command: child.command, startTime: child.startTime,
+        processes.set(child.pid, { command: child.command, startTime: child.startTime,
           ...(process.platform === 'win32' ? { processInstanceFingerprint: child.startTime } : {}) });
         queue.push(child.pid);
       }
     }
+    ownership.processes = processes;
+    ownership.groups = groups;
   } catch (error) {
     // A missed observation can conceal a detached child after reparenting.
     ownership.inspectionError = error instanceof Error ? error : new Error(String(error));
@@ -261,16 +266,17 @@ export async function terminateProcessTreeByPid(
   const pollMs = Number.isInteger(options.pollMs) && options.pollMs! > 0 ? options.pollMs! : 100;
   const observe = () => {
     if (options.descendants !== false) observeOwnedProcessTree(ownership);
-    if (ownership.inspectionError) throw ownership.inspectionError;
   };
   const errors = new Map<number, unknown>();
   const confirm = () => {
     if (!allTargetsStopped(ownership, errors)) return false;
-    if (errors.size) throwCleanupErrors();
+    if (ownership.inspectionError || errors.size) throwCleanupErrors();
     return true;
   };
   const throwCleanupErrors = () => {
-    const details = [...errors.values()];
+    // Failed discovery forbids success, but must not block independently
+    // revalidated known targets from either signal pass.
+    const details = [...(ownership.inspectionError ? [ownership.inspectionError] : []), ...errors.values()];
     throw new AggregateError(details, `Owned process termination was not confirmed: ${details.map(String).join('; ')}`);
   };
   observe();

@@ -1,6 +1,7 @@
 import * as childProcess from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureProcessTreeOwnership, observeOwnedProcessTree, terminateProcessTreeByPid } from './processTree';
+import { inspectOwnedProcess } from './processIdentity';
 
 vi.mock('node:child_process', () => ({ spawnSync: vi.fn() }));
 
@@ -52,6 +53,94 @@ async function rejects(result: Promise<void>) {
 }
 
 describe('owned process termination', () => {
+  it.each(['initial-inspection-failed', 'root-mismatch'] as const)('refuses %s without valid captured root authority', async scenario => {
+    inspectionFails = scenario === 'initial-inspection-failed';
+    const ownership = capture();
+    inspectionFails = false;
+    if (scenario === 'root-mismatch') ownership.rootPid = 9000;
+    await rejects(terminateProcessTreeByPid(8123, { ownership, graceMs: 0 }));
+    expect(signals).toEqual([]);
+  });
+
+  describe.each(['linux', 'darwin'] as const)('%s mid-inspection exit', platform => {
+    it.each(['lstart', 'stat', 'zombie-birth'] as const)('confirms positive absence at %s without retaining a false inspection error', async stage => {
+      vi.spyOn(process, 'platform', 'get').mockReturnValue(platform);
+      const ownership = capture();
+      const inspect = vi.mocked(childProcess.spawnSync).getMockImplementation()!;
+      let births = 0;
+      let vanished = false;
+      vi.mocked(childProcess.spawnSync).mockImplementation((command, args, options) => {
+        if (args?.includes('-p') && args.includes('8124')) {
+          if (args.includes('lstart=')) births++;
+          if (!vanished && (stage === 'lstart' && births === 1
+            || stage === 'stat' && args.includes('stat=')
+            || stage === 'zombie-birth' && births === 2)) {
+            rows.delete(8124);
+            vanished = true;
+          }
+          if (stage === 'zombie-birth' && args.includes('stat=')) rows.get(8124)!.state = 'Z';
+        }
+        return inspect(command, args, options);
+      });
+      await settle(terminateProcessTreeByPid(8123, { ownership, graceMs: 0 }));
+      expect(vanished).toBe(true);
+      expect(signals).toEqual([8123]);
+      expect(rows.size).toBe(0);
+    });
+  });
+
+  it('does not let later absence erase a malformed successful command row', () => {
+    const inspect = vi.mocked(childProcess.spawnSync).getMockImplementation()!;
+    vi.mocked(childProcess.spawnSync).mockImplementation((command, args, options) => {
+      if (args?.includes('args=')) return { ...inspect(command, args, options), stdout: '' };
+      rows.delete(8123);
+      return inspect(command, args, options);
+    });
+    expect(inspectOwnedProcess(8123)).toEqual({ ok: false, reason: 'inspect_failed' });
+  });
+
+  it('retains a non-absence query failure even when later inspection proves the target gone', async () => {
+    const ownership = capture();
+    const inspect = vi.mocked(childProcess.spawnSync).getMockImplementation()!;
+    vi.mocked(childProcess.spawnSync).mockImplementation((command, args, options) => {
+      if (rows.has(8124) && args?.includes('stat=') && args.includes('8124')) {
+        rows.delete(8124);
+        return { pid: 0, output: [null, '', 'query failed'], stdout: '', stderr: 'query failed', status: 2, signal: null };
+      }
+      return inspect(command, args, options);
+    });
+    await expect(terminateProcessTreeByPid(8123, { ownership, graceMs: 0 })).rejects.toMatchObject({
+      errors: [expect.objectContaining({ message: expect.stringContaining('cannot inspect identity for 8124') })],
+    });
+    expect(signals).toEqual([8123]);
+    expect(rows.size).toBe(0);
+  });
+
+  it.each([
+    { stage: 'lstart=', status: 1, stderr: 'denied', stdout: '', probe: 'ESRCH' },
+    { stage: 'stat=', status: 1, stderr: '', stdout: '', probe: 'EPERM' },
+    { stage: 'zombie-birth', status: 2, stderr: '', stdout: '', probe: 'ESRCH' },
+    { stage: 'lstart=', status: 0, stderr: '', stdout: '', probe: 'ESRCH' },
+    { stage: 'stat=', status: 0, stderr: '', stdout: 'malformed state', probe: 'ESRCH' },
+    { stage: 'zombie-birth', status: 0, stderr: '', stdout: 'different birth', probe: 'ESRCH' },
+    { stage: 'lstart=', status: 1, stderr: '', stdout: '', probe: 'ESRCH', error: 'EIO' },
+  ])('refuses non-absence $stage result status=$status probe=$probe stderr=$stderr error=$error', ({ stage, status, stderr, stdout, probe, error }) => {
+    const inspect = vi.mocked(childProcess.spawnSync).getMockImplementation()!;
+    let births = 0;
+    vi.mocked(childProcess.spawnSync).mockImplementation((command, args, options) => {
+      if (args?.includes('lstart=')) births++;
+      if (stage === 'zombie-birth' && args?.includes('stat=')) rows.get(8123)!.state = 'Z';
+      if (args?.includes(stage) || stage === 'zombie-birth' && births === 2) {
+        return { pid: 0, output: [null, stdout, stderr], stdout, stderr, status, signal: null,
+          ...(error ? { error: Object.assign(new Error(error), { code: error }) } : {}) };
+      }
+      return inspect(command, args, options);
+    });
+    vi.mocked(process.kill).mockImplementation(() => { throw Object.assign(new Error(probe), { code: probe }); });
+    expect(inspectOwnedProcess(8123)).toEqual({ ok: false, reason: 'inspect_failed' });
+    expect(vi.mocked(process.kill).mock.calls.every(([, signal]) => signal === 0)).toBe(true);
+  });
+
   it('stops only the captured root when replacing a daemon without stopping sessions', async () => {
     const ownership = capture();
     await settle(terminateProcessTreeByPid(8123, { ownership, graceMs: 0, descendants: false }));
@@ -218,6 +307,62 @@ describe('Windows owned process termination at the CIM boundary', () => {
       }
       return { pid: 0, output: [null, stdout, null], stdout, stderr: '', status, signal: null };
     });
+  });
+
+  it('does not adopt any new PID from a snapshot that fails partway through observation', () => {
+    const ownership = capture();
+    rows.set(8125, { ...row(8123, 0), start: '2026-03-18T10:10:10.1234568Z' });
+    rows.set(8126, { ...row(8123, 0), start: '2026-03-18T10:10:10.1234569Z', command: null });
+    observeOwnedProcessTree(ownership);
+    expect(ownership.inspectionError?.message).toContain('8126');
+    expect([...ownership.processes.keys()]).toEqual([8123, 8124]);
+  });
+
+  it.each(['entry', 'before-escalation'] as const)('attempts known targets despite observation failure at %s and retains it on retry', async timing => {
+    const ownership = capture();
+    const introduceChildren = () => {
+      // A readable new child preceding the unreadable child must not gain
+      // authority from this failed snapshot either.
+      rows.set(8125, { ...row(8123, 0), start: '2026-03-18T10:10:10.1234568Z' });
+      rows.set(8126, { ...row(8123, 0), start: '2026-03-18T10:10:10.1234569Z', command: null });
+    };
+    if (timing === 'entry') { introduceChildren(); observeOwnedProcessTree(ownership); }
+    const inspect = vi.mocked(childProcess.spawnSync).getMockImplementation()!;
+    const events: string[] = [];
+    vi.mocked(childProcess.spawnSync).mockImplementation((command, args, options) => {
+      const script = String(args?.at(-1));
+      const target = script.match(/ProcessId=(\d+)/)?.[1];
+      events.push(target ? `${target}:${script.includes('CommandLine') ? 'command' : 'birth'}` : 'snapshot');
+      return inspect(command, args, options);
+    });
+    const kill = vi.mocked(process.kill).getMockImplementation()!;
+    const sent: Array<[number, unknown]> = [];
+    const proofs: string[][] = [];
+    vi.mocked(process.kill).mockImplementation((pid, signal) => {
+      if (signal === 0) return kill(pid, signal);
+      proofs.push(events.slice(-4));
+      events.push(`${pid}:${signal}`);
+      sent.push([pid, signal]);
+      if (signal === 'SIGTERM' && pid === 8123 && timing === 'before-escalation') introduceChildren();
+      // Both known targets resist TERM, requiring independent escalation.
+      if (signal === 'SIGKILL') rows.delete(pid);
+      return true;
+    });
+    const result = terminateProcessTreeByPid(8123, { ownership, graceMs: 100, pollMs: 25 });
+    const failure = result.catch((error: unknown) => error);
+    await vi.runAllTimersAsync();
+    const error = await failure;
+    expect(sent).toEqual([[8124, 'SIGTERM'], [8123, 'SIGTERM'], [8124, 'SIGKILL'], [8123, 'SIGKILL']]);
+    expect(proofs).toEqual(sent.map(([pid]) => [`${pid}:birth`, `${pid}:command`, `${pid}:birth`, `${pid}:birth`]));
+    expect([...ownership.processes.keys()]).toEqual([8123, 8124]);
+    expect([...rows.keys()]).toEqual([8125, 8126]);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error).toMatchObject({ errors: [ownership.inspectionError] });
+    const observationError = ownership.inspectionError;
+    expect(observationError?.message).toContain('8126');
+    await expect(terminateProcessTreeByPid(8123, { ownership, graceMs: 0 })).rejects.toMatchObject({ errors: [observationError] });
+    expect(ownership.inspectionError).toBe(observationError);
+    expect(sent).toHaveLength(4);
   });
 
   it.each([false, true])('stops positively owned root and observed children, root exited: %s', async absent => {
