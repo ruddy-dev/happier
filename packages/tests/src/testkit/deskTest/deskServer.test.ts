@@ -25,7 +25,7 @@ vi.mock('node:net', () => ({ createServer: () => {
   probe.close = cb => { cb?.(); };
   return probe;
 } }));
-vi.mock('node:fs', async importOriginal => ({ ...await importOriginal<typeof fs>(), mkdirSync: vi.fn(), writeFileSync: vi.fn() }));
+vi.mock('node:fs', async importOriginal => ({ ...await importOriginal<typeof fs>(), mkdirSync: vi.fn(), writeFileSync: vi.fn(), unlinkSync: vi.fn() }));
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof fsp>(), readdir: vi.fn(), readFile: vi.fn() }));
 
 let root: string;
@@ -33,6 +33,7 @@ let alive: boolean;
 let refuseStop: boolean;
 let leaseFailure: boolean;
 let earlyExit: boolean;
+let staleLease: boolean;
 let allocated: string[];
 class BoundaryChild extends ChildProcess {
   override pid: number | undefined = 8123;
@@ -40,6 +41,7 @@ class BoundaryChild extends ChildProcess {
   override signalCode: NodeJS.Signals | null = null;
 }
 let child: BoundaryChild;
+let children: BoundaryChild[];
 let leaseError: Error;
 const extraEnv = {
   HAPPIER_E2E_PROVIDER_SKIP_SERVER_SHARED_DEPS_BUILD: '1',
@@ -49,13 +51,14 @@ const extraEnv = {
 
 beforeEach(async () => {
   root = await fsp.mkdtemp(join(tmpdir(), 'desk-lifecycle-'));
-  alive = false; refuseStop = false; leaseFailure = false; earlyExit = false; allocated = [];
+  children = [];
+  alive = false; refuseStop = false; leaseFailure = false; earlyExit = false; staleLease = false; allocated = [];
   leaseError = new Error('Synthetic lease write failure');
   vi.useFakeTimers();
   vi.mocked(crypto.randomInt).mockImplementation(() => 43210);
   vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
   vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
-    if (!alive) throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+    if (!alive || Math.abs(_pid) !== 8123) throw Object.assign(new Error('gone'), { code: 'ESRCH' });
     if (signal !== 0 && !refuseStop) {
       alive = false;
       queueMicrotask(() => { child.exitCode = 0; child.emit('exit', 0, null); child.emit('close', 0, null); child.stdout?.emit('end'); child.stderr?.emit('end'); });
@@ -67,6 +70,10 @@ beforeEach(async () => {
     if (String(path).includes('server-light-processes')) return undefined;
     return actualFs.mkdirSync(path, options);
   });
+  vi.mocked(fs.unlinkSync).mockImplementation(path => {
+    if (String(path).includes('server-light-processes')) return;
+    actualFs.unlinkSync(path);
+  });
   vi.mocked(fs.writeFileSync).mockImplementation((path, data, options) => {
     if (String(path).includes('server-light-processes')) {
       if (leaseFailure) throw leaseError;
@@ -76,21 +83,27 @@ beforeEach(async () => {
   });
   const actualFsp = await vi.importActual<typeof fsp>('node:fs/promises');
   vi.mocked(fsp.readdir).mockImplementation(((path: fs.PathLike, options: never) => {
-    if (String(path).includes('server-light-processes')) return Promise.resolve([]);
+    if (String(path).includes('server-light-processes')) return Promise.resolve(staleLease ? ['pid-8123.json'] : []);
     return actualFsp.readdir(path, options);
   }) as typeof fsp.readdir);
   vi.mocked(fsp.readFile).mockImplementation(((path: fs.PathLike, options: never) => {
+    if (staleLease && String(path).endsWith('server-light-processes/pid-8123.json')) return actualFsp.readFile(join(root, 'lease.json'), options);
     if (String(path).endsWith('.log')) return Promise.resolve('');
     return actualFsp.readFile(path, options);
   }) as typeof fsp.readFile);
-  vi.mocked(childProcess.spawnSync).mockImplementation((_command, args) => ({
-    pid: 0, output: [null, '', null], stderr: '', status: 0, signal: null,
-    stdout: args?.includes('args=') ? 'node apps/server/dist/index.mjs start:light'
-      : args?.includes('lstart=') ? 'synthetic-start' : alive ? '8123 1 8123\n' : '',
-  }));
+  vi.mocked(childProcess.spawnSync).mockImplementation((_command, args) => {
+    const argv = args as string[];
+    const pid = Number(argv[argv.indexOf('-p') + 1]);
+    const found = pid === process.pid || (pid === 8123 && alive);
+    const stdout = argv.includes('-axo')
+      ? alive ? '8123 1 8123 Tue Mar 18 10:10:10 2026 node apps/server/dist/index.mjs start:light' : ''
+      : found ? argv.includes('lstart=') ? 'Tue Mar 18 10:10:10 2026' : 'node apps/server/dist/index.mjs start:light' : '';
+    return { pid: 0, output: [null, stdout, null], stderr: '', status: argv.includes('-axo') || found ? 0 : 1, signal: null, stdout };
+  });
   vi.mocked(childProcess.spawn).mockImplementation((_command, _args, options) => {
     // Startup preparation commands also use this boundary. They exit successfully.
     child = new BoundaryChild();
+    children.push(child);
     child.stdout = new PassThrough(); child.stderr = new PassThrough();
     const env = (options as childProcess.SpawnOptions).env;
     const isServer = env?.PORT !== '0' && env?.PUBLIC_URL !== 'http://127.0.0.1:0';
@@ -111,7 +124,12 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   // These are synthetic children only. No signal or ownership sweep reached the host.
-  child?.stdout?.destroy(); child?.stderr?.destroy();
+  alive = false;
+  for (const spawned of children) {
+    spawned.exitCode = 0;
+    spawned.emit('exit', 0, null);
+    spawned.stdout?.destroy(); spawned.stderr?.destroy();
+  }
   vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
   await fsp.rm(root, { recursive: true, force: true });
 });
@@ -221,4 +239,16 @@ it('reuses a file server and permits its successor after confirmed teardown', as
   expect(result.error).toBeUndefined();
   expect(allocated).toHaveLength(2);
   for (const dataDir of allocated) await expect(fsp.access(dataDir)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+it('rejects an unresolved orphan sweep before spawning a replacement server', async () => {
+  staleLease = true; alive = true; refuseStop = true;
+  const marker = JSON.stringify({ childPid: 8123, childStartTime: 'Tue Mar 18 10:10:10 2026',
+    ownerPid: 9001, ownerStartTime: 'Tue Mar 18 09:09:09 2026', createdAtMs: 123 });
+  await fsp.writeFile(join(root, 'lease.json'), marker);
+  const result = await settle(start());
+  expect(result.error).toMatchObject({ terminationConfirmed: false,
+    cause: expect.objectContaining({ message: expect.stringContaining('termination was not confirmed') }) });
+  expect(allocated).toEqual([]);
+  expect(await fsp.readFile(join(root, 'lease.json'), 'utf8')).toBe(marker);
 });

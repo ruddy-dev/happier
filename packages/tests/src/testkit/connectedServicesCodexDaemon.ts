@@ -228,6 +228,8 @@ export async function startConnectedServicesCodexDaemon(params: Readonly<{
     testDir: params.testDir,
     happyHomeDir: daemonHomeDir,
     env: daemonEnv,
+    // This fixture exercises daemon replacement while its sessions stay alive.
+    cleanupDescendantsOnExit: false,
     startupTimeoutMs: 120_000,
   });
   const daemonPort = daemon.state.httpPort;

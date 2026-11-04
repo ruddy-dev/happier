@@ -234,11 +234,12 @@ describe('startUiWebMetro', () => {
 
         const testDir = await mkdtemp(join(tmpdir(), 'happier-ui-web-metro-lease-'));
         let stalePid: number | null = null;
+        let staleProc: ReturnType<typeof spawnDetachedTestProcess> | undefined;
 
         try {
             await mkdir(testDir, { recursive: true });
 
-            const staleProc = spawnDetachedTestProcess(
+            staleProc = spawnDetachedTestProcess(
                 process.execPath,
                 ['-e', "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);", 'start', '--web', '--host', 'localhost', '--port', '19077'],
                 { stdio: 'ignore' },
@@ -272,13 +273,7 @@ describe('startUiWebMetro', () => {
 
             await started.stop();
         } finally {
-            if (stalePid) {
-                try {
-                    process.kill(stalePid, 'SIGKILL');
-                } catch {
-                    // ignore
-                }
-            }
+            await staleProc?.stop();
             await rm(testDir, { recursive: true, force: true });
         }
     });

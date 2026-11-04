@@ -1,6 +1,5 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { unlink } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -15,7 +14,7 @@ import { spawnLoggedProcess, type SpawnedProcess } from '../process/spawnProcess
 import { resolveCliTestLaunchSpec, shouldUseCliSourceEntrypoint } from '../process/cliLaunchSpec';
 import { sanitizeCliTestEnv } from '../process/cliTestEnv';
 import { DEFAULT_CLI_DIST_BUILD_TIMEOUT_MS } from '../process/cliDist';
-import { terminateProcessTreeByPid } from '../process/processTree';
+import { capturePersistedProcessTreeOwnership, terminateProcessTreeByPid, type ProcessTreeOwnership } from '../process/processTree';
 import { resolveDaemonSessionMarkerDirs } from './sessionMarkerDirs';
 
 export type DaemonState = {
@@ -208,27 +207,9 @@ type DaemonSessionMarkerCandidate = Readonly<{
   markerPath: string;
   startedBy: string;
   processCommandHash: string;
+  processInstanceFingerprint?: string;
+  raw: string;
 }>;
-
-function hashCommand(command: string): string {
-  return createHash('sha256').update(command).digest('hex');
-}
-
-function inspectProcessCommand(pid: number): string | null {
-  try {
-    // Use wide output to avoid truncation (PID reuse safety requires stable hashing).
-    // Match the daemon's own marker hashing strategy (`ps-list` captures `args`).
-    let res = spawnSync('ps', ['-o', 'args=', '-p', String(pid), '-ww'], { encoding: 'utf8' });
-    if (res.status !== 0) {
-      res = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' });
-    }
-    if (res.status !== 0) return null;
-    const command = String(res.stdout || '').trim();
-    return command || null;
-  } catch {
-    return null;
-  }
-}
 
 async function listDaemonSessionMarkerCandidates(happyHomeDir: string): Promise<DaemonSessionMarkerCandidate[]> {
   const markerDirs = await resolveDaemonSessionMarkerDirs(happyHomeDir);
@@ -237,8 +218,9 @@ async function listDaemonSessionMarkerCandidates(happyHomeDir: string): Promise<
     let entries: string[] = [];
     try {
       entries = await readdir(markerDir);
-    } catch {
-      continue;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
     }
 
     for (const name of entries) {
@@ -246,43 +228,53 @@ async function listDaemonSessionMarkerCandidates(happyHomeDir: string): Promise<
       const markerPath = join(markerDir, name);
       try {
         const raw = await readFile(markerPath, 'utf8');
-        const parsed = JSON.parse(raw) as any;
+        const value: unknown = JSON.parse(raw);
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          throw new Error(`Cannot establish process ownership from invalid marker: ${markerPath}`);
+        }
+        const parsed = value as Record<string, unknown>;
         const pid = typeof parsed?.pid === 'number' ? parsed.pid : Number(parsed?.pid);
         const startedBy = typeof parsed?.startedBy === 'string' ? parsed.startedBy.trim() : '';
         const processCommandHash = typeof parsed?.processCommandHash === 'string' ? parsed.processCommandHash.trim() : '';
         const markerHomeDir = typeof parsed?.happyHomeDir === 'string' ? parsed.happyHomeDir.trim() : '';
 
-        if (!Number.isInteger(pid) || pid <= 1) continue;
+        if (!Number.isInteger(pid) || pid <= 1) {
+          throw new Error(`Cannot establish process ownership from invalid marker PID: ${markerPath}`);
+        }
         if (markerHomeDir && markerHomeDir !== happyHomeDir) continue;
         if (!startedBy) continue;
-        if (!processCommandHash) continue;
 
         candidates.push({
           pid,
           markerPath,
           startedBy,
           processCommandHash,
+          processInstanceFingerprint: typeof parsed.processInstanceFingerprint === 'string' ? parsed.processInstanceFingerprint : undefined,
+          raw,
         });
-      } catch {
-        // ignore unreadable markers
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw new Error(`Cannot establish process ownership from marker: ${markerPath}`, { cause: error });
       }
     }
   }
   return candidates;
 }
 
-async function stopDaemonLeakedSessionsFromMarkersBestEffort(happyHomeDir: string): Promise<void> {
+async function stopDaemonLeakedSessionsFromMarkers(happyHomeDir: string): Promise<void> {
   const candidates = await listDaemonSessionMarkerCandidates(happyHomeDir);
   for (const marker of candidates) {
     if (marker.startedBy !== 'daemon') continue;
 
-    const command = inspectProcessCommand(marker.pid);
-    if (!command) continue;
-    const hash = hashCommand(command);
-    if (hash !== marker.processCommandHash) continue;
-
-    await terminateProcessTreeByPid(marker.pid, { graceMs: 3_000, pollMs: 50 }).catch(() => {});
-    await unlink(marker.markerPath).catch(() => {});
+    const ownership = capturePersistedProcessTreeOwnership(marker.pid, {
+      processInstanceFingerprint: marker.processInstanceFingerprint,
+      commandHash: marker.processCommandHash,
+    });
+    await terminateProcessTreeByPid(marker.pid, { ownership, graceMs: 3_000, pollMs: 50 });
+    if (await readFile(marker.markerPath, 'utf8') !== marker.raw) {
+      throw new Error(`Process marker changed during termination: ${marker.markerPath}`);
+    }
+    await unlink(marker.markerPath);
   }
 }
 
@@ -461,7 +453,11 @@ async function hardKillDaemonPid(params: {
   phase: HardKillPhase;
   state: DaemonState;
   inspector: (pid: number) => ProcessInspectionResult;
+  ownership?: ProcessTreeOwnership;
 }): Promise<void> {
+  if (!params.ownership) {
+    throwHardKillError({ ...params, message: 'cannot safely hard-kill: captured process identity required; daemon state has no birth proof.' });
+  }
   const inspected = params.inspector(params.state.pid);
   if (!inspected.ok) {
     if (inspected.reason === 'ps_missing') {
@@ -485,20 +481,12 @@ async function hardKillDaemonPid(params: {
     });
   }
 
-  try {
-    process.kill(params.state.pid, 'SIGTERM');
-  } catch {
-    return;
-  }
-
-  const exitedAfterTerm = await waitForPidExit(params.state.pid, 3_000);
-  if (exitedAfterTerm) return;
-
-  try {
-    process.kill(params.state.pid, 'SIGKILL');
-  } catch {
-    // ignore
-  }
+  await terminateProcessTreeByPid(params.state.pid, {
+    ownership: params.ownership,
+    graceMs: 3_000,
+    pollMs: 100,
+    descendants: params.phase !== 'replacement',
+  });
 }
 
 export async function stopDaemonFromHomeDir(
@@ -507,6 +495,7 @@ export async function stopDaemonFromHomeDir(
     gracefulTimeoutMs?: number;
     hardKill?: boolean;
     inspectProcess?: (pid: number) => ProcessInspectionResult;
+    ownership?: ProcessTreeOwnership;
   },
 ): Promise<void> {
   const state = await readDaemonState(happyHomeDir);
@@ -541,11 +530,11 @@ export async function stopDaemonFromHomeDir(
 
     const hardKill = opts?.hardKill ?? true;
     if (daemonPidAlive && hardKill) {
-      await hardKillDaemonPid({ phase: 'unreachable', state, inspector });
+      await hardKillDaemonPid({ phase: 'unreachable', state, inspector, ownership: opts?.ownership });
     }
 
     // Even if the daemon is already gone, detached daemon-started sessions can remain.
-    await stopDaemonLeakedSessionsFromMarkersBestEffort(happyHomeDir).catch(() => {});
+    await stopDaemonLeakedSessionsFromMarkers(happyHomeDir);
     return;
   }
 
@@ -554,19 +543,18 @@ export async function stopDaemonFromHomeDir(
   if (exited) {
     // A daemon can still leave detached daemon-owned session processes behind even after
     // acknowledging /stop and exiting cleanly. Sweep marker-owned leftovers on the clean path too.
-    await stopDaemonLeakedSessionsFromMarkersBestEffort(happyHomeDir).catch(() => {});
+    await stopDaemonLeakedSessionsFromMarkers(happyHomeDir);
     return;
   }
 
   const hardKill = opts?.hardKill ?? true;
   if (!hardKill) return;
 
-  // Best-effort hard stop to avoid leaking daemons across test runs.
-  // Fail closed: only kill if it looks like our daemon.
-  await hardKillDaemonPid({ phase: 'graceful-timeout', state, inspector });
+  // Hard fallback requires both captured ownership and a daemon command.
+  await hardKillDaemonPid({ phase: 'graceful-timeout', state, inspector, ownership: opts?.ownership });
 
   // If we had to hard-kill the daemon, it may not have had a chance to stop detached sessions.
-  await stopDaemonLeakedSessionsFromMarkersBestEffort(happyHomeDir).catch(() => {});
+  await stopDaemonLeakedSessionsFromMarkers(happyHomeDir);
 }
 
 export type StartedDaemon = {
@@ -626,6 +614,7 @@ export async function startTestDaemon(params: {
   preparedDistSnapshotOnly?: boolean;
   startupTimeoutMs?: number;
   cleanupDescendantsOnExit?: boolean;
+  existingDaemonOwnership?: ProcessTreeOwnership;
 }): Promise<StartedDaemon> {
   if (params.preparedDistSnapshotOnly === true && !params.snapshotDir?.trim()) {
     throw new Error('startTestDaemon preparedDistSnapshotOnly requires an explicit snapshotDir');
@@ -684,7 +673,7 @@ export async function startTestDaemon(params: {
 
   await runDaemonStartupPhase(
     'stopExistingDaemon',
-    stopDaemonFromHomeDir(params.happyHomeDir).catch(() => {}),
+    stopDaemonFromHomeDir(params.happyHomeDir, { ownership: params.existingDaemonOwnership }),
     baseDiagnostics,
   );
   // A stopped daemon can leave its state file behind. Readiness for this
@@ -753,14 +742,22 @@ export async function startTestDaemon(params: {
     );
   } catch (e) {
     // If daemon startup fails, make sure we don't leak a background process.
-    await stopDaemonFromHomeDir(params.happyHomeDir).catch(() => {});
-    await proc.stop().catch(() => {});
+    const cleanup = await Promise.allSettled([
+      stopDaemonFromHomeDir(params.happyHomeDir, { ownership: proc.ownership }),
+    ]);
+    cleanup.push(...await Promise.allSettled([proc.stop()]));
+    for (const result of cleanup) if (result.status === 'rejected') console.error('Daemon cleanup failed', result.reason);
     throw e;
   }
 
   const stop = async () => {
-    await stopDaemonFromHomeDir(params.happyHomeDir).catch(() => {});
-    await proc.stop().catch(() => {});
+    // Always attempt the captured child cleanup, even if a session marker refuses.
+    const results = await Promise.allSettled([
+      stopDaemonFromHomeDir(params.happyHomeDir, { ownership: proc.ownership }),
+    ]);
+    results.push(...await Promise.allSettled([proc.stop()]));
+    const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'Daemon cleanup failed');
   };
   return {
     happyHomeDir: params.happyHomeDir,
@@ -779,39 +776,22 @@ export async function replaceTestDaemonWithoutStoppingSessions(params: {
   happyHomeDir: string;
   env: NodeJS.ProcessEnv;
   originalDaemon?: StartedDaemon;
+  originalOwnership?: ProcessTreeOwnership;
   snapshotDir?: string;
   stdoutPath?: string;
   stderrPath?: string;
-}): Promise<DaemonState> {
+}): Promise<DaemonState & { proc: SpawnedProcess }> {
   const originalState = await readDaemonState(params.happyHomeDir);
   if (!originalState || typeof originalState.pid !== 'number' || originalState.pid <= 0) {
     throw new Error(`Missing original daemon state for ${params.happyHomeDir}`);
   }
 
-  const originalDaemonExit = params.originalDaemon
-    ? new Promise<void>((resolveExit, rejectExit) => {
-        const timeout = setTimeout(
-          () => rejectExit(new Error(`Timed out waiting for daemon PID ${originalState.pid} to exit`)),
-          30_000,
-        );
-        params.originalDaemon?.proc.child.once('exit', () => {
-          clearTimeout(timeout);
-          resolveExit();
-        });
-      })
-    : waitForPidExit(originalState.pid, 30_000).then((exited) => {
-        if (!exited) {
-          throw new Error(`Timed out waiting for daemon PID ${originalState.pid} to exit`);
-        }
-      });
-
   await hardKillDaemonPid({
     phase: 'replacement',
     state: originalState,
     inspector: inspectProcess,
+    ownership: params.originalDaemon?.proc.ownership ?? params.originalOwnership,
   });
-
-  await originalDaemonExit;
 
   const cliLaunchSpec = await resolveCliTestLaunchSpec(
     {
@@ -839,10 +819,14 @@ export async function replaceTestDaemonWithoutStoppingSessions(params: {
   });
 
   try {
-    return await waitForReplacementDaemonState(params.happyHomeDir, originalState.pid, { timeoutMs: 45_000 });
+    const state = await waitForReplacementDaemonState(params.happyHomeDir, originalState.pid, { timeoutMs: 45_000 });
+    return { ...state, proc };
   } catch (error) {
-    await stopDaemonFromHomeDir(params.happyHomeDir).catch(() => {});
-    await proc.stop().catch(() => {});
+    const cleanup = await Promise.allSettled([
+      stopDaemonFromHomeDir(params.happyHomeDir, { ownership: proc.ownership }),
+    ]);
+    cleanup.push(...await Promise.allSettled([proc.stop()]));
+    for (const result of cleanup) if (result.status === 'rejected') console.error('Daemon cleanup failed', result.reason);
     throw error;
   }
 }
@@ -857,6 +841,6 @@ export async function withTestDaemon<T>(params: {
   try {
     return await params.run(daemon);
   } finally {
-    await daemon.stop().catch(() => {});
+    await daemon.stop();
   }
 }

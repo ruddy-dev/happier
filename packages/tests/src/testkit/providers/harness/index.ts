@@ -1232,9 +1232,12 @@ async function runOneScenario(params: {
         } catch {
           // ignore
         }
-        await daemon?.stop().catch(() => {});
-        await proc.stop();
-        await stopDaemonFromHomeDir(cliHome).catch(() => {});
+        const cleanup = await Promise.allSettled([
+          daemon ? daemon.stop() : stopDaemonFromHomeDir(cliHome),
+        ]);
+        cleanup.push(...await Promise.allSettled([proc.stop()]));
+        const errors = cleanup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+        if (errors.length) throw new AggregateError(errors, 'Provider process cleanup failed');
       }
     }
 
@@ -1454,7 +1457,7 @@ async function runOneScenario(params: {
     // Provider harness runs each scenario with its own isolated happy home; without cleanup,
     // we'd accumulate one server process per scenario and eventually hit resource exhaustion.
     if (provider.id === 'opencode_server') {
-      await stopOpenCodeManagedServerFromHomeDir(cliHome).catch(() => {});
+      await stopOpenCodeManagedServerFromHomeDir(cliHome);
       unregisterOpenCodeManagedServerCleanup?.();
     }
   }

@@ -2,9 +2,10 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 
 import { resolveNpmCommandInvocation, resolveYarnCommandInvocation, type CommandInvocation } from './commands';
-import { collectDescendantPids, terminateProcessTreeByPid } from './processTree';
+import { captureProcessTreeOwnership, observeOwnedProcessTree, terminateProcessTreeByPid, type ProcessTreeOwnership } from './processTree';
 
 export type SpawnedProcess = {
+  readonly ownership?: ProcessTreeOwnership;
   child: ChildProcess;
   stdoutPath: string;
   stderrPath: string;
@@ -13,7 +14,7 @@ export type SpawnedProcess = {
 
 function attachExitCleanup(
   child: ChildProcess,
-  getAdditionalPids: () => number[] = () => [],
+  ownership: ProcessTreeOwnership,
 ): () => void {
   const cleanup = () => {
     if (typeof child.pid !== 'number' || child.pid <= 0) return;
@@ -21,8 +22,8 @@ function attachExitCleanup(
       graceMs: 0,
       pollMs: 25,
       skipAliveCheck: true,
-      additionalPids: getAdditionalPids(),
-    }).catch(() => {});
+      ownership,
+    }).catch(error => console.error('Owned process exit cleanup failed', error));
   };
 
   const onExit = () => {
@@ -117,7 +118,9 @@ export async function runLoggedCommand(params: {
 
   const stdout = createWriteStream(params.stdoutPath, { flags: 'w' });
   const stderr = createWriteStream(params.stderrPath, { flags: 'w' });
-  const detachCleanup = attachExitCleanup(child);
+  const ownership = captureProcessTreeOwnership(child.pid ?? 0);
+  observeOwnedProcessTree(ownership);
+  const detachCleanup = attachExitCleanup(child, ownership);
 
   child.stdout?.pipe(stdout);
   child.stderr?.pipe(stderr);
@@ -130,7 +133,7 @@ export async function runLoggedCommand(params: {
     const timer = setTimeout(() => {
       timedOut = true;
       const error = new Error(`${params.command} ${params.args.join(' ')} timed out after ${timeoutMs}ms`);
-      void terminateProcessTreeByPid(child.pid ?? 0, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).then(
+      void terminateProcessTreeByPid(child.pid ?? 0, { graceMs: 0, pollMs: 25, ownership }).then(
         () => resolve({ ok: false, error }),
         stopError => resolve({ ok: false, error: new AggregateError([error, stopError], 'Command timed out and owned process termination failed') }),
       );
@@ -213,8 +216,8 @@ export function spawnLoggedProcess(params: {
 
   const stdout = createWriteStream(params.stdoutPath, { flags: 'w' });
   const stderr = createWriteStream(params.stderrPath, { flags: 'w' });
-  const observedDescendantPids = new Set<number>();
-  const detachCleanup = attachExitCleanup(child, () => [...observedDescendantPids]);
+  const ownership = captureProcessTreeOwnership(child.pid ?? 0);
+  const detachCleanup = attachExitCleanup(child, ownership);
   let descendantPoller: ReturnType<typeof setTimeout> | null = null;
   let descendantPollerActive = process.platform !== 'win32';
   const pollStartedAtMs = Date.now();
@@ -226,7 +229,7 @@ export function spawnLoggedProcess(params: {
   const pollDescendants = () => {
     if (!descendantPollerActive) return;
     if (typeof child.pid === 'number' && child.pid > 0) {
-      for (const pid of collectDescendantPids(child.pid)) observedDescendantPids.add(pid);
+      observeOwnedProcessTree(ownership);
     }
     const nextDelay = Date.now() - pollStartedAtMs < fastPollWindowMs ? fastPollMs : slowPollMs;
     descendantPoller = setTimeout(pollDescendants, nextDelay);
@@ -246,54 +249,31 @@ export function spawnLoggedProcess(params: {
   const stop = async (signal: NodeJS.Signals = 'SIGTERM') => {
     stopDescendantPolling();
 
-    if (typeof child.pid === 'number' && child.pid > 0) {
-      for (const pid of collectDescendantPids(child.pid)) {
-        observedDescendantPids.add(pid);
-      }
-    }
-
     if (typeof child.pid !== 'number' || child.pid <= 0) {
       throw new Error('Cannot confirm termination without an owned process id');
     }
 
-    if (process.platform === 'win32') {
-      await terminateProcessTreeByPid(child.pid, {
-        graceMs: 10_000,
-        pollMs: 25,
-        skipAliveCheck: true,
-        additionalPids: [...observedDescendantPids],
-      });
-      return;
-    }
-
-    if (signal !== 'SIGTERM' && child.exitCode === null && !child.killed) {
-      try {
-        process.kill(child.pid, signal);
-      } catch {
-        // ignore
-      }
-    }
-
     await terminateProcessTreeByPid(child.pid, {
+      signal,
       graceMs: 10_000,
       pollMs: 25,
       skipAliveCheck: true,
-      additionalPids: [...observedDescendantPids],
+      ownership,
     });
   };
 
   child.once('exit', () => {
     stopDescendantPolling();
-    if (params.cleanupDescendantsOnExit !== false && observedDescendantPids.size > 0) {
+    if (params.cleanupDescendantsOnExit !== false && ownership.processes.size > 1) {
       void terminateProcessTreeByPid(child.pid ?? 0, {
         graceMs: 0,
         pollMs: 25,
         skipAliveCheck: true,
-        additionalPids: [...observedDescendantPids],
-      }).catch(() => {});
+        ownership,
+      }).catch(error => console.error('Owned descendant exit cleanup failed', error));
     }
     detachCleanup();
   });
 
-  return { child, stdoutPath: params.stdoutPath, stderrPath: params.stderrPath, stop };
+  return { child, stdoutPath: params.stdoutPath, stderrPath: params.stderrPath, stop, ownership };
 }

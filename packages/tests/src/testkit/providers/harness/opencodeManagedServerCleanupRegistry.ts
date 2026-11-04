@@ -5,11 +5,12 @@ let cleanupHandlersInstalled = false;
 let cleanupPromise: Promise<void> | null = null;
 
 async function cleanupHomes(homes: readonly string[]): Promise<void> {
-  await Promise.all(
-    homes.map(async (homeDir) => {
-      await stopOpenCodeManagedServerFromHomeDir(homeDir).catch(() => {});
-    }),
-  );
+  const results = await Promise.allSettled(homes.map(async (homeDir) => {
+    await stopOpenCodeManagedServerFromHomeDir(homeDir);
+    registeredHomes.delete(homeDir);
+  }));
+  const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+  if (errors.length) throw new AggregateError(errors, 'Managed-server cleanup failed; failed homes remain registered');
 }
 
 function installCleanupHandlers(): void {
@@ -17,12 +18,12 @@ function installCleanupHandlers(): void {
   cleanupHandlersInstalled = true;
 
   process.once('beforeExit', () => {
-    void cleanupRegisteredOpenCodeManagedServerHomesBestEffort();
+    void cleanupRegisteredOpenCodeManagedServerHomesBestEffort().catch(error => console.error(error));
   });
 
   const registerSignalCleanup = (signal: NodeJS.Signals, exitCode: number) => {
     process.once(signal, () => {
-      void cleanupRegisteredOpenCodeManagedServerHomesBestEffort().finally(() => {
+      void cleanupRegisteredOpenCodeManagedServerHomesBestEffort().catch(error => console.error(error)).finally(() => {
         process.exit(exitCode);
       });
     });
@@ -53,7 +54,6 @@ export async function cleanupRegisteredOpenCodeManagedServerHomesBestEffort(): P
   }
 
   const homes = [...registeredHomes];
-  registeredHomes.clear();
   cleanupPromise = cleanupHomes(homes).finally(() => {
     cleanupPromise = null;
   });
