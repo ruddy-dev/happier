@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { lightTheme } from '@/theme';
 import { t } from '@/text';
 import type { WaitingItem } from '../model/waitingItems';
@@ -203,6 +204,7 @@ it('shows desk chrome and phone panes at the agreed boundary', async () => {
 
 
 it('opens a searchable non-modal Sessions sheet and returns focus on Escape', async () => {
+    storage.setState({ profileScope: { serverId: String(getActiveServerSnapshot().serverId), accountId: 'sheet-test-account' } });
     storage.getState().applySessions([createSessionFixture({ id: 'worker', active: true })]);
     await render(1440);
     await click('ip-top-sessions');
@@ -221,6 +223,7 @@ it('opens a searchable non-modal Sessions sheet and returns focus on Escape', as
 });
 
 function seedSheetWorkers() {
+    storage.setState({ profileScope: { serverId: String(getActiveServerSnapshot().serverId), accountId: 'sheet-test-account' } });
     const base = createSessionFixture().metadata!;
     storage.getState().applySessions([
         createSessionFixture({ id: 'issued', active: true, metadata: { ...base, tag: 'ATR-6-build', summary: { text: 'Builder', updatedAt: 1 } } }),
