@@ -631,6 +631,17 @@ function AgentInputHiddenUsageOverflow(props: AgentInputHiddenUsageOverflowProps
     );
 }
 
+// Web intrinsic sizing lets the summary wrap before moving the whole controls group.
+// It follows the actual pane and label widths, including font/zoom changes.
+const deskLeadingActionsWebStyle: ViewStyle = {
+    // @ts-expect-error RN's native style type omits the CSS intrinsic size supported by RN Web.
+    flexBasis: 'min-content',
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%',
+    minWidth: 0,
+};
+
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     container: {
         alignItems: 'center',
@@ -1127,6 +1138,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const wrapDeskActions = deskLayout.desk && Platform.OS === 'web' && !deskLayout.phone;
     const voiceEnabled = useFeatureEnabled('voice');
     const uiBackdropBlurEnabled = useLocalSetting('uiBackdropBlurEnabled') !== false;
     const keyboardShortcutsV2Enabled = useSetting('keyboardShortcutsV2Enabled') === true;
@@ -2519,6 +2531,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     }), []);
     const chipStyle = React.useCallback((pressed: boolean) => ([
         styles.actionChip,
+        deskLayout.desk ? { height: 44, minWidth: 44 } : null,
         !showChipLabels ? actionChipTransientStyles.iconOnly : null,
         pressed ? actionChipTransientStyles.pressed : null,
     ]), [
@@ -2526,9 +2539,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         actionChipTransientStyles.pressed,
         showChipLabels,
         styles.actionChip,
+        deskLayout.desk,
     ]);
     const chipStyleAutoHide = React.useCallback((pressed: boolean) => ([
         styles.actionChip,
+        deskLayout.desk ? { height: 44, minWidth: 44 } : null,
         !showAutoHideChipLabels ? actionChipTransientStyles.iconOnly : null,
         pressed ? actionChipTransientStyles.pressed : null,
     ]), [
@@ -2536,13 +2551,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         actionChipTransientStyles.pressed,
         showAutoHideChipLabels,
         styles.actionChip,
+        deskLayout.desk,
     ]);
 
-    // Fade the chip rows out to the composer's own fill: the glass surface in glass
-    // mode, the standard input background otherwise.
-    const actionBarFadeColor = React.useMemo(() => {
-        return isGlassComposer ? theme.colors.surface.base : theme.colors.input.background;
-    }, [isGlassComposer, theme.colors.surface.base, theme.colors.input.background]);
+    // The opt-in desk panel owns its paint independently of the app theme.
+    const actionBarFadeColor = deskLayout.panelBackground
+        ?? (isGlassComposer ? theme.colors.surface.base : theme.colors.input.background);
+    const actionBarIndicatorColor = deskLayout.controlInk ?? theme.colors.composer.chipTint;
 
     // Handle abort button press
     const handleAbortPress = React.useCallback(async () => {
@@ -2688,14 +2703,14 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         chips: props.extraActionChips,
         overlayAnchorRef,
         onToggleExtraChipCollapsedPopover: handleToggleExtraChipCollapsedPopover,
-        themeTint: theme.colors.composer.chipTint,
+        themeTint: deskLayout.controlInk ?? theme.colors.composer.chipTint,
         showChipLabels,
         showAutoHideChipLabels,
         chipStyle,
         chipStyleAutoHide,
         textStyle: styles.actionChipText,
         countTextStyle: styles.actionChipCountText,
-        actionButtonStyle: styles.actionButton,
+        actionButtonStyle: deskLayout.desk ? [styles.actionButton, { height: 44, minWidth: 44 }] : styles.actionButton,
         actionButtonPressedStyle: styles.actionButtonPressed,
         showPermissionChip,
         permissionChipAnchorRef,
@@ -3052,11 +3067,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         <>
             {actionBarShouldScroll ? (
                 <AgentInputScrollableChipRow
-                    revealFocusedControl={deskLayout.phone}
+                    revealFocusedControl={deskLayout.desk}
                     containerStyle={styles.actionButtonsLeftScroll}
                     contentStyle={styles.actionButtonsLeftScrollContent}
                     fadeColor={actionBarFadeColor}
-                    indicatorColor={theme.colors.composer.chipTint}
+                    indicatorColor={actionBarIndicatorColor}
                     fadeLeftStyle={styles.actionButtonsFadeLeft}
                     fadeRightStyle={styles.actionButtonsFadeRight}
                 >
@@ -3095,13 +3110,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             >{[
                 <View
                     key="row1"
-                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.phone ? { flexDirection: 'column', alignItems: 'stretch' } : null]}
+                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.desk ? (wrapDeskActions ? { flexWrap: 'wrap' } : { flexDirection: 'column', alignItems: 'stretch' }) : null]}
                 >
-                    {deskLayout.desk ? <View style={deskLayout.phone ? { width: '100%' } : { flexShrink: 1 }}>{leadingActions}</View> : leadingActions}
+                    {deskLayout.desk ? <View style={wrapDeskActions ? deskLeadingActionsWebStyle : { width: '100%', minWidth: 0 }}>{leadingActions}</View> : leadingActions}
                     {deskLayout.desk ? (
                         <View
                             testID="agent-input-desk-controls-row"
-                            style={[styles.actionButtonsRow, deskLayout.phone ? { width: '100%' } : { flex: 1, minWidth: 0 }]}
+                            // Let intrinsic content widths decide whether this group fits beside the model.
+                            // At narrow pane widths it wraps, keeping Send with the existing controls.
+                            style={[styles.actionButtonsRow, wrapDeskActions
+                                ? { flexBasis: 'auto', flexShrink: 1, maxWidth: '100%', minWidth: 0 }
+                                : { width: '100%', minWidth: 0 }]}
                         >
                             {renderActionControls()}
                         </View>
@@ -3114,7 +3133,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             containerStyle={styles.actionButtonsSecondaryScroll}
                             contentStyle={styles.actionButtonsScrollViewportContent}
                             fadeColor={actionBarFadeColor}
-                            indicatorColor={theme.colors.composer.chipTint}
+                            indicatorColor={actionBarIndicatorColor}
                             fadeLeftStyle={styles.actionButtonsFadeLeft}
                             fadeRightStyle={styles.actionButtonsFadeRight}
                         >
@@ -3130,7 +3149,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 fillAvailableWidth={false}
                                 leadingControls={secondaryLeadingControlsForWrap}
                                 showChipLabels={showChipLabels}
-                                iconColor={theme.colors.composer.chipTint}
+                                iconColor={deskLayout.controlInk ?? theme.colors.composer.chipTint}
                                 currentPath={props.currentPath}
                                 pathChipAnchorRef={pathChipAnchorRef}
                                 emptyPathLabel={t('newSession.selectPathTitle')}
@@ -3159,7 +3178,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             }}
                             leadingControls={secondaryLeadingControlsForWrap}
                             showChipLabels={showChipLabels}
-                            iconColor={theme.colors.composer.chipTint}
+                            iconColor={deskLayout.controlInk ?? theme.colors.composer.chipTint}
                             currentPath={props.currentPath}
                             pathChipAnchorRef={pathChipAnchorRef}
                             emptyPathLabel={t('newSession.selectPathTitle')}

@@ -7,7 +7,7 @@ import type { AgentInputExtraActionChipRenderContext } from '@/components/sessio
 import type { SessionParticipantTarget } from '@/sync/domains/session/participants/participantTargets';
 import { AgentInputSelectionListPopover } from '@/components/sessions/agentInput/components/AgentInputSelectionListPopover';
 import type { SelectionListStep } from '@/components/ui/selectionList';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { t } from '@/text';
 import { StyleSheet } from 'react-native-unistyles';
 import { buildRecipientRootStep } from '../definitions/createRecipientActionChip';
@@ -76,9 +76,7 @@ export const RecipientChip = React.memo(function RecipientChip(props: RecipientC
                     <View style={styles.chipRow}>
                         <Icon name="navigation-arrow" size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={props.ctx.iconColor} style={AGENT_INPUT_CHIP_ICON_STYLE} />
                         {props.ctx.showLabel ? (
-                            <Text numberOfLines={1} style={props.ctx.textStyle}>
-                                {t('session.participants.cardTo', { label: selectedLabel })}
-                            </Text>
+                            <DeskActionLabel numberOfLines={1} style={props.ctx.textStyle} label={t('session.participants.cardTo', { label: selectedLabel })} />
                         ) : null}
                     </View>
                 </Pressable>
