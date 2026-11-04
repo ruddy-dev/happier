@@ -36,29 +36,45 @@ async function expectNoAnswerAlert(page: Page) {
 
 type LateResultWindow = Window & { __deskJ3LateResultProcessed?: boolean };
 
-// Install before navigation. Observe native delivery without replacing onmessage or the ACK.
-// For this plain reply, Socket.IO dispatch and the RPC/guard/WaitingCard catch chain use
-// only synchronous work and promise microtasks. A MessageChannel task runs after they drain,
-// even when our listener precedes the transport's. It also avoids the fixture's fake timers.
+// Install before navigation. Observe native WS messages and completed XHR polling replies.
+// Engine.IO handles polling in readystatechange before load. For either transport, this
+// plain ACK's Socket.IO/RPC/guard/WaitingCard chain uses synchronous work and microtasks.
+// A MessageChannel task follows that work without using the fixture's fake timers.
 async function observeErrorProcessing(page: Page, errorCode: string) {
     await page.addInitScript(code => {
         (window as LateResultWindow).__deskJ3LateResultProcessed = false;
+        const afterReplyHandlers = () => {
+            const barrier = new MessageChannel();
+            barrier.port1.onmessage = () => {
+                (window as LateResultWindow).__deskJ3LateResultProcessed = true;
+                barrier.port1.close();
+                barrier.port2.close();
+            };
+            barrier.port2.postMessage(null);
+        };
         window.WebSocket = new Proxy(window.WebSocket, {
             construct(target, args, newTarget) {
                 const socket: WebSocket = Reflect.construct(target, args, newTarget);
                 const onMessage = (event: MessageEvent) => {
                     if (typeof event.data !== 'string' || !event.data.includes(code)) return;
                     socket.removeEventListener('message', onMessage);
-                    const barrier = new MessageChannel();
-                    barrier.port1.onmessage = () => {
-                        (window as LateResultWindow).__deskJ3LateResultProcessed = true;
-                        barrier.port1.close();
-                        barrier.port2.close();
-                    };
-                    barrier.port2.postMessage(null);
+                    afterReplyHandlers();
                 };
                 socket.addEventListener('message', onMessage, { passive: true });
                 return socket;
+            },
+        });
+        window.XMLHttpRequest = new Proxy(window.XMLHttpRequest, {
+            construct(target, args, newTarget) {
+                const xhr: XMLHttpRequest = Reflect.construct(target, args, newTarget);
+                xhr.addEventListener('load', () => {
+                    if (xhr.status !== 200 || !xhr.responseURL) return;
+                    const url = new URL(xhr.responseURL);
+                    if (url.pathname !== '/v1/updates/' || url.searchParams.get('transport') !== 'polling') return;
+                    if (xhr.responseType !== '' && xhr.responseType !== 'text') return;
+                    if (xhr.responseText.includes(code)) afterReplyHandlers();
+                }, { once: true, passive: true });
+                return xhr;
             },
         });
     }, errorCode);
