@@ -242,7 +242,7 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                 await chatTab.click();
                 await expect(chatTab).toHaveAttribute('aria-selected', 'true');
                 await expect(workerControl).toHaveAttribute('aria-selected', 'false');
-                await expect(page.getByTestId('session-composer-input')).toBeVisible();
+                await expect(page.getByTestId('session-cockpit-scene:chat').getByTestId('session-composer-input')).toBeVisible();
                 // Chat selects the nested surface; it does not traverse browser history.
                 await expect(page).toHaveURL(workerGitUrl.href);
             }
