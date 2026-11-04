@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 
 import { gotoDomContentLoadedWithRetries, hasPathname } from '../uiE2e/pageNavigation';
+import { flushDeskCountObservation } from './deskCountObservation';
 
 async function waitForDeskReady(page: Page, uiBaseUrl: string, phase: 'sign-in' | 'cold load'): Promise<void> {
     // Keep the desk's existing readiness budget, without the ordinary helper's second timeout/reload.
@@ -18,15 +19,28 @@ async function waitForDeskReady(page: Page, uiBaseUrl: string, phase: 'sign-in' 
         const remaining = timeoutMs - (Date.now() - startedAt);
         if (remaining > 0) await page.waitForTimeout(Math.min(250, remaining));
     }
+    const route = ['/', '/desk', '/restore/manual'].find(path => hasPathname(page.url(), path)) ?? 'other';
     throw new Error(
-        `Desk did not become ready during ${phase} within ${timeoutMs}ms. Expected ${uiBaseUrl}/desk with a visible top bar and coordinator composer or chooser; current URL: ${page.url()}`,
+        `Desk did not become ready during ${phase} within ${timeoutMs}ms. Expected /desk with a visible top bar and coordinator composer or chooser; current route: ${route}`,
     );
 }
 
 /** Signs in on the plain login, then opens the desk with a fresh load, as Luke does each morning. */
-export async function openDesk(page: Page, desk: Readonly<{ uiBaseUrl: string }>): Promise<void> {
+export async function openDesk(page: Page, desk: Readonly<{ uiBaseUrl: string; openAuthenticatedPage?: (page: Page) => Promise<void> }>): Promise<void> {
+    if (desk.openAuthenticatedPage) {
+        await desk.openAuthenticatedPage(page);
+        // Restore owns its return to /. Open the ordinary desk route if it did not
+        // redirect there. Flush first; an earlier desk paint must remain evidence.
+        if (hasPathname(page.url(), '/') && new URL(page.url()).origin === new URL(desk.uiBaseUrl).origin) {
+            await flushDeskCountObservation(page);
+            await gotoDomContentLoadedWithRetries(page, `${desk.uiBaseUrl}/desk`, 120_000);
+        }
+        await waitForDeskReady(page, desk.uiBaseUrl, 'cold load');
+        return;
+    }
     await gotoDomContentLoadedWithRetries(page, `${desk.uiBaseUrl}/?happier_hmr=0`, 180_000);
     await waitForDeskReady(page, desk.uiBaseUrl, 'sign-in');
+    await flushDeskCountObservation(page);
     await gotoDomContentLoadedWithRetries(page, `${desk.uiBaseUrl}/desk`, 120_000);
     await waitForDeskReady(page, desk.uiBaseUrl, 'cold load');
 }

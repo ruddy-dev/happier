@@ -6,6 +6,7 @@ import type { AgentState as CliAgentState } from '@/api/types';
 import { fetchSessionV2 } from '../sessions';
 import { sleep, waitFor } from '../timing';
 import { createMachineBoundSessionScopedSocketCollector } from '../sessionSocketBinding';
+import { unwrapSerializedJsonValue } from '../unwrapSerializedJsonValue';
 
 type PermissionRequest = {
   id: string;
@@ -82,14 +83,20 @@ function createCodec(encryption: SyntheticAgentEncryption): SyntheticAgentCodec 
   const { dataKey } = encryption;
   return {
     encodeState: (state) => encryptDataKeyBase64(state, dataKey),
-    decodeState: (value) => decryptDataKeyBase64(value, dataKey) as AgentStateShape | null,
+    decodeState: (value) => unwrapSerializedJsonValue(decryptDataKeyBase64(value, dataKey)) as AgentStateShape | null,
     encodeRpc: (value) => encryptDataKeyBase64(value, dataKey),
-    decodeRpc: (value) => (typeof value === 'string' ? decryptDataKeyBase64(value, dataKey) : null),
+    decodeRpc: (value) => (typeof value === 'string' ? unwrapSerializedJsonValue(decryptDataKeyBase64(value, dataKey)) : null),
   };
 }
 
 /** Pass `dataKey` for an e2ee session (the original form) or `encryption` to choose the mode explicitly. */
-export type SyntheticAgentParams = Readonly<{ baseUrl: string; token: string; sessionId: string }> &
+export type SyntheticAgentParams = Readonly<{
+  baseUrl: string;
+  token: string;
+  sessionId: string;
+  /** In-memory observation of the accepted RPC, independent of polling/WebSocket transport. */
+  onPermissionDecision?: (request: Readonly<{ method: string; params: unknown }>, decision: PermissionDecision) => void;
+}> &
   (Readonly<{ dataKey: Uint8Array }> | Readonly<{ encryption: SyntheticAgentEncryption }>);
 
 export class SyntheticAgent {
@@ -98,12 +105,14 @@ export class SyntheticAgent {
   private readonly sessionId: string;
   private readonly codec: SyntheticAgentCodec;
   private readonly receivedDecisions: PermissionDecision[] = [];
+  private readonly onPermissionDecision: SyntheticAgentParams['onPermissionDecision'];
   private socket: SocketCollector | null = null;
 
   constructor(params: SyntheticAgentParams) {
     this.baseUrl = params.baseUrl;
     this.token = params.token;
     this.sessionId = params.sessionId;
+    this.onPermissionDecision = params.onPermissionDecision;
     this.codec = createCodec('encryption' in params ? params.encryption : { type: 'dataKey', dataKey: params.dataKey });
   }
 
@@ -147,6 +156,7 @@ export class SyntheticAgent {
       }
 
       this.receivedDecisions.push(decision);
+      this.onPermissionDecision?.(req, decision);
       await this.applyPermissionDecision(decision);
       return this.codec.encodeRpc({ ok: true });
     });

@@ -984,6 +984,7 @@ class Sync {
       private isForeground = this.usesPersistentDesktopSync || AppState.currentState === 'active';
       public encryptionCache = new EncryptionCache();
     private sessionsSync: InvalidateSync;
+    private createSessionsSync: () => InvalidateSync;
     // Record-only consumers share the snapshot's exact-fetch path, with the approved
     // four-request bound across concurrent late registrations and snapshot exact reads.
     private readonly recordConsumerHydrationLimiter = createTaskLimiter(4);
@@ -1066,6 +1067,7 @@ class Sync {
     private pendingSettings: Partial<Settings> = {};
     private pendingSettingsScope: AccountSettingsScope | null = null;
     private isBootstrapSyncRunning = false;
+    private bootstrapReadiness: { generation: number; coreReady: boolean; sessionsReady: boolean } | null = null;
     private legacySessionOrganizationImportedPinnedSessionIdsForBootstrap = new Set<string>();
     private pendingSettingsFlushTimer: ReturnType<typeof setTimeout> | null = null;
     private pendingSettingsDirty = false;
@@ -1305,7 +1307,30 @@ class Sync {
                 () => this.snapshotSyncAttemptLimiter.run(command)
             );
 
-            this.sessionsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchSessions), { onError, onSuccess, onRetry, pause, backoff });
+            this.createSessionsSync = () => {
+                const generation = this.serverScopeGeneration;
+                const isCurrentScope = () => generation === this.serverScopeGeneration;
+                return new InvalidateSync(limitSnapshotSyncAttempt(async () => {
+                    if (isCurrentScope()) await this.fetchSessions();
+                }), {
+                    onError: (error) => { if (isCurrentScope()) onError(error); },
+                    onRetry: (info) => { if (isCurrentScope()) onRetry(info); },
+                    onSuccess: () => {
+                        if (!isCurrentScope()) return;
+                        onSuccess();
+                        // Queue drain also follows terminal failure; only a successful
+                        // current-scope snapshot may finish initial data readiness.
+                        if (this.bootstrapReadiness?.generation === generation
+                            && this.hasFetchedSessionsSnapshotForActiveServer) {
+                            this.bootstrapReadiness.sessionsReady = true;
+                            this.publishBootstrapReadyIfComplete();
+                        }
+                    },
+                    pause,
+                    backoff,
+                });
+            };
+            this.sessionsSync = this.createSessionsSync();
             this.settingsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.syncSettings), {
                 onError: onSettingsError,
                 onSuccess: onSettingsSuccess,
@@ -2062,6 +2087,13 @@ class Sync {
         this.deferredWebVisibilityTeardown = null;
         this.stopJsThreadLagTelemetryRuntime();
         this.serverScopeGeneration += 1;
+        this.bootstrapReadiness = null;
+        this.isBootstrapSyncRunning = false;
+        this.legacySessionOrganizationImportedPinnedSessionIdsForBootstrap.clear();
+        // A previous scope's hung request or retry must not own the next scope's
+        // queue. stop() settles its waiters; late results retain generation guards.
+        this.sessionsSync.stop();
+        this.sessionsSync = this.createSessionsSync();
         this.flushPendingSettingsForCurrentScopeNow();
         this.flushSessionMaterializedMaxSeq();
         this.clearActiveAccountSettingsScope();
@@ -4780,21 +4812,33 @@ class Sync {
             );
         };
 
+      private publishBootstrapReadyIfComplete(): void {
+          const readiness = this.bootstrapReadiness;
+          if (!readiness || readiness.generation !== this.serverScopeGeneration
+              || !readiness.coreReady || !readiness.sessionsReady) return;
+          storage.getState().applyReady();
+          this.bootstrapReadiness = null;
+      }
+
       private bootstrapSync = async (): Promise<void> => {
+          const generation = this.serverScopeGeneration;
+          const isCurrentScope = () => generation === this.serverScopeGeneration;
           if (this.isBootstrapSyncRunning) {
               return;
           }
           await this.pauseController.waitUntilResumed();
-          if (!this.credentials) {
+          if (!this.credentials || !isCurrentScope()) {
               return;
           }
           if (this.isBootstrapSyncRunning) {
               return;
           }
           this.isBootstrapSyncRunning = true;
+          this.bootstrapReadiness = { generation, coreReady: false, sessionsReady: false };
           this.legacySessionOrganizationImportedPinnedSessionIdsForBootstrap.clear();
 
           const invalidateBounded = async (syncUnit: InvalidateSync, timeoutMs: number): Promise<void> => {
+              if (!isCurrentScope()) return;
               syncUnit.invalidateCoalesced();
               await syncUnit.awaitQueue({ timeoutMs });
           };
@@ -4815,10 +4859,13 @@ class Sync {
                   ],
                   bootstrapConcurrencyLimit
               );
+              if (!isCurrentScope()) return;
 
               await this.refreshSessionDraftRepositoryForSync();
+              if (!isCurrentScope()) return;
 
               await this.rearmPendingOutboxForActiveScope();
+              if (!isCurrentScope()) return;
 
               const importedPinnedSessionIds = this.consumeBootstrapLegacyOrganizationImportedPinnedSessionIds();
               if (importedPinnedSessionIds.length > 0) {
@@ -4828,13 +4875,13 @@ class Sync {
                       prioritizeSessionIds: importedPinnedSessionIds,
                       hydrationTelemetrySource: 'bootstrapImportedPins',
                   });
+                  if (!isCurrentScope()) return;
               }
 
-              try {
-                  storage.getState().applyReady();
-              } catch {
-                  // ignore
-              }
+              // Bounded waits release bootstrap orchestration, not data readiness.
+              // A delayed/retried session success completes this through its queue.
+              this.bootstrapReadiness.coreReady = true;
+              this.publishBootstrapReadyIfComplete();
 
               // Phase 2: load non-critical lists.
               await runTasksWithLimit(
@@ -4850,8 +4897,10 @@ class Sync {
                   this.syncTuning.resumeConcurrencyLimit
               );
           } finally {
-              this.isBootstrapSyncRunning = false;
-              this.legacySessionOrganizationImportedPinnedSessionIdsForBootstrap.clear();
+              if (isCurrentScope()) {
+                  this.isBootstrapSyncRunning = false;
+                  this.legacySessionOrganizationImportedPinnedSessionIdsForBootstrap.clear();
+              }
           }
         };
 
