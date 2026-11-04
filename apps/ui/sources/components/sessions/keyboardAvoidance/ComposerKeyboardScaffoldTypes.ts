@@ -38,5 +38,7 @@ export type ComposerKeyboardScaffoldProps = Readonly<{
     style?: StyleProp<ViewStyle>;
     /** Defaults to `opaque`. See `ComposerKeyboardScaffoldSurface`. */
     surface?: ComposerKeyboardScaffoldSurface;
+    /** Optional opaque ground. Native transparent mode still paints neither wrapper. */
+    surfaceColor?: string;
     testID?: string;
 }>;

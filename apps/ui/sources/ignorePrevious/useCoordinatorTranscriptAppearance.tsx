@@ -7,7 +7,7 @@ import { TranscriptAppearanceContext, TranscriptToolCallsGroupingContext, type T
 import { MaskFace } from './components/MaskFace';
 import { useDeskPref } from './deskPrefs';
 import { DESK_FONT_STACK } from './fonts/deskFont';
-import { terminalPalettes } from './palette';
+import { terminalPalettes, useDeskPaint } from './palette';
 
 const maskAppearance: TranscriptAppearance = {
     fontFamily: DESK_FONT_STACK,
@@ -27,11 +27,14 @@ export function CoordinatorTranscriptAppearanceProvider({ children }: React.Prop
 export function useCoordinatorTranscriptAppearance(): TranscriptAppearance {
     const [style] = useDeskPref('chatStyle');
     const [palette] = useDeskPref('terminalPalette');
+    const desk = useDeskPaint();
     return React.useMemo(() => {
-        if (style !== 'terminal') return maskAppearance;
-        const paint = terminalPalettes[palette];
+        const paint = style === 'terminal' ? terminalPalettes[palette] : desk.paint;
+        const shellColors = { background: paint.panel, primary: paint.ink, secondary: paint.mute };
+        if (style !== 'terminal') return { ...maskAppearance, shellColors };
         return {
             fontFamily: DESK_FONT_STACK,
+            shellColors,
             questionColors: {
                 text: paint.ink, secondary: paint.mute, surface: paint.panel2,
                 border: paint.mute, accent: paint.hl, onAccent: paint.bg,
@@ -50,5 +53,5 @@ export function useCoordinatorTranscriptAppearance(): TranscriptAppearance {
                 border: { default: paint.rule },
             },
         };
-    }, [style, palette]);
+    }, [style, palette, desk.paint]);
 }

@@ -4,6 +4,7 @@ import Color from 'color';
 import { isRecoveredHistoryTranscriptObservationProvenance } from '@happier-dev/protocol';
 
 import { AgentContentView } from '@/components/sessions/transcript/AgentContentView';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { AgentInput, type AgentInputSendOptions } from '@/components/sessions/agentInput';
 import { COMPOSER_CONTENT_HORIZONTAL_INSET } from '@/components/sessions/agentInput/composerContentInset';
 import {
@@ -1596,6 +1597,10 @@ export const SessionView = React.memo((props: SessionViewProps) => {
     const stableSessionForHeader = session;
     const isDataReady = useIsDataReady();
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const shellFontStyle = appearance?.fontFamily ? { fontFamily: appearance.fontFamily } : {};
+    const shellPrimary = appearance?.shellColors?.primary ?? theme.colors.text.primary;
+    const shellSecondary = appearance?.shellColors?.secondary ?? theme.colors.text.secondary;
     const explicitRouteServerId = (routeHydrationState?.serverId ?? props.routeServerId ?? '').trim();
     const currentSessionRouteServerId =
         explicitRouteServerId
@@ -1957,14 +1962,14 @@ export const SessionView = React.memo((props: SessionViewProps) => {
             )}
 
             {/* Content based on state */}
-            <View style={{ flex: 1, paddingTop: showTopHeader ? safeAreaTopInset + headerHeight : 0 }}>
+            <View style={{ flex: 1, paddingTop: showTopHeader ? safeAreaTopInset + headerHeight : 0, backgroundColor: appearance?.shellColors?.background }}>
                 {!session && authSurfaceState ? (
                     <SessionAuthRecoveryFallback message={authSurfaceState.message} />
                 ) : routeHydrationRetrying ? (
                     <View testID="session-route-retrying" style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }}>
-                        <ActivitySpinner size={HERO_SPINNER_SIZE} color={theme.colors.text.secondary} />
+                        <ActivitySpinner size={HERO_SPINNER_SIZE} color={shellSecondary} />
                         {routeHydrationRetryStatusKey ? (
-                            <Text style={{ color: theme.colors.text.secondary, marginTop: 10, textAlign: 'center' }}>
+                            <Text style={{ color: shellSecondary, ...shellFontStyle, marginTop: 10, textAlign: 'center' }}>
                                 {t(routeHydrationRetryStatusKey)}
                             </Text>
                         ) : null}
@@ -1972,14 +1977,14 @@ export const SessionView = React.memo((props: SessionViewProps) => {
                 ) : ((!isDataReady && !session) || routeHydrationLoading) ? (
                     // Loading state
                     <View testID="session-route-loading" style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                        <ActivitySpinner size={HERO_SPINNER_SIZE} color={theme.colors.text.secondary} />
+                        <ActivitySpinner size={HERO_SPINNER_SIZE} color={shellSecondary} />
                     </View>
                 ) : !session && (routeHydrationTerminalMissing || !routeHydrationState) ? (
                     // Deleted state
                     <View testID="session-root-unavailable" style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                        <Icon name="trash" size={48} color={theme.colors.text.secondary} />
-                        <Text style={{ color: theme.colors.text.primary, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
-                        <Text style={{ color: theme.colors.text.secondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
+                        <Icon name="trash" size={48} color={shellSecondary} />
+                        <Text style={{ color: shellPrimary, ...shellFontStyle, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
+                        <Text style={{ color: shellSecondary, ...shellFontStyle, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
                     </View>
                   ) : normalSessionContent}
             </View>
@@ -2332,6 +2337,7 @@ const SessionTranscriptPlaceholder = React.memo(function SessionTranscriptPlaceh
     onRestoreSecretKeyPress,
     activityColor,
 }: SessionTranscriptPlaceholderProps) {
+    const appearance = React.useContext(TranscriptAppearanceContext);
     const { isLoaded, shouldRenderChatTimeline } = useSessionTranscriptRenderState({
         sessionId,
         session,
@@ -2394,7 +2400,7 @@ const SessionTranscriptPlaceholder = React.memo(function SessionTranscriptPlaceh
     return isLoaded ? (
         <EmptyMessages session={session} />
     ) : (
-        <ActivitySpinner size={HERO_SPINNER_SIZE} color={activityColor} />
+        <ActivitySpinner size={HERO_SPINNER_SIZE} color={appearance?.shellColors?.secondary ?? activityColor} />
     );
 });
 

@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
 
 import { Modal } from '@/modal';
 import { readComposerText, requestComposerText } from '@/components/sessions/model/composerRequests';
@@ -12,7 +11,6 @@ import { DeskText } from '../typography/DeskText';
 import { usePhoneControlPaint } from './usePhoneControlPaint';
 
 function PromptChip({ testID, label, onPress, phone, reveal }: { testID: string; label: string; onPress: () => void; phone: boolean; reveal: (node: View | null) => void }) {
-    const { theme } = useUnistyles();
     const { terminal, paint } = usePhoneControlPaint();
     const [focused, setFocused] = React.useState(false);
     const chipRef = React.useRef<View>(null);
@@ -20,14 +18,14 @@ function PromptChip({ testID, label, onPress, phone, reveal }: { testID: string;
     React.useLayoutEffect(() => {
         if (phone && focused) reveal(chipRef.current);
     }, [phone, focused, reveal]);
-    const styled = phone && terminal;
+    const styled = terminal;
     return <Pressable ref={chipRef} testID={testID} accessibilityRole="button" accessibilityLabel={label} onPress={onPress}
         onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         style={{ flexShrink: 0, minHeight: phone ? 48 : undefined, justifyContent: 'center', paddingHorizontal: 10,
             paddingVertical: 6, borderRadius: styled ? 0 : 10, borderWidth: phone && focused ? 2 : 1,
-            borderColor: phone && focused ? paint.ink : styled ? paint.rule : theme.colors.border.default,
-            backgroundColor: styled ? paint.panel2 : theme.colors.surface.inset }}>
-        <DeskText style={{ color: styled ? paint.mute : theme.colors.text.primary, fontSize: 13, fontWeight: styled ? '500' : '600' }}>
+            borderColor: phone && focused ? paint.ink : paint.rule,
+            backgroundColor: paint.panel2 }}>
+        <DeskText style={{ color: styled ? paint.mute : paint.ink, fontSize: 13, fontWeight: styled ? '500' : '600' }}>
             {styled ? `[ ${label} ]` : label}
         </DeskText>
     </Pressable>;
@@ -67,6 +65,7 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  */
 export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinatorId: string; phone?: boolean }) {
     const { count } = useDeskWaitsSummary(coordinatorId);
+    const { paint } = usePhoneControlPaint();
     const shortcutsRef = React.useRef<ScrollView>(null);
     const revealPhoneChip = React.useCallback((chip: View | null) => {
         if (Platform.OS !== 'web' || !(chip instanceof HTMLElement)) return;
@@ -103,7 +102,7 @@ export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinat
         </>;
     if (phone) return <ScrollView ref={shortcutsRef} testID="ip-phone-shortcuts" horizontal keyboardShouldPersistTaps="handled" style={{ flexGrow: 0, minWidth: 0, maxWidth: '100%' }} contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>{contents}</ScrollView>;
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 8, backgroundColor: paint.panel }}>
             {contents}
         </View>
     );
