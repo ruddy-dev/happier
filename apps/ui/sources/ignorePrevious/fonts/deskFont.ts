@@ -1,4 +1,12 @@
+import { Platform } from 'react-native';
+import { Typography } from '@/constants/Typography';
+
 export const DESK_FONT_STACK = '"JetBrains Mono", ui-monospace, monospace';
+
+/** CSS fallback lists are web-only; native uses Happier's built-in system mono policy. */
+export function deskMonoFontFamily() {
+    return Platform.OS === 'web' ? DESK_FONT_STACK : Typography.legacy.systemMono().fontFamily;
+}
 // Exact pathnames only; the root entry opts in only while signed out.
 export const DESK_HAPPIER_PAGE_ROUTES: readonly string[] = ['/', '/restore/manual', '/settings/voice'];
 export const DESK_FONT_ROUTES: readonly string[] = ['/desk', '/desk/settings', ...DESK_HAPPIER_PAGE_ROUTES];

@@ -5,6 +5,11 @@ import { standardCleanup } from '@/dev/testkit';
 import { lightTheme } from '@/theme';
 import { questionPaletteChecks } from './testkit/questionPaletteChecks';
 
+vi.mock('react-native', async () => {
+    const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
+    return createReactNativeWebMock();
+});
+
 vi.mock('react-native-unistyles', async () => {
     const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
     return createUnistylesMock();
