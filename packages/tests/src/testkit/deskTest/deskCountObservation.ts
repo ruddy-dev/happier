@@ -6,7 +6,7 @@ type ObservationWindow = Window & {
     __flushDeskCounts?: () => Promise<void>;
 };
 
-/** Retain only count labels in the runner, across every document in this journey. */
+/** Retain mounted count-label text transitions across documents, not browser paints or unmounted state. */
 export async function observeDeskCounts(page: Page): Promise<() => Promise<DeskCounts>> {
     const counts: DeskCounts = { agents: [], approvals: [] };
     await page.exposeFunction('__recordDeskCount', (kind: unknown, value: unknown) => {
@@ -20,20 +20,57 @@ export async function observeDeskCounts(page: Page): Promise<() => Promise<DeskC
         // Playwright installs this binding at the browser boundary before init scripts run.
         const target = window as unknown as ObservationWindow;
         const pending: Promise<void>[] = [];
-        let previousAgents: string | null | undefined;
-        let previousApprovals: string | null | undefined;
-        const capture = () => {
-            const agents = document.querySelector('[data-testid="ip-count-all"]')?.textContent;
-            const approvals = document.querySelector('[data-testid="ip-approvals-open"] [data-testid="ip-approvals-count"]')?.textContent;
-            if (agents && agents !== previousAgents) pending.push(target.__recordDeskCount('agents', agents));
-            if (approvals && approvals !== previousApprovals) pending.push(target.__recordDeskCount('approvals', approvals));
-            previousAgents = agents;
-            previousApprovals = approvals;
+        const selectors = {
+            agents: '[data-testid="ip-count-all"]',
+            approvals: '[data-testid="ip-approvals-open"] [data-testid="ip-approvals-count"]',
         };
-        new MutationObserver(capture).observe(document, { subtree: true, childList: true, characterData: true });
-        capture();
+        const previous: Partial<Record<keyof DeskCounts, string>> = {};
+        const record = (kind: keyof DeskCounts, value: string | null | undefined) => {
+            if (!value || previous[kind] === value) return;
+            previous[kind] = value;
+            pending.push(target.__recordDeskCount(kind, value));
+        };
+        const capture = (mutations: MutationRecord[]) => {
+            // Text nodes may already be detached by a later mutation in this batch.
+            // Use the removal record to recover their count-label ancestry.
+            const removedParents = new Map<Node, Node>();
+            for (const mutation of mutations) {
+                for (const node of mutation.removedNodes) removedParents.set(node, mutation.target);
+            }
+            const countKind = (node: Node): keyof DeskCounts | null => {
+                let approvals = false;
+                for (let current: Node | null = node; current; current = current.parentNode ?? removedParents.get(current) ?? null) {
+                    if (current.nodeType !== Node.ELEMENT_NODE) continue;
+                    const id = (current as Element).getAttribute('data-testid');
+                    if (id === 'ip-count-all') return 'agents';
+                    if (id === 'ip-approvals-count') approvals = true;
+                    if (approvals && id === 'ip-approvals-open') return 'approvals';
+                }
+                return null;
+            };
+            for (const mutation of mutations) {
+                const kind = countKind(mutation.target);
+                if (kind && mutation.type === 'characterData') record(kind, mutation.oldValue);
+                if (mutation.type === 'childList') {
+                    if (kind) record(kind, Array.from(mutation.removedNodes, node => node.textContent ?? '').join(''));
+                    // Also retain a label when its whole mounted subtree was replaced.
+                    for (const node of mutation.removedNodes) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        const element = node as Element;
+                        for (const key of ['agents', 'approvals'] as const) {
+                            if (countKind(element) === key) record(key, element.textContent);
+                            for (const label of element.querySelectorAll(selectors[key])) record(key, label.textContent);
+                        }
+                    }
+                }
+            }
+            for (const key of ['agents', 'approvals'] as const) record(key, document.querySelector(selectors[key])?.textContent);
+        };
+        const observer = new MutationObserver(capture);
+        observer.observe(document, { subtree: true, childList: true, characterData: true, characterDataOldValue: true });
+        capture([]);
         target.__flushDeskCounts = async () => {
-            capture();
+            capture(observer.takeRecords());
             await Promise.all(pending);
         };
     });

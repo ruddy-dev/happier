@@ -4300,7 +4300,14 @@ class Sync {
             ...upstreamRequiredSessionIds,
             ...recordConsumerSessionIds,
         ]));
+        // Cold bootstrap has no mounted record consumers yet. Its first snapshot must
+        // materialize metadata before readiness exposes counts and coordinator identity.
+        // Resolve the rows inside the existing snapshot owner, without another fetch.
+        const awaitBootstrapSnapshotHydration = !isAppend
+            && this.bootstrapReadiness?.generation === generation
+            && !this.bootstrapReadiness.sessionsReady;
         const awaitSessionListHydration = options?.awaitSessionListHydration === true
+            || awaitBootstrapSnapshotHydration
             || organizationRequiredSessionIds.length > 0
             || recordConsumerSessionIds.length > 0;
         if (syncPerformanceTelemetry.isEnabled()) {
@@ -4364,8 +4371,9 @@ class Sync {
             },
             prioritizeSessionIds: prioritizedHydrationIds,
             activeSessionIds: activeHydrationSessionIds,
-            requiredHydrationSessionIds,
-            softRequiredHydrationSessionIds: recordConsumerSessionIds.filter(id => !upstreamRequiredSessionIds.has(id)),
+            requiredHydrationSessionIds: awaitBootstrapSnapshotHydration ? 'all' : requiredHydrationSessionIds,
+            softRequiredHydrationSessionIds: awaitBootstrapSnapshotHydration
+                ? [] : recordConsumerSessionIds.filter(id => !upstreamRequiredSessionIds.has(id)),
             awaitSessionListHydration,
             sessionListEagerHydrationCount: isAppend
                 ? this.syncTuning.sessionListAppendEagerHydrationCount
@@ -4408,7 +4416,7 @@ class Sync {
         this.sessionListHasMore = result.hasNext;
         // Direct refresh/import callers share this completion boundary with the queue.
         // Snapshot receipt alone precedes required hydration and may still end in failure.
-        if (snapshotFetched && this.bootstrapReadiness?.generation === generation) {
+        if (!isAppend && snapshotFetched && this.bootstrapReadiness?.generation === generation) {
             this.bootstrapReadiness.sessionsReady = true;
             this.publishBootstrapReadyIfComplete();
         }
