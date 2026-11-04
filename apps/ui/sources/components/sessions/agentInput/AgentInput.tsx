@@ -59,6 +59,7 @@ import { resolveProfileById } from '@/sync/domains/profiles/profileUtils';
 import { getProfileDisplayName } from '@/components/profiles/profileDisplay';
 import { useScrollEdgeFades } from '@/components/ui/scroll/useScrollEdgeFades';
 import { AgentInputScrollableChipRow } from './layout/AgentInputScrollableChipRow';
+import { useCoordinatorComposerLayout } from '@/ignorePrevious/model/coordinatorComposerInput';
 import { PathAndResumeRow } from './layout/PathAndResumeRow';
 import {
     getHasAnyAgentInputActions,
@@ -1122,6 +1123,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
 }));
 
 export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, AgentInputProps>((props, ref) => {
+    const deskLayout = useCoordinatorComposerLayout();
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -3056,9 +3058,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             >{[
                 <View
                     key="row1"
-                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null]}
+                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.phone ? { flexWrap: 'wrap' } : null]}
                 >
-                    {leadingActions}
+                    {deskLayout.desk ? <View style={deskLayout.phone ? { width: '100%' } : { flexShrink: 1 }}>{leadingActions}</View> : leadingActions}
                     {actionBarShouldScroll ? (
                         <AgentInputScrollableChipRow
                             containerStyle={styles.actionButtonsLeftScroll}
