@@ -1318,13 +1318,6 @@ class Sync {
                     onSuccess: () => {
                         if (!isCurrentScope()) return;
                         onSuccess();
-                        // Queue drain also follows terminal failure; only a successful
-                        // current-scope snapshot may finish initial data readiness.
-                        if (this.bootstrapReadiness?.generation === generation
-                            && this.hasFetchedSessionsSnapshotForActiveServer) {
-                            this.bootstrapReadiness.sessionsReady = true;
-                            this.publishBootstrapReadyIfComplete();
-                        }
                     },
                     pause,
                     backoff,
@@ -4330,6 +4323,7 @@ class Sync {
                 }),
             );
         }
+        let snapshotFetched = false;
         const result = await fetchAndApplySessions({
             clientEncryptionRequirement: resolveUiClientEncryptionRequirement({
                 syncedSettings: storage.getState().settings,
@@ -4362,6 +4356,7 @@ class Sync {
             },
             onSnapshotFetched: (sessionIds) => {
                 if (!shouldContinue()) return;
+                snapshotFetched = true;
                 this.activeServerSessionIds = isAppend
                     ? new Set([...this.activeServerSessionIds, ...sessionIds])
                     : new Set(sessionIds);
@@ -4411,6 +4406,12 @@ class Sync {
         if (!shouldContinue()) return;
         this.sessionListNextCursor = result.hasNext ? result.nextCursor : null;
         this.sessionListHasMore = result.hasNext;
+        // Direct refresh/import callers share this completion boundary with the queue.
+        // Snapshot receipt alone precedes required hydration and may still end in failure.
+        if (snapshotFetched && this.bootstrapReadiness?.generation === generation) {
+            this.bootstrapReadiness.sessionsReady = true;
+            this.publishBootstrapReadyIfComplete();
+        }
     }
 
     public fetchMoreSessions = async (): Promise<void> => {
@@ -4879,7 +4880,7 @@ class Sync {
               }
 
               // Bounded waits release bootstrap orchestration, not data readiness.
-              // A delayed/retried session success completes this through its queue.
+              // A delayed/retried session fetch completes this at the shared fetch owner.
               this.bootstrapReadiness.coreReady = true;
               this.publishBootstrapReadyIfComplete();
 
