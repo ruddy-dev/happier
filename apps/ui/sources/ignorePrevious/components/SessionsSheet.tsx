@@ -105,7 +105,9 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
     const all = React.useMemo(() => ({ ...current, list: [...current.list, ...readableArchives] }), [current, readableArchives]);
     const issueKeys = useIssueKeys(all);
     const unresolvedIssueRows = React.useMemo(() => all.list.filter(row => row.metadata !== null
-        && !hasSessionIssueMetadata(row, all.lookup.get(row.id))), [all]);
+        && (!hasSessionIssueMetadata(row, all.lookup.get(row.id))
+            || (!fixture && sync.isSessionListMetadataVersionStale(row.id, all.lookup.get(row.id)?.metadataVersion ?? row.metadataVersion)))),
+    [all, fixture, currentPaging, archivePaging]);
     React.useEffect(() => {
         if (fixture || !scope) return;
         // The open sheet needs authoritative identity even for archive/list-only rows.
@@ -176,15 +178,17 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
         return () => clearTimeout(timer);
     }, [query]);
     const coordinator = current.list.find(row => row.id === coordinatorId);
+    const searchableIds = new Set(all.list.filter(row => row.metadata !== null
+        && (fixture || !sync.isSessionListMetadataVersionStale(row.id, row.metadataVersion))).map(row => row.id));
     const entries = [
-        { title: t('ignorePrevious.topBar.coordinator'), rows: coordinator ? [{ id: coordinator.id, title: getSessionName(coordinator), searchable: coordinator.metadata !== null }] : [] },
-        { title: t('ignorePrevious.topBar.onIssues'), rows: groups.filter(g => g.issueKey !== null).flatMap(g => g.workers.map(w => ({ id: w.sessionId, title: `${g.issueKey} ${w.title}`, searchable: renderables[w.sessionId]?.metadata != null }))) },
-        { title: t('ignorePrevious.noIssue'), rows: groups.filter(g => g.issueKey === null).flatMap(g => g.workers.map(w => ({ id: w.sessionId, title: w.title, searchable: renderables[w.sessionId]?.metadata != null }))) },
+        { title: t('ignorePrevious.topBar.coordinator'), rows: coordinator ? [{ id: coordinator.id, title: getSessionName(coordinator), searchable: searchableIds.has(coordinator.id) }] : [] },
+        { title: t('ignorePrevious.topBar.onIssues'), rows: groups.filter(g => g.issueKey !== null).flatMap(g => g.workers.map(w => ({ id: w.sessionId, title: `${g.issueKey} ${w.title}`, searchable: searchableIds.has(w.sessionId) }))) },
+        { title: t('ignorePrevious.noIssue'), rows: groups.filter(g => g.issueKey === null).flatMap(g => g.workers.map(w => ({ id: w.sessionId, title: w.title, searchable: searchableIds.has(w.sessionId) }))) },
     ].map(group => ({ ...group, rows: group.rows.filter(row => (!query || row.searchable) && row.title.toLocaleLowerCase().includes(query)) }));
     const archivedRows = readableArchives.map(row => {
         const issue = issueKeys.get(row.id);
         return { id: row.id, title: `${issue ? `${issue} ` : ''}${getSessionName(row)}` };
-    }).filter(row => row.title.toLocaleLowerCase().includes(query));
+    }).filter(row => (!query || searchableIds.has(row.id)) && row.title.toLocaleLowerCase().includes(query));
     const pending = !ready || archiveState === 'loading' || currentState === 'loading' || archiveRequestPending || currentRequestPending;
     const hasMatches = entries.some(group => group.rows.length > 0) || archivedRows.length > 0;
     React.useEffect(() => {

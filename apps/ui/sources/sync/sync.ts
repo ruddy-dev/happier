@@ -4088,10 +4088,16 @@ class Sync {
     private readRecordConsumerHydrationDemand(serverId: string | null, generation: number): string[] {
         const ids = readMountedSessionRealtimeRecordConsumerSessionIds(serverId)
             .filter(id => resolveSessionLiveConsumption(id, serverId).isRecordConsumer).sort();
-        const key = JSON.stringify([generation, serverId, ids]);
+        const key = JSON.stringify([generation, serverId]);
         if (key !== this.recordConsumerAttemptsKey) {
             this.recordConsumerAttemptsKey = key;
             this.recordConsumerAttemptedIds.clear();
+        }
+        // Paging can add other consumers while a failed row remains mounted. Only
+        // leaving that row's demand (or an explicit snapshot) permits its retry.
+        const demanded = new Set(ids);
+        for (const id of this.recordConsumerAttemptedIds) {
+            if (!demanded.has(id)) this.recordConsumerAttemptedIds.delete(id);
         }
         return ids;
     }
@@ -4109,7 +4115,7 @@ class Sync {
             for (const sessionId of ids) {
                 if (!this.needsRecordConsumerHydration(sessionId) || this.recordConsumerAttemptedIds.has(sessionId)) continue;
                 this.recordConsumerAttemptedIds.add(sessionId);
-                // No retry loop: only a membership change or an explicit snapshot retries a failure.
+                // No retry loop: only renewed demand for this row or an explicit snapshot retries a failure.
                 fireAndForget(this.hydrateRequiredSessionRecord(sessionId, serverId, generation), {
                     tag: 'Sync.recordConsumerHydration',
                 });
@@ -4123,7 +4129,8 @@ class Sync {
         if (!loaded) return true;
         const listed = state.sessionListRenderables[sessionId];
         // Reuse loaded records unless current list evidence proves their metadata is behind.
-        return Boolean(listed && loaded.metadataVersion < listed.metadataVersion);
+        return Boolean(listed && loaded.metadataVersion < listed.metadataVersion)
+            || this.isSessionListMetadataVersionStale(sessionId, loaded.metadataVersion);
     }
 
     private hydrateRequiredSessionRecord(sessionId: string, activeServerId: string | null, generation: number): Promise<void> {
@@ -4203,6 +4210,16 @@ class Sync {
     public isArchivedSessionListRowCurrent = (sessionId: string, metadataVersion: number): boolean => {
         const fetchedVersion = this.archivedSessionListMetadataVersions.get(sessionId);
         return Boolean(this.credentials && fetchedVersion !== undefined && metadataVersion >= fetchedVersion);
+    };
+
+    // Displayed metadata can deliberately retain an older cached version. Compare
+    // against accepted page evidence, not another equally stale record/projection.
+    // No accepted version means no known staleness; this does not prove membership.
+    public isSessionListMetadataVersionStale = (sessionId: string, metadataVersion: number): boolean => {
+        return Boolean(this.credentials && (
+            (this.sessionListMetadataVersions.get(sessionId) ?? metadataVersion) > metadataVersion
+            || (this.archivedSessionListMetadataVersions.get(sessionId) ?? metadataVersion) > metadataVersion
+        ));
     };
 
     public subscribeSessionListPagingState = (listener: () => void): (() => void) => {
