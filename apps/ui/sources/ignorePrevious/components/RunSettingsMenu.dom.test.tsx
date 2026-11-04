@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { RunSettingsMenu } from './RunSettingsMenu';
+import { CoordinatorComposerInputContext, createCoordinatorComposerObserver } from '../model/coordinatorComposerInput';
 
 // Real web hosts exercise menu roles, focus and the shared popup lifecycle.
 vi.mock('react-native', async () => vi.importActual('react-native-web'));
@@ -78,4 +79,15 @@ it.each(['claude-haiku-5-5', 'default'])('M3 offers catalog effort levels and pr
     expect(element('ip-run-effort-medium').getAttribute('aria-checked')).toBe('true');
     await click('ip-run-effort-max');
     expect(element('ip-run-effort-max').getAttribute('aria-checked')).toBe('true');
+});
+
+it('binds the Terminal summary to the composer context without changing its accessible name', async () => {
+    const context = { observer: createCoordinatorComposerObserver(), prompt: null, panelFooter: null, panelLeading: null, terminal: true };
+    await act(async () => root.render(<SafeAreaInsetsContext.Provider value={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+        <CoordinatorComposerInputContext.Provider value={context}><RunSettingsMenu /></CoordinatorComposerInputContext.Provider>
+    </SafeAreaInsetsContext.Provider>));
+    expect(element('ip-run-settings').textContent).toBe('[Opus 5.5 · high · plans only]');
+    expect(element('ip-run-settings').getAttribute('aria-label')).toBe('Opus 5.5 · high · plans only');
+    await click('ip-run-settings');
+    expect(element('ip-run-menu').getAttribute('role')).toBe('menu');
 });

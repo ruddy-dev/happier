@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { AgentInput } from '@/components/sessions/agentInput/AgentInput';
+import { AgentInputChipLabel } from '@/components/sessions/agentInput/components/AgentInputChipLabel';
 import { WebDropTargetView } from '@/components/sessions/files/repositoryTree/WebDropTargetView';
 import { RunSettingsMenu } from './RunSettingsMenu';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -20,7 +21,7 @@ import { getDemoConversation } from '../fixtures/demoConversation';
 import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { deskPrefs } from '../deskPrefs';
 import { CoordinatorComposer } from './CoordinatorComposer';
-import { deskThemes } from '../palette';
+import { DeskPaintContext, deskThemes, useDeskPaint } from '../palette';
 
 // Keep the real web hosts and Animated.Value; RN Web lacks RN's hook.
 vi.mock('react-native', async () => {
@@ -174,6 +175,52 @@ function RealComposer({ visible = true, draft = '', desk = true, phone = false }
     </SafeAreaInsetsContext.Provider>;
 }
 
+function Paint({ children, name }: React.PropsWithChildren<{ name: 'night' | 'paper' }>) {
+    const paint = useDeskPaint();
+    return <DeskPaintContext.Provider value={{ ...paint, paint: deskThemes[name] }}>{children}</DeskPaintContext.Provider>;
+}
+
+it('paints the real Slip composer with the selected desk background, isolated from ordinary Happier', async () => {
+    deskPrefs.set('chatStyle', 'mask');
+    await act(async () => root.render(<Paint name="night"><RealComposer /></Paint>));
+    const box = find('agent-input-drop-zone')!;
+    const expected = document.createElement('span');
+    expected.style.backgroundColor = deskThemes.night.bg;
+    expect(getComputedStyle(box).backgroundColor).toBe(expected.style.backgroundColor);
+    await act(async () => root.render(<Paint name="paper"><RealComposer /></Paint>));
+    const paper = document.createElement('span'); paper.style.backgroundColor = deskThemes.paper.panel2;
+    expect(getComputedStyle(find('agent-input-drop-zone')!).backgroundColor).toBe(paper.style.backgroundColor);
+    await act(async () => root.render(<RealComposer desk={false} />));
+    expect(getComputedStyle(find('agent-input-drop-zone')!).backgroundColor).not.toBe(expected.style.backgroundColor);
+});
+
+it('renders real Terminal mode captions in the desk mono bracket language', async () => {
+    releaseFixture = applyDeskFixture();
+    await renderFixture(false, true);
+    const mode = find('agent-input-session-mode-chip')!;
+    const permission = find('agent-input-permission-chip')!;
+    expect(mode.textContent).toContain('[Plan]');
+    expect(permission.textContent).toMatch(/\[.+\]/);
+    // jsdom miscomputes RN Web's class-level font shorthand against this inline longhand.
+    expect(mode.querySelector<HTMLElement>('[data-testid^="agent-input-session-mode-chip-label:"]')!.style.fontFamily).toContain('JetBrains Mono');
+});
+
+it('keeps counted control labels and desk palette scoped to the coordinator', async () => {
+    await act(async () => root.render(<>
+        <section data-owner="desk"><CoordinatorComposer><AgentInputChipLabel label="Tools" count={3} /></CoordinatorComposer></section>
+        <section data-owner="ordinary"><AgentInputChipLabel label="Tools" count={3} /></section>
+    </>));
+    const desk = container.querySelector<HTMLElement>('[data-owner="desk"]')!;
+    const ordinary = container.querySelector<HTMLElement>('[data-owner="ordinary"]')!;
+    const deskLabel = [...desk.querySelectorAll<HTMLElement>('*')].find((element) => element.textContent === '[Tools (3)]' && element.style.fontFamily.includes('JetBrains Mono'))!;
+    expect(deskLabel.textContent).toBe('[Tools (3)]');
+    expect(ordinary.textContent).toBe('Tools (3)');
+    expect(deskLabel.style.fontFamily).toContain('JetBrains Mono');
+    await act(async () => deskPrefs.set('chatStyle', 'mask'));
+    expect(deskLabel.textContent).toBe('Tools (3)');
+    expect(ordinary.textContent).toBe('Tools (3)');
+});
+
 it.each(['scroll', 'wrap'] as const)('keeps populated phone controls and send together below the run control in %s mode', async (layout) => {
     storage.getState().applySettingsLocal({ agentInputActionBarLayout: layout });
     releaseFixture = applyDeskFixture();
@@ -207,7 +254,28 @@ it('scrolls a focused phone mode fully into its own viewport in either direction
     chip.getBoundingClientRect = () => ({ left: 250, right: 360, width: 110 } as DOMRect);
     await act(async () => chip.focus());
     expect(scroller.scrollLeft).toBe(60);
-    chip.blur();
+    await act(async () => chip.blur());
+    chip.getBoundingClientRect = () => ({ left: -90, right: 20, width: 110 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(-30);
+});
+
+it.each([821, 900])('reveals focused desk controls in the scrolling row at %ipx', async (width) => {
+    vi.stubGlobal('innerWidth', width);
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll' });
+    releaseFixture = applyDeskFixture();
+    await renderFixture(false, false);
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    const row = find('agent-input-desk-controls-row')!;
+    const scroller = Array.from(row.querySelectorAll<HTMLElement>('div')).find(node => getComputedStyle(node).overflowX === 'auto')!;
+    const chip = find('agent-input-permission-chip')!;
+    expect(find('ip-run-settings')).not.toBeNull();
+    expect(scroller).toBeTruthy();
+    scroller.getBoundingClientRect = () => ({ left: 0, right: 300, width: 300 } as DOMRect);
+    chip.getBoundingClientRect = () => ({ left: 250, right: 360, width: 110 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(60);
+    await act(async () => chip.blur());
     chip.getBoundingClientRect = () => ({ left: -90, right: 20, width: 110 } as DOMRect);
     await act(async () => chip.focus());
     expect(scroller.scrollLeft).toBe(-30);

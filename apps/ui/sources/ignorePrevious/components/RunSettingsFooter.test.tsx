@@ -32,9 +32,9 @@ it.each(['auto', 'wrap', 'scroll', 'collapsed'] as const)('M9 places the desk ru
     expect(ordinary.findByTestId('ip-run-settings')).toBeNull();
 });
 
-it('gives the native phone desk run control a full-width line above the scroll row', async () => {
+it.each([false, true])('gives the desk run control a full-width line above the scroll row (phone: %s)', async (phone) => {
     storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll' });
-    const screen = await renderScreen(<Composer desk phone />);
+    const screen = await renderScreen(<Composer desk phone={phone} />);
     const run = screen.findByTestId('ip-run-settings');
     let ancestor = run?.parent;
     while (ancestor && !(Array.isArray(ancestor.props.style) ? ancestor.props.style : [ancestor.props.style]).some((style: { width?: string } | null) => style?.width === '100%')) ancestor = ancestor.parent;
