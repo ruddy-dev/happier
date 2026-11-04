@@ -15,6 +15,7 @@ describe('desk readiness through public cold bootstrap', () => {
         vi.resetModules();
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+        vi.stubEnv('EXPO_PUBLIC_IP_COORDINATOR_PATH', '/tmp/desk-coordinator');
     });
 
     afterEach(() => {
@@ -25,6 +26,7 @@ describe('desk readiness through public cold bootstrap', () => {
         vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
     });
 
     async function setupBootstrap(empty = false, initialAppState: 'active' | 'background' = 'active') {
@@ -37,6 +39,7 @@ describe('desk readiness through public cold bootstrap', () => {
         const { Encryption } = await import('@/sync/encryption/encryption');
         const { profileDefaults } = await import('@/sync/domains/profiles/profile');
         const { useDeskSessions } = await import('../useDeskSessions');
+        const { useCoordinatorId } = await import('./useCoordinatorId');
         const { useDeskWaits, useDeskWaitsActivity } = await import('./useDeskWaits');
         const { useDeskWorkerRecordConsumers } = await import('./useDeskWorkerRecordConsumers');
         const { apiSocket } = await import('@/sync/api/session/apiSocket');
@@ -92,8 +95,9 @@ describe('desk readiness through public cold bootstrap', () => {
 
         const hook = await renderHook(() => {
             const desk = useDeskSessions();
-            useDeskWorkerRecordConsumers(desk.list, null);
-            return { desk, waits: useDeskWaitsActivity(), waiting: useDeskWaits() };
+            const coordinatorId = useCoordinatorId(desk.list);
+            useDeskWorkerRecordConsumers(desk.list, coordinatorId);
+            return { desk, coordinatorId, waits: useDeskWaitsActivity(), waiting: useDeskWaits() };
         });
         const startedAt = Date.now();
         const observe = () => ({
@@ -120,9 +124,9 @@ describe('desk readiness through public cold bootstrap', () => {
             setListResponse: (response: typeof listResponse) => { listResponse = response; },
             defaultListResponse: defaultHttp,
             releaseList: () => { listReleased = true; firstList.resolve(); },
-            start: async () => {
+            start: async (encryption = Encryption.createWithoutKeyMaterial()) => {
                 await act(async () => {
-                    await harness.sync.restore(credentials, Encryption.createWithoutKeyMaterial());
+                    await harness.sync.restore(credentials, encryption);
                     await vi.advanceTimersByTimeAsync(0);
                 });
                 expect(listRequested).toBe(initialAppState === 'active');
@@ -175,6 +179,105 @@ describe('desk readiness through public cold bootstrap', () => {
         expect(storage.getState().syncError).toBeNull();
         console.info('cold bootstrap evidence', { name, waitBudgetMs, beforeResponse, loaded: observe() });
     });
+
+    it.each(['delayed', 'timely', 'unreadable', 'disconnect'] as const)(
+        'initial encrypted snapshot has coherent desk metadata before readiness: %s', async (mode) => {
+            const harness = await setupBootstrap();
+            const { Encryption } = await import('@/sync/encryption/encryption');
+            const { encodeBase64 } = await import('@/encryption/base64');
+            const aes = await import('rn-encryption');
+            const { plainWorkerRecord, jsonResponse } = await import('../testkit/sessionRecordHarness');
+            // Distinct real per-session AES keys, wrapped for this synthetic account. The
+            // reader is cold: only the writer has encrypted/decrypted these records before.
+            const secret = new Uint8Array(32).fill(7);
+            const writer = await Encryption.create(secret);
+            const reader = await Encryption.create(secret);
+            const coordinatorId = 'bootstrap-coordinator';
+            const rows = await Promise.all([harness.workerId, coordinatorId].map(async (id, index) => {
+                const row = plainWorkerRecord(id);
+                const key = new Uint8Array(32).fill(index + 11);
+                await writer.initializeSessions(new Map([[id, key]]));
+                const cipher = writer.getSessionEncryption(id)!;
+                const metadata = JSON.parse(row.metadata);
+                if (id === coordinatorId) metadata.path = '/tmp/desk-coordinator';
+                return {
+                    ...row, encryptionMode: 'e2ee' as const,
+                    dataEncryptionKey: encodeBase64(await writer.encryptEncryptionKey(key)),
+                    metadata: mode === 'unreadable' && id === harness.workerId
+                        ? 'invalid-ciphertext' : await cipher.encryptMetadata(metadata),
+                    agentState: await cipher.encryptAgentState(id === coordinatorId ? {} : JSON.parse(row.agentState!)),
+                    pendingPermissionRequestCount: id === coordinatorId ? 0 : 1,
+                };
+            }));
+            harness.setListResponse(async () => jsonResponse({ sessions: rows, nextCursor: null, hasNext: false }));
+            const http = harness.http.getMockImplementation()!;
+            harness.http.mockImplementation(async (path) => {
+                const pathname = new URL(path, 'http://localhost').pathname;
+                const row = rows.find(row => pathname === `/v2/sessions/${row.id}`);
+                return row ? jsonResponse({ session: row }) : http(path);
+            });
+            const gate = createDeferred<void>();
+            const entered = createDeferred<void>();
+            const decrypt = aes.decryptAsyncAES;
+            vi.spyOn(aes, 'decryptAsyncAES').mockImplementation(async (...args) => {
+                entered.resolve();
+                await gate.promise;
+                return decrypt(...args);
+            });
+            let firstReadyRows: Array<{ id: string; settled: boolean }> | undefined;
+            const unsubscribe = harness.storage.subscribe(state => {
+                if (!state.isDataReady || firstReadyRows) return;
+                firstReadyRows = Object.values(state.sessionListRenderables).map(row => ({
+                    id: row.id, settled: row.metadata !== null || row.metadataUnavailable === true,
+                }));
+            });
+            try {
+                if (mode === 'timely' || mode === 'unreadable') gate.resolve();
+                await harness.start(reader);
+                await act(async () => {
+                    await entered.promise;
+                    await vi.advanceTimersByTimeAsync(harness.sync.getSyncTuning().invalidateSyncAwaitTimeoutMs + 1);
+                });
+                if (mode === 'delayed' || mode === 'disconnect') {
+                    expect.soft(Object.values(harness.storage.getState().sessionListRenderables).map(row => row.metadata)).toEqual([null, null]);
+                    expect.soft(harness.observe()).toMatchObject({
+                        renderables: 2, fullRecords: 0, isDataReady: false, deskReady: false,
+                        deskRows: 0, waitingCount: null, connecting: true,
+                    });
+                    expect.soft(harness.hook.getCurrent().coordinatorId).toBeNull();
+                }
+                await act(async () => {
+                    if (mode === 'disconnect') harness.sync.disconnectServer();
+                    gate.resolve();
+                    await vi.advanceTimersByTimeAsync(0);
+                    if (mode !== 'disconnect') await vi.waitFor(() => expect(harness.storage.getState().isDataReady).toBe(true));
+                });
+                if (mode === 'disconnect') {
+                    expect(harness.observe()).toMatchObject({ isDataReady: false, deskRows: 0, waitingCount: null });
+                } else {
+                    const { desk, coordinatorId: selected } = harness.hook.getCurrent();
+                    expect(selected).toBe(coordinatorId);
+                    expect(harness.observe()).toMatchObject({ deskReady: true, waitingCount: 1, connecting: false });
+                    expect(desk.list.filter(row => row.id !== selected).map(row => row.id))
+                        .toEqual(mode === 'unreadable' ? [] : [harness.workerId]);
+                    expect(desk.unreadable.map(row => row.id)).toEqual(mode === 'unreadable' ? [harness.workerId] : []);
+                    if (mode !== 'unreadable') expect(desk.lookup.get(harness.workerId)?.metadata?.tag).toBe('ATR-101-build');
+                }
+                // List receipt is not followed by a second metadata fetch or a desk-only retry.
+                if (mode !== 'unreadable') {
+                    expect(harness.http.mock.calls.some(([path]) => /^\/v2\/sessions\/bootstrap-/.test(path))).toBe(false);
+                }
+                expect(harness.unexpectedPaths).toEqual([]);
+                expect(firstReadyRows).toEqual(mode === 'disconnect' ? undefined : [
+                    { id: harness.workerId, settled: true },
+                    { id: coordinatorId, settled: true },
+                ]);
+            } finally {
+                gate.resolve();
+                unsubscribe();
+            }
+        },
+    );
 
     it.each([
         { name: 'automatic retry after a transient failure', status: 503, direct: false },
