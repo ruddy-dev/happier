@@ -23,6 +23,8 @@ import { deskPrefs } from '../deskPrefs';
 import { CoordinatorComposer } from './CoordinatorComposer';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { DeskPaintContext, deskThemes, useDeskPaint } from '../palette';
+import { useUnistyles } from 'react-native-unistyles';
+import { lightTheme, darkTheme } from '@/theme';
 
 // Keep the real web hosts and Animated.Value; RN Web lacks RN's hook.
 vi.mock('react-native', async () => {
@@ -77,6 +79,7 @@ afterEach(async () => {
     container.remove(); releaseFixture = undefined; storage.setState(before, true);
     deskPrefs.set('chatStyle', 'mask');
     deskPrefs.set('terminalPalette', 'tokyo');
+    Object.assign(useUnistyles().theme, lightTheme);
     vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
@@ -166,8 +169,9 @@ it('R45 keeps draft, cursor and global waits subscriptions out of the transcript
 const safeArea = { top: 0, right: 0, bottom: 0, left: 0 };
 const noSend = () => {};
 const noSuggestions = async () => [];
-function RealComposer({ visible = true, draft = '', desk = true, phone = false }: { visible?: boolean; draft?: string; desk?: boolean; phone?: boolean }) {
+function RealComposer({ visible = true, draft = '', desk = true, phone = false, locationControls = false }: { visible?: boolean; draft?: string; desk?: boolean; phone?: boolean; locationControls?: boolean }) {
     const input = visible ? <AgentInput sessionId="coordinator" value={draft} onChangeText={() => {}} onSend={noSend}
+        onPathClick={locationControls ? noSend : undefined} currentPath={locationControls ? '/tmp' : undefined}
         placeholder={t('ignorePrevious.composer.placeholder')} autocompleteKinds={[]} autocompleteSuggestions={noSuggestions}
         footerLeadingActions={<RunSettingsMenu />} statusTrailingActions={<span data-testid="fixture-context">Context</span>} />
         : <div data-testid="session-unavailable" />;
@@ -180,6 +184,76 @@ function Paint({ children, name }: React.PropsWithChildren<{ name: 'night' | 'pa
     const paint = useDeskPaint();
     return <DeskPaintContext.Provider value={{ ...paint, paint: deskThemes[name] }}>{children}</DeskPaintContext.Provider>;
 }
+
+// jsdom has no layout. Supply only scroll geometry at the existing RN Web host
+// boundary; keep AgentInput, its scroll owner, fades and indicators real.
+async function overflowActionRows() {
+    const footer = find('agent-input-action-footer')!;
+    const scrollers = [...footer.querySelectorAll<HTMLElement>('div')].filter(node => getComputedStyle(node).overflowX === 'auto');
+    expect(scrollers.length).toBeGreaterThan(0);
+    for (const scroller of scrollers) Object.defineProperties(scroller, {
+        clientWidth: { configurable: true, value: 200 },
+        scrollWidth: { configurable: true, value: 624 },
+        scrollLeft: { configurable: true, writable: true, value: 100 },
+    });
+    await act(async () => window.dispatchEvent(new Event('resize')));
+    return scrollers.map(scroller => scroller.parentElement!);
+}
+
+function expectEdgePaint(rows: HTMLElement[], background: string, ink: string) {
+    for (const row of rows) {
+        const gradients = [...row.querySelectorAll('lineargradient')];
+        expect(gradients).toHaveLength(2);
+        expect(gradients[0].getAttribute('colors')?.split(',')[0]).toBe(background);
+        expect(gradients[1].getAttribute('colors')?.endsWith(`,${background}`)).toBe(true);
+        const indicators = row.querySelectorAll('icon[name="caret-left"], icon[name="caret-right"]');
+        expect(indicators).toHaveLength(2);
+        for (const indicator of indicators) expect(indicator.getAttribute('color')).toBe(ink);
+    }
+}
+
+it.each([
+    ['terminal', 'night', 'tokyo', 'light'],
+    ['terminal', 'paper', 'terminalPaper', 'dark'],
+    ['mask', 'night', 'tokyo', 'light'],
+    ['mask', 'paper', 'terminalPaper', 'dark'],
+] as const)('pairs mounted %s %s action fades and chevrons for %s over the opposing %s app palette', async (style, name, palette, appTheme) => {
+    Object.assign(useUnistyles().theme, appTheme === 'light' ? lightTheme : darkTheme);
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll' });
+    deskPrefs.set('chatStyle', style); deskPrefs.set('terminalPalette', palette);
+    await act(async () => root.render(<Paint name={name}><RealComposer phone locationControls /></Paint>));
+    const paint = style === 'terminal' ? deskThemes[palette] : deskThemes[name];
+    const background = style === 'mask' && name === 'paper' ? paint.panel2 : paint.bg;
+    // jsdom cannot resolve Terminal's scoped !important rule over RN Web's
+    // inline background. Slip uses the real panelStyle binding instead.
+    if (style === 'mask') {
+        const css = document.createElement('span').style;
+        css.backgroundColor = background;
+        expect(getComputedStyle(find('agent-input-drop-zone')!).backgroundColor).toBe(css.backgroundColor);
+    }
+    const rows = await overflowActionRows();
+    expect(rows).toHaveLength(2);
+    expectEdgePaint(rows, background, paint.ink);
+
+    // Changing the selected palette must update existing fades without a remount.
+    const input = find('session-composer-input');
+    await act(async () => {
+        deskPrefs.set('chatStyle', 'terminal');
+        deskPrefs.set('terminalPalette', palette === 'tokyo' ? 'terminalPaper' : 'tokyo');
+    });
+    const next = palette === 'tokyo' ? deskThemes.terminalPaper : deskThemes.tokyo;
+    expect(find('session-composer-input')).toBe(input);
+    expectEdgePaint(await overflowActionRows(), next.bg, next.ink);
+});
+
+it.each(['standard', 'glass'] as const)('retains ordinary %s composer fade and indicator theme paint outside the desk context', async (surface) => {
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll', composerSurfaceStyle: surface });
+    await act(async () => root.render(<RealComposer desk={false} locationControls />));
+    const { theme } = useUnistyles();
+    const rows = await overflowActionRows();
+    expect(rows).toHaveLength(2);
+    expectEdgePaint(rows, surface === 'glass' ? theme.colors.surface.base : theme.colors.input.background, theme.colors.composer.chipTint);
+});
 
 it.each(['night', 'paper'] as const)('keeps the real %s Slip textarea mono and palette-aware, isolated from ordinary Happier', async (name) => {
     await act(async () => root.render(<RealComposer desk={false} />));

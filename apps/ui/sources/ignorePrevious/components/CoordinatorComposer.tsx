@@ -24,6 +24,7 @@ function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.Pro
     const panelStyle = React.useMemo(() => style === 'mask' ? slipPanelStyle(paint, borderWidth) :
         { backgroundColor: activePaint.bg, borderColor: activePaint.edge, borderWidth: 1, borderRadius: 0 }, [style, paint, borderWidth, activePaint]);
     const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null, phone, terminal: style === 'terminal', panelStyle, controlInk: activePaint.ink,
+        panelBackground: panelStyle.backgroundColor,
         submitColors: { background: activePaint.yel, tint: activePaint.yelink },
         textStyle: { fontFamily: deskMonoFontFamily(), color: activePaint.ink }, placeholderColor: activePaint.mute,
         panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null }), [observer, coordinatorId, phone, panelStyle, style, activePaint]);
@@ -38,20 +39,24 @@ function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsW
     const paint = terminalPalettes[palette];
     const terminal = style === 'terminal';
     const scope = `ip-composer-${React.useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
-    const context = React.useMemo(() => ({
-        observer,
-        phone,
-        terminal,
-        controlInk: terminal ? paint.ink : slipPaint.ink,
-        submitColors: { background: terminal ? paint.yel : slipPaint.yel, tint: terminal ? paint.yelink : slipPaint.yelink },
-        panelStyle: terminal ? undefined : slipPanelStyle(slipPaint, slipBorderWidth),
-        prompt: terminal ? <DeskText testID="ip-composer-prompt" aria-hidden style={{ color: paint.user, fontSize: 13, fontWeight: '700' }}>
-            {t('ignorePrevious.composer.prompt')}<DeskText style={{ color: paint.mute }}>{' ~ '}</DeskText>{'> '}
-        </DeskText> : null,
-        panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null,
-        panelFooter: terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null,
-        textStyle: { fontFamily: deskMonoFontFamily(), color: terminal ? paint.ink : slipPaint.ink },
-    }), [observer, terminal, paint, slipPaint, slipBorderWidth, phone, coordinatorId]);
+    const context = React.useMemo(() => {
+        const panelStyle = terminal ? undefined : slipPanelStyle(slipPaint, slipBorderWidth);
+        return {
+            observer,
+            phone,
+            terminal,
+            controlInk: terminal ? paint.ink : slipPaint.ink,
+            panelBackground: panelStyle?.backgroundColor ?? paint.bg,
+            submitColors: { background: terminal ? paint.yel : slipPaint.yel, tint: terminal ? paint.yelink : slipPaint.yelink },
+            panelStyle,
+            prompt: terminal ? <DeskText testID="ip-composer-prompt" aria-hidden style={{ color: paint.user, fontSize: 13, fontWeight: '700' }}>
+                {t('ignorePrevious.composer.prompt')}<DeskText style={{ color: paint.mute }}>{' ~ '}</DeskText>{'> '}
+            </DeskText> : null,
+            panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null,
+            panelFooter: terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null,
+            textStyle: { fontFamily: deskMonoFontFamily(), color: terminal ? paint.ink : slipPaint.ink },
+        };
+    }, [observer, terminal, paint, slipPaint, slipBorderWidth, phone, coordinatorId]);
     // CSS changes only this instance's existing web composer hosts. It neither discovers inputs
     // nor changes controls, focus, permission labels, context data or native layout.
     const selector = `#${scope}`;

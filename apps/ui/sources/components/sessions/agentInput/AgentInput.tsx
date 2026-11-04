@@ -2554,11 +2554,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         deskLayout.desk,
     ]);
 
-    // Fade the chip rows out to the composer's own fill: the glass surface in glass
-    // mode, the standard input background otherwise.
-    const actionBarFadeColor = React.useMemo(() => {
-        return isGlassComposer ? theme.colors.surface.base : theme.colors.input.background;
-    }, [isGlassComposer, theme.colors.surface.base, theme.colors.input.background]);
+    // The opt-in desk panel owns its paint independently of the app theme.
+    const actionBarFadeColor = deskLayout.panelBackground
+        ?? (isGlassComposer ? theme.colors.surface.base : theme.colors.input.background);
+    const actionBarIndicatorColor = deskLayout.controlInk ?? theme.colors.composer.chipTint;
 
     // Handle abort button press
     const handleAbortPress = React.useCallback(async () => {
@@ -3072,7 +3071,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     containerStyle={styles.actionButtonsLeftScroll}
                     contentStyle={styles.actionButtonsLeftScrollContent}
                     fadeColor={actionBarFadeColor}
-                    indicatorColor={theme.colors.composer.chipTint}
+                    indicatorColor={actionBarIndicatorColor}
                     fadeLeftStyle={styles.actionButtonsFadeLeft}
                     fadeRightStyle={styles.actionButtonsFadeRight}
                 >
@@ -3134,7 +3133,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             containerStyle={styles.actionButtonsSecondaryScroll}
                             contentStyle={styles.actionButtonsScrollViewportContent}
                             fadeColor={actionBarFadeColor}
-                            indicatorColor={theme.colors.composer.chipTint}
+                            indicatorColor={actionBarIndicatorColor}
                             fadeLeftStyle={styles.actionButtonsFadeLeft}
                             fadeRightStyle={styles.actionButtonsFadeRight}
                         >
