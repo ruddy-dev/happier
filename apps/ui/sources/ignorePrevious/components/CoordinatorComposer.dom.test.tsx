@@ -174,20 +174,48 @@ function RealComposer({ visible = true, draft = '', desk = true, phone = false }
     </SafeAreaInsetsContext.Provider>;
 }
 
-it('gives phone mode controls a wider row and retains the run control across the breakpoint', async () => {
-    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll' });
-    await act(async () => root.render(<RealComposer phone />));
+it.each(['scroll', 'wrap'] as const)('keeps populated phone controls and send together below the run control in %s mode', async (layout) => {
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: layout });
+    releaseFixture = applyDeskFixture();
+    await renderFixture(false, true);
     const run = find('ip-run-settings')!;
     const send = find('session-composer-send')!;
-    const scroller = Array.from(container.querySelectorAll<HTMLElement>('div')).find((node) =>
-        getComputedStyle(node).overflowX === 'auto' && node.closest('[data-testid="agent-input-action-footer"]'));
-    expect(scroller).toBeDefined();
-    expect(scroller!.contains(run)).toBe(false);
-    expect(scroller!.contains(send)).toBe(false);
-    let wrapper = run.parentElement;
-    while (wrapper && wrapper !== find('agent-input-action-footer') && getComputedStyle(wrapper).width !== '100%') wrapper = wrapper.parentElement;
-    expect(wrapper).not.toBeNull();
-    expect(wrapper).not.toBe(find('agent-input-action-footer'));
+    const permission = find('agent-input-permission-chip')!;
+    const mode = find('agent-input-session-mode-chip')!;
+    expect(permission).not.toBeNull();
+    expect(mode.textContent).toContain('Plan');
+    const row = find('agent-input-desk-controls-row')!;
+    expect(row).not.toBeNull();
+    expect(row.contains(permission)).toBe(true);
+    expect(row.contains(mode)).toBe(true);
+    expect(row.querySelector('[aria-label="Source control"]')).not.toBeNull();
+    expect(row.contains(send)).toBe(true);
+    expect(row.contains(run)).toBe(false);
+    expect(send.getAttribute('aria-disabled')).toBe('true');
+});
+
+it('scrolls a focused phone mode fully into its own viewport in either direction', async () => {
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll' });
+    releaseFixture = applyDeskFixture();
+    await renderFixture(false, true);
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    const row = find('agent-input-desk-controls-row')!;
+    const scroller = Array.from(row.querySelectorAll<HTMLElement>('div')).find((node) => getComputedStyle(node).overflowX === 'auto')!;
+    const chip = find('agent-input-permission-chip')!;
+    expect(scroller).toBeTruthy();
+    scroller.getBoundingClientRect = () => ({ left: 0, right: 300, width: 300 } as DOMRect);
+    chip.getBoundingClientRect = () => ({ left: 250, right: 360, width: 110 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(60);
+    chip.blur();
+    chip.getBoundingClientRect = () => ({ left: -90, right: 20, width: 110 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(-30);
+});
+
+it('retains the run control across the phone breakpoint', async () => {
+    await act(async () => root.render(<RealComposer phone />));
+    const run = find('ip-run-settings');
     await act(async () => root.render(<RealComposer phone={false} />));
     expect(find('ip-run-settings')).toBe(run);
 });
