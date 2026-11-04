@@ -1,9 +1,11 @@
 import { act } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useUnistyles } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { lightTheme, darkTheme } from '@/theme';
+import { deskPrefs } from '../deskPrefs';
 import { storage } from '@/sync/domains/state/storage';
 import { t } from '@/text';
-import { ipPalette } from '../palette';
+import { ipPalette, deskThemes } from '../palette';
 import { loadDeskScript, startDeskScenario, type DeskScenario } from '../testkit/deskScenario';
 
 vi.mock('react-native-unistyles', async () => {
@@ -73,7 +75,36 @@ describe('Work presentation (N1, S1, W-series)', () => {
     afterEach(async () => {
         await scenario?.dispose();
         scenario = null;
-        useUnistyles().theme.dark = false;
+        Object.assign(useUnistyles().theme, lightTheme);
+        deskPrefs.set('chatStyle', 'mask');
+        deskPrefs.set('terminalPalette', 'tokyo');
+    });
+
+    it.each([
+        { palette: 'tokyo', app: lightTheme },
+        { palette: 'terminalPaper', app: darkTheme },
+    ] as const)('Terminal $palette paints the whole desktop Work column for short and empty lists', async ({ palette, app }) => {
+        viewport.width = 1440;
+        Object.assign(useUnistyles().theme, app);
+        deskPrefs.set('chatStyle', 'terminal');
+        deskPrefs.set('terminalPalette', palette);
+        for (const empty of [false, true]) {
+            scenario = await startDeskScenario({
+                script: empty ? loadDeskScript({ covers: ['N1'], sessions: [{ id: 'coordinator', title: 'Coordinator', path: '/work/coordinator' }] }) : script,
+                coordinator: empty ? 'coordinator' : undefined,
+            });
+            if (empty) expect(scenario.screen.findByTestId(`ip-issue-${key}`)).toBeNull();
+            const check = (id: string) => {
+                const work = scenario!.screen.findHostByTestId(id)!;
+                // The ScrollView sizes to a short list; its stretching host owns the space below it.
+                expect(StyleSheet.flatten(work.parent!.props.style)?.backgroundColor).toBe(deskThemes[palette].panel);
+            };
+            check('ip-work');
+            await scenario.screen.pressByTestIdAsync('ip-work-collapse');
+            check('ip-work-rail');
+            await scenario.dispose();
+            scenario = null;
+        }
     });
 
     it.each([390, 1100, 1440])('R42/N1: only the quiet count line scrolls horizontally at %i (overflow needs live QA)', async (width) => {

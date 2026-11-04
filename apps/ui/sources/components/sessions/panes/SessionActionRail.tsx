@@ -17,6 +17,7 @@ import { SessionGitActionRailBadge, SessionGitActionRailTooltip } from './Sessio
 import { useSessionGitActionRailBadge } from './SessionGitActionRailBadge';
 import { formatGitActionRailAccessibilityLabel } from '@/components/ui/navigation/tabBadge/gitActionRailAccessibility';
 import { useSessionRunningAgentCount } from './useSessionRunningAgentCount';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 
 const styles = StyleSheet.create((theme) => ({
     rail: {
@@ -47,6 +48,9 @@ export const SessionActionRail = React.memo((props: Readonly<{
     serverId?: string | null;
 }>) => {
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const primary = appearance?.shellColors?.primary ?? theme.colors.text.primary;
+    const secondary = appearance?.shellColors?.secondary ?? theme.colors.text.secondary;
     const pane = useAppPaneScope(props.scopeId);
     const rightPaneHiddenByDetails = usePaneActionRailRightPaneHiddenByDetails();
     const terminal = useSessionTerminalAction(props);
@@ -78,8 +82,8 @@ export const SessionActionRail = React.memo((props: Readonly<{
             style={styles.action}
         >
             <View>
-                {action.active ? <View style={styles.activeMarker} /> : null}
-                <Icon name={action.icon} size={18} color={action.active ? theme.colors.text.primary : theme.colors.text.secondary} />
+                {action.active ? <View style={[styles.activeMarker, appearance?.shellColors && { backgroundColor: primary }]} /> : null}
+                <Icon name={action.icon} size={18} color={action.active ? primary : secondary} />
                 {action.id === 'git' ? <SessionGitActionRailBadge badge={gitBadge} /> : null}
                 {(action.badgeCount ?? 0) > 0 ? (
                     <TabBadge size="compact" variant="count" value={action.badgeCount ?? 0} tone="neutral" testID={`session-action-rail:${action.id}:badge`} />
