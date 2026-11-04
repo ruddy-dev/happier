@@ -108,6 +108,44 @@ async function type(id: string, text: string) {
     });
 }
 
+it('keeps Work beside the coordinator at 900', async () => {
+    await render(900);
+    const work = element('ip-work');
+    const coordinator = element('ip-coordinator-pane-wrapper');
+    expect(work.parentElement!.parentElement).toBe(coordinator.parentElement);
+    expect(getComputedStyle(coordinator.parentElement!).flexDirection).toBe('row');
+    expect(getComputedStyle(work).width).toBe('330px');
+    expect(getComputedStyle(coordinator).display).toBe('flex');
+});
+
+it('keeps the coordinator mounted through phone, column, rail and Waiting boundaries', async () => {
+    await render(820);
+    const composer = element('composer');
+    expect(element('ip-tab-work')).toBeTruthy();
+    for (const width of [821, 900, 1100, 1180, 1181]) {
+        await render(width);
+        expect(element('composer')).toBe(composer);
+        const coordinator = element('ip-coordinator-pane-wrapper');
+        expect(getComputedStyle(coordinator).display).toBe('flex');
+        expect(getComputedStyle(coordinator.parentElement!).flexDirection).toBe('row');
+        expect(getComputedStyle(element('ip-work')).width).toBe('330px');
+        expect(container.querySelector('[data-testid="ip-tab-work"]')).toBeNull();
+    }
+    await render(821);
+    await act(async () => element('ip-work-collapse').focus());
+    expect(document.activeElement).toBe(element('ip-work-collapse'));
+    await click('ip-work-collapse');
+    expect(getComputedStyle(element('ip-work-rail')).width).toBe('76px');
+    expect(element('composer')).toBe(composer);
+    await act(async () => element('ip-work-expand').focus());
+    expect(document.activeElement).toBe(element('ip-work-expand'));
+    await click('ip-work-expand');
+    expect(getComputedStyle(element('ip-work')).width).toBe('330px');
+    await render(820);
+    expect(element('composer')).toBe(composer);
+    expect(element('ip-tab-work')).toBeTruthy();
+});
+
 it('Medium 1: stored open at 390 starts closed without rewriting the stored choice', async () => {
     setApprovalsOpen(true); await render(390);
     expect(drawer()).toBeNull(); expect(getApprovalsOpen()).toBe(true);
