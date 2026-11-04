@@ -125,6 +125,8 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
             metadata: { ...current.metadata!, name: 'Archived context', permissionMode: 'default' } });
         const unknown = createSessionFixture({ ...current, id: 'context-unknown', metadata: { ...current.metadata!, name: 'Unknown context' } });
         storage.getState().applySessions([current, archived]);
+        archivePage(async () => jsonResponse({ sessions: [{ ...record(archived.id, 'Archived context'),
+            metadata: JSON.stringify(archived.metadata), metadataVersion: archived.metadataVersion }], nextCursor: null, hasNext: false }));
         storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(unknown)]);
         const original = harness.http.getMockImplementation()!;
         const pending = createDeferred<Response>();
@@ -205,8 +207,17 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
         const original = harness.http.getMockImplementation()!;
         harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === `/v2/sessions/${id}`
             ? response.promise : original(path));
+        if (kind === 'archived') archivePage(async () => jsonResponse({ sessions: [{ ...record(id, metadata.name),
+            metadata: JSON.stringify(metadata), metadataVersion: 2 }], nextCursor: null, hasNext: false }));
         await open();
         await archivesLoaded();
+        if (kind === 'archived') await act(async () => {
+            // Membership is established by the real pager. A subsequently evicted or
+            // older full record still requires the canonical exact-record demand.
+            const { [id]: _loaded, ...sessions } = storage.getState().sessions;
+            storage.setState({ sessions: fullRecord === 'missing' ? sessions : { ...sessions, [id]:
+                createSessionFixture({ ...current, metadata: { ...metadata, tag: 'ATR-7-build' }, metadataVersion: 1 }) } });
+        });
         await search('ATR-98');
         await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
         expect(node('ip-sessions-no-matches')).toBeNull();
@@ -224,6 +235,41 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
         await search('ATR-7');
         await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
         expect(node('ip-sessions-no-matches')).not.toBeNull();
+    });
+
+    it.each(['needle', 'unfindable'])('finishes desk search for %s when head hydration completes after automatic append', async query => {
+        const metadata = createDeferred<{ path: string; host: string; name: string }>();
+        const entered = createDeferred<void>();
+        const owner = harness.sync as unknown as { encryption: SessionListEncryption };
+        const decrypt = vi.fn(() => { entered.resolve(); return metadata.promise; });
+        vi.spyOn(owner.encryption, 'getSessionEncryption').mockReturnValue({ decryptMetadata: decrypt, decryptAgentState: async () => ({}) });
+        const original = harness.http.getMockImplementation()!;
+        harness.http.mockImplementation(async path => {
+            const url = new URL(path, 'http://localhost');
+            if (url.pathname !== '/v2/sessions') return original(path);
+            const append = url.searchParams.has('cursor');
+            return jsonResponse({ sessions: append ? [] : [{ ...plainWorkerRecord('pending-head'), encryptionMode: 'e2ee',
+                metadata: 'opaque', agentState: null }], includedActive: true, hasNext: !append, nextCursor: append ? null : 'tail' });
+        });
+        await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        await entered.promise;
+        await open(); await archivesLoaded(); await search(query);
+        await vi.waitFor(async () => {
+            await act(async () => {});
+            expect(harness.sync.getSessionListPagingState('current').status).toBe('unavailable');
+        });
+        expect(node('ip-sessions-row-pending-head')).toBeNull();
+        expect(node('ip-sessions-no-matches')).toBeNull();
+        const requests = harness.http.mock.calls.length;
+        await act(async () => metadata.resolve({ path: '/fixture/project', host: 'fixture', name: 'Needle head' }));
+        await vi.waitFor(async () => {
+            await act(async () => {});
+            if (query === 'needle') expect(element('ip-sessions-row-pending-head').textContent).toContain('Needle head');
+            else expect(node('ip-sessions-no-matches')).not.toBeNull();
+            expect(node('ip-sessions-search-partial')).toBeNull();
+        });
+        expect(harness.http.mock.calls).toHaveLength(requests);
+        expect(decrypt).toHaveBeenCalledTimes(1);
     });
 
     it('restores no-match evidence when the owned background metadata decrypt finishes', async () => {
@@ -348,6 +394,8 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
     });
 
     it('retries a failed append at its cursor and resumes useful searching', async () => {
+        storage.getState().applySessions([createSessionFixture({ id: 'omitted-retry-cache', serverId, archivedAt: 10,
+            metadata: { name: 'Recovered stale cache', path: '/fixture/project', host: 'fixture' } })]);
         let fail = true;
         archivePage(async path => {
             const cursor = new URL(path, 'http://localhost').searchParams.get('cursor');
@@ -357,10 +405,13 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
         });
         await open(); await search('recovered');
         await vi.waitFor(() => expect(node('ip-sessions-archive-error')).not.toBeNull());
+        expect(node('ip-sessions-row-omitted-retry-cache')).toBeNull();
         expect(node('ip-sessions-no-matches')).toBeNull();
         fail = false;
         await click('ip-sessions-retry-archived');
         await vi.waitFor(() => expect(node('ip-sessions-row-recovered-second')).not.toBeNull());
+        expect(node('ip-sessions-row-omitted-retry-cache')).toBeNull();
+        expect(storage.getState().sessions['omitted-retry-cache']).toBeDefined();
         expect(harness.http.mock.calls.filter(([path]) => path.includes('cursor=retry-page'))).toHaveLength(2);
     });
 
@@ -536,9 +587,17 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
         }]);
         const { ['view-only']: _evicted, ...remaining } = storage.getState().sessionListRenderables;
         storage.setState({ sessionListRenderables: remaining, deletedSessionIds: { deleted: true } });
+        archivePage(async () => jsonResponse({ sessions: [
+            { ...record(fullOnly.id, 'Readable archive'), metadata: JSON.stringify(fullOnly.metadata), archivedAt: 1 },
+            { ...record('opaque', 'Unused'), metadata: 'invalid-json', archivedAt: 1 },
+        ], nextCursor: null, hasNext: false }));
         await open();
         await click('ip-sessions-toggle-archived');
         await archivesLoaded();
+        await act(async () => {
+            const { ['view-only']: _row, ...renderables } = storage.getState().sessionListRenderables;
+            storage.setState({ sessionListRenderables: renderables });
+        });
         expect(element('ip-sessions-row-view-only').textContent).toContain('Readable archive');
         expect(node('ip-sessions-unreadable')).not.toBeNull();
         for (const id of ['opaque', 'deleted', 'foreign', 'system']) expect(node(`ip-sessions-row-${id}`)).toBeNull();
@@ -565,6 +624,68 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
         await search('missing');
         await vi.waitFor(() => expect(node('ip-sessions-no-matches')).not.toBeNull());
         expect(node('ip-sessions-search-partial')).toBeNull();
+    });
+
+    it.each(['real-archive', 'stale-archive'])('ignores a cached archive absent from partial pages until authoritative match %s arrives', async matchId => {
+        const stale = createSessionFixture({ id: 'stale-archive', serverId, archivedAt: 10,
+            metadata: { name: 'Needle cached', path: '/fixture/project', host: 'fixture' } });
+        storage.getState().applySessions([stale]);
+        // A missed remote delete or unarchive leaves only this cached full record.
+        storage.setState({ sessionListRenderables: {} });
+        const tail = createDeferred<Response>();
+        archivePage(async path => new URL(path, 'http://localhost').searchParams.has('cursor') ? tail.promise
+            : jsonResponse({ sessions: [record('other-archive', 'Other')], nextCursor: 'real-match', hasNext: true }));
+        await open(); await archivesLoaded();
+        await search('needle');
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+        expect(node('ip-sessions-row-stale-archive')).toBeNull();
+        expect(harness.http.mock.calls.some(([path]) => path.includes('cursor=real-match'))).toBe(true);
+        // Partial page evidence must not destructively remove cached records.
+        expect(storage.getState().sessions[stale.id]).toBeDefined();
+        await act(async () => tail.resolve(jsonResponse({ sessions: [record(matchId, 'Needle real')], nextCursor: null, hasNext: false })));
+        await vi.waitFor(() => expect(node(`ip-sessions-row-${matchId}`)).not.toBeNull());
+        if (matchId !== stale.id) expect(node('ip-sessions-row-stale-archive')).toBeNull();
+        expect(storage.getState().sessions[stale.id]).toBeDefined();
+    });
+
+    it('proves no match on terminal empty archive pages without displaying or deleting omitted readable and opaque cache rows', async () => {
+        storage.getState().applySessions([
+            createSessionFixture({ id: 'omitted-readable', serverId, archivedAt: 10,
+                metadata: { name: 'Needle cached', path: '/fixture/project', host: 'fixture' } }),
+            createSessionFixture({ id: 'omitted-opaque', serverId, archivedAt: 10, metadata: null }),
+        ]);
+        await open(); await archivesLoaded();
+        await click('ip-sessions-toggle-archived');
+        expect(node('ip-sessions-row-omitted-readable')).toBeNull();
+        expect(node('ip-sessions-row-omitted-opaque')).toBeNull();
+        await search('needle');
+        await vi.waitFor(() => expect(node('ip-sessions-no-matches')).not.toBeNull());
+        expect(node('ip-sessions-search-partial')).toBeNull();
+        expect(storage.getState().sessions['omitted-readable']).toBeDefined();
+        expect(storage.getState().sessions['omitted-opaque']).toBeDefined();
+    });
+
+    it('rechecks archive membership on reopen before cached matches can stop the new search', async () => {
+        const head = createDeferred<Response>();
+        let reopening = false;
+        archivePage(async path => {
+            if (!reopening) return jsonResponse({ sessions: [record('previous-member', 'Needle previous')], nextCursor: null, hasNext: false });
+            return new URL(path, 'http://localhost').searchParams.has('cursor')
+                ? jsonResponse({ sessions: [record('new-member', 'Needle new')], nextCursor: null, hasNext: false }) : head.promise;
+        });
+        await open(); await archivesLoaded(); await search('needle');
+        expect(node('ip-sessions-row-previous-member')).not.toBeNull();
+        await click('ip-sessions-close');
+        reopening = true;
+        await click('sessions-opener');
+        await search('needle');
+        expect(node('ip-sessions-row-previous-member')).toBeNull();
+        expect(node('ip-sessions-no-matches')).toBeNull();
+        await act(async () => head.resolve(jsonResponse({ sessions: [], nextCursor: 'reopened-tail', hasNext: true })));
+        await vi.waitFor(() => expect(node('ip-sessions-row-new-member')).not.toBeNull());
+        expect(node('ip-sessions-row-previous-member')).toBeNull();
+        expect(storage.getState().sessions['previous-member']).toBeDefined();
+        expect(harness.http.mock.calls.filter(([path]) => path.includes('cursor=reopened-tail'))).toHaveLength(1);
     });
 
     it('respects a current sidebar projection over a stale archived full record', async () => {

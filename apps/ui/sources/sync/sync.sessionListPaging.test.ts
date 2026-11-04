@@ -128,6 +128,61 @@ describe('canonical session list paging read API', () => {
         expect(harness.sync.getSessionListPagingState('archived').status).toBe('exhausted');
     });
 
+    it('requires current archive page membership and version evidence across partial pages, failure, retry and replacement', async () => {
+        const cached = createSessionFixture({ id: 'cached', archivedAt: 10, metadataVersion: 1 });
+        storage.getState().applySessions([cached]);
+        let fail = true;
+        harness.http.mockImplementation(async path => {
+            const append = new URL(path, 'http://localhost').searchParams.has('cursor');
+            if (append && fail) return jsonResponse({ error: 'unavailable' }, 503);
+            return jsonResponse({ sessions: [{ ...plainWorkerRecord(append ? 'cached' : 'head'), archivedAt: 10, metadataVersion: 2 }],
+                hasNext: !append, nextCursor: append ? null : 'tail' });
+        });
+        await harness.sync.fetchArchivedSessions();
+        expect(harness.sync.isArchivedSessionListRowCurrent('head', 1)).toBe(false);
+        expect(harness.sync.isArchivedSessionListRowCurrent('head', 2)).toBe(true);
+        expect(harness.sync.isArchivedSessionListRowCurrent('head', 3)).toBe(true);
+        expect(harness.sync.isArchivedSessionListRowCurrent('cached', 1)).toBe(false);
+        expect(storage.getState().sessions.cached).toBeDefined();
+        await expect(harness.sync.fetchMoreArchivedSessions()).rejects.toThrow();
+        expect(harness.sync.isArchivedSessionListRowCurrent('head', 2)).toBe(true);
+        expect(harness.sync.isArchivedSessionListRowCurrent('cached', 2)).toBe(false);
+        fail = false;
+        await harness.sync.fetchMoreArchivedSessions();
+        expect(harness.sync.isArchivedSessionListRowCurrent('cached', 1)).toBe(false);
+        expect(harness.sync.isArchivedSessionListRowCurrent('cached', 2)).toBe(true);
+
+        const replacement = createDeferred<Response>();
+        harness.http.mockImplementation(() => replacement.promise);
+        const refresh = harness.sync.fetchArchivedSessions();
+        expect(harness.sync.isArchivedSessionListRowCurrent('head', 2)).toBe(false);
+        expect(harness.sync.isArchivedSessionListRowCurrent('cached', 2)).toBe(false);
+        expect(storage.getState().sessions.cached).toBeDefined();
+        replacement.resolve(jsonResponse({ sessions: [], hasNext: false, nextCursor: null }));
+        await refresh;
+        expect(harness.sync.getSessionListPagingState('archived').status).toBe('exhausted');
+        expect(harness.sync.isArchivedSessionListRowCurrent('cached', 2)).toBe(false);
+        expect(storage.getState().sessions.cached).toBeDefined();
+    });
+
+    it.each(['replace', 'scope'] as const)('does not authorize archive membership from an obsolete page after %s', async cancellation => {
+        harness.http.mockResolvedValue(jsonResponse({ sessions: [{ ...plainWorkerRecord('accepted'), archivedAt: 10 }], hasNext: true, nextCursor: 'tail' }));
+        await harness.sync.fetchArchivedSessions();
+        const obsolete = createDeferred<Response>();
+        harness.http.mockImplementation(() => obsolete.promise);
+        const append = harness.sync.fetchMoreArchivedSessions();
+        if (cancellation === 'scope') harness.sync.disconnectServer();
+        else {
+            harness.http.mockImplementation(async () => jsonResponse({ sessions: [], hasNext: false, nextCursor: null }));
+            await harness.sync.fetchArchivedSessions();
+        }
+        obsolete.resolve(jsonResponse({ sessions: [{ ...plainWorkerRecord('obsolete-member'), archivedAt: 10 }], hasNext: false, nextCursor: null }));
+        await append;
+        expect(harness.sync.isArchivedSessionListRowCurrent('accepted', 1)).toBe(false);
+        expect(harness.sync.isArchivedSessionListRowCurrent('obsolete-member', 1)).toBe(false);
+        expect(storage.getState().sessions['obsolete-member']).toBeUndefined();
+    });
+
     describe('owned background metadata hydration', () => {
         it('reconciles a hydrated head when its store publication starts the next page before completion notification', async () => {
             const pending = deferMetadata();
@@ -158,11 +213,13 @@ describe('canonical session list paging read API', () => {
             } finally { unsubscribe(); }
         });
 
-        it('completes a real two-page chain after each delayed decrypt succeeds, without extra fetches or decrypts', async () => {
+        it.each([
+            ['head-first', false], ['tail-first', false], ['head-first', true], ['tail-first', true],
+        ] as const)('keeps accepted page hydration alive across append: %s, newer version on tail=%s', async (order, sameRow) => {
             const headMetadata = createDeferred<{ path: string; host: string; name: string }>();
             const tailMetadata = createDeferred<{ path: string; host: string; name: string }>();
             const entered = [createDeferred<void>(), createDeferred<void>()];
-            const decrypt = vi.fn((version: number, value: string) => {
+            const decrypt = vi.fn((_version: number, value: string) => {
                 const page = value === 'head-ciphertext' ? 0 : 1;
                 entered[page].resolve();
                 return page === 0 ? headMetadata.promise : tailMetadata.promise;
@@ -174,24 +231,66 @@ describe('canonical session list paging read API', () => {
                 const url = new URL(path, 'http://localhost');
                 if (url.pathname !== '/v2/sessions') return original(path);
                 const append = url.searchParams.has('cursor');
-                return jsonResponse({ sessions: [{ ...plainWorkerRecord(append ? 'tail' : 'head'), encryptionMode: 'e2ee',
-                    metadata: append ? 'tail-ciphertext' : 'head-ciphertext', agentState: null, metadataVersion: 2 }],
+                return jsonResponse({ sessions: [{ ...plainWorkerRecord(append && !sameRow ? 'tail' : 'head'), encryptionMode: 'e2ee',
+                    metadata: append ? 'tail-ciphertext' : 'head-ciphertext', agentState: null, metadataVersion: append ? 3 : 2 }],
                 includedActive: true, hasNext: !append, nextCursor: append ? null : 'tail' });
             });
             await harness.sync.refreshSessions({ awaitSessionListHydration: true });
             await entered[0].promise;
-            expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'more', hasUnmaterializedRows: true });
-            headMetadata.resolve({ path: '/repo', host: 'host', name: 'Head' });
-            await expect.poll(() => harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'more', hasUnmaterializedRows: false });
             await harness.sync.fetchMoreSessions();
             await entered[1].promise;
             expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'unavailable', hasUnmaterializedRows: true });
-            tailMetadata.resolve({ path: '/repo', host: 'host', name: 'Tail' });
+            const settleHead = async () => {
+                headMetadata.resolve({ path: '/repo', host: 'host', name: 'Head' });
+                if (!sameRow) await expect.poll(() => storage.getState().sessionListRenderables.head.metadata?.name).toBe('Head');
+                else await new Promise(resolve => setTimeout(resolve, 100));
+            };
+            const settleTail = async () => {
+                tailMetadata.resolve({ path: '/repo', host: 'host', name: 'Tail' });
+                await expect.poll(() => storage.getState().sessionListRenderables[sameRow ? 'head' : 'tail'].metadata?.name).toBe('Tail');
+            };
+            if (order === 'head-first') {
+                await settleHead();
+                expect(harness.sync.getSessionListPagingState('current').status).toBe('unavailable');
+                await settleTail();
+            } else { await settleTail(); await settleHead(); }
             await expect.poll(() => harness.sync.getSessionListPagingState('current')).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
-            expect(storage.getState().sessionListRenderables.head.metadata?.name).toBe('Head');
-            expect(storage.getState().sessionListRenderables.tail.metadata?.name).toBe('Tail');
+            expect(storage.getState().sessionListRenderables[sameRow ? 'head' : 'tail'].metadataVersion).toBe(3);
+            expect(storage.getState().sessions[sameRow ? 'head' : 'tail']?.metadata?.name).toBe('Tail');
             expect(decrypt).toHaveBeenCalledTimes(2);
             expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname.startsWith('/v2/sessions'))).toHaveLength(2);
+        });
+
+        it.each(['loading', 'error'] as const)('hydrates the accepted head while append is %s without overwriting its lifecycle', async phase => {
+            const pending = deferMetadata();
+            const page = createDeferred<Response>();
+            const pageEntered = createDeferred<void>();
+            const original = harness.http.getMockImplementation()!;
+            harness.http.mockImplementation(async path => {
+                const url = new URL(path, 'http://localhost');
+                if (url.pathname !== '/v2/sessions') return original(path);
+                if (url.searchParams.has('cursor')) { pageEntered.resolve(); return page.promise; }
+                return jsonResponse({ sessions: [encryptedRow()], includedActive: true, hasNext: true, nextCursor: 'tail' });
+            });
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            await pending.entered.promise;
+            const append = harness.sync.fetchMoreSessions().catch(error => error);
+            await pageEntered.promise;
+            if (phase === 'error') {
+                page.resolve(jsonResponse({ error: 'failed' }, 503));
+                expect(await append).toBeInstanceOf(Error);
+            }
+            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Retained head' });
+            await expect.poll(() => storage.getState().sessionListRenderables['pending-metadata']?.metadata?.name).toBe('Retained head');
+            expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: phase, retry: phase === 'error' ? 'append' : null });
+            if (phase === 'loading') {
+                page.resolve(jsonResponse({ error: 'failed' }, 503));
+                expect(await append).toBeInstanceOf(Error);
+            }
+            expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'error', retry: 'append' });
+            harness.http.mockImplementation(async () => jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null }));
+            await harness.sync.fetchMoreSessions();
+            expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'exhausted', hasUnmaterializedRows: false });
         });
 
         function deferMetadata() {
@@ -253,36 +352,30 @@ describe('canonical session list paging read API', () => {
             expect(storage.getState().sessions['pending-metadata']).toBeUndefined();
         });
 
-        it.each([false, true])('keeps interrupted earlier-page hydration partial with older cache=%s until a canonical head reload', async olderCache => {
+        it.each([false, true])('hydrates an accepted ordinary-list head after terminal append with older cache=%s, without refresh', async olderCache => {
             const pending = deferMetadata();
             if (olderCache) storage.getState().applySessions([createSessionFixture({
                 id: 'pending-metadata', metadataVersion: 1, metadata: { path: '/repo', host: 'host', name: 'Older' },
             })]);
             const original = harness.http.getMockImplementation()!;
-            let recover = false;
             harness.http.mockImplementation(async path => {
                 const url = new URL(path, 'http://localhost');
                 if (url.pathname !== '/v2/sessions') return original(path);
-                if (recover) return jsonResponse({ sessions: [plainWorkerRecord('recovered')], includedActive: true, hasNext: false, nextCursor: null });
                 const append = url.searchParams.has('cursor');
                 return jsonResponse({ sessions: append ? [] : [encryptedRow()], includedActive: true,
                     hasNext: !append, nextCursor: append ? null : 'tail' });
             });
-            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            // Ordinary SessionsList uses the non-awaiting snapshot caller and fetchMoreSessions.
+            const owner = harness.sync as unknown as { fetchSessions: () => Promise<void> };
+            await owner.fetchSessions();
             await pending.entered.promise;
             await harness.sync.fetchMoreSessions();
-            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Interrupted' });
-            await new Promise(resolve => setTimeout(resolve, 100));
-            expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
-            if (olderCache) {
-                expect(storage.getState().sessions['pending-metadata']?.metadataVersion).toBe(1);
-                expect(storage.getState().sessionListRenderables['pending-metadata']?.metadataVersion).toBe(1);
-            } else expect(storage.getState().sessions['pending-metadata']).toBeUndefined();
+            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Recovered head' });
+            await expect.poll(() => storage.getState().sessionListRenderables['pending-metadata']?.metadata?.name).toBe('Recovered head');
+            expect(storage.getState().sessions['pending-metadata']?.metadataVersion).toBe(2);
+            await expect.poll(() => harness.sync.getSessionListPagingState('current')).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
             expect(pending.decrypt).toHaveBeenCalledTimes(1);
             expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname === '/v2/sessions')).toHaveLength(2);
-            recover = true;
-            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
-            expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
         });
 
         it('keeps older readable metadata partial when current hydration fails, then recovers through the canonical reload', async () => {
