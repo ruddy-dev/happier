@@ -1284,7 +1284,8 @@ export async function fetchAndApplySessions(params: {
     applySessionListRenderablePatches?: (patches: readonly SessionListRenderablePatch[]) => void;
     prioritizeSessionIds?: ReadonlyArray<string>;
     activeSessionIds?: ReadonlyArray<string>;
-    requiredHydrationSessionIds?: ReadonlyArray<string>;
+    // 'all' requires only the rows this snapshot fetched, not later cursor pages.
+    requiredHydrationSessionIds?: ReadonlyArray<string> | 'all';
     // Required rows whose hydration errors are terminal but must not reject the snapshot.
     // Omitted by upstream callers, preserving their required-row rejection behavior.
     softRequiredHydrationSessionIds?: ReadonlyArray<string>;
@@ -1489,7 +1490,9 @@ export async function fetchAndApplySessions(params: {
     }
 
     const cachedSessionListEntries = params.cachedSessionListEntries ?? {};
-    const requestedRequiredHydrationSessionIds = normalizeSessionListHydrationSessionIds(params.requiredHydrationSessionIds);
+    const requestedRequiredHydrationSessionIds = params.requiredHydrationSessionIds === 'all'
+        ? sessions.map(session => session.id)
+        : normalizeSessionListHydrationSessionIds(params.requiredHydrationSessionIds);
     const softRequiredHydrationSessionIds = new Set(normalizeSessionListHydrationSessionIds(params.softRequiredHydrationSessionIds));
     const nonAwaitedRequiredHydrationLimit = params.sessionListBackgroundHydrationMaxRows === undefined
         ? Number.POSITIVE_INFINITY

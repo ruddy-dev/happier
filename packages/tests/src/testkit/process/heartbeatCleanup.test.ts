@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { withTempPathBin } from '../fs/withTempPathBin';
 import { repoRootDir } from '../paths';
 import { waitFor } from '../timing';
-import { isProcessAlive, terminateProcessTreeByPid } from './processTree';
+import { isProcessAlive, observeOwnedProcessTree } from './processTree';
+import { spawnTestProcess } from './testSpawn';
 
 type WrapperCase = {
   name: string;
@@ -105,16 +106,16 @@ async function createFakeToolchain(
     [
       "'use strict';",
       "const { spawn } = require('node:child_process');",
-      "const { writeFileSync } = require('node:fs');",
+      "const { existsSync, writeFileSync } = require('node:fs');",
       "const markerPath = process.env.HAPPIER_HEARTBEAT_MARKER;",
       "if (!markerPath) throw new Error('Missing HAPPIER_HEARTBEAT_MARKER');",
       "const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
       "if (!grandchild.pid) throw new Error('Failed to spawn descendant process');",
       "writeFileSync(markerPath, JSON.stringify({ childPid: process.pid, grandchildPid: grandchild.pid }), 'utf8');",
       signalAfterSpawn
-        ? `setTimeout(() => process.kill(process.pid, ${JSON.stringify(signalAfterSpawn)}), 25);`
+        ? `setInterval(() => { if (existsSync(markerPath + '.release')) process.kill(process.pid, ${JSON.stringify(signalAfterSpawn)}); }, 25);`
         : exitAfterSpawn
-          ? 'process.exit(0);'
+          ? "setInterval(() => { if (existsSync(markerPath + '.release')) process.exit(0); }, 25);"
           : "setInterval(() => {}, 1000);",
       '',
     ].join('\n'),
@@ -183,7 +184,7 @@ async function runWrapperCleanupScenario(
       ...caseItem.extraEnv,
     }, caseItem, fakeToolchain);
 
-    const child = spawn(process.execPath, [wrapperPath, ...caseItem.buildArgs(configPath)], {
+    const child = spawnTestProcess(process.execPath, [wrapperPath, ...caseItem.buildArgs(configPath)], {
       env,
       stdio: ['ignore', 'ignore', 'ignore'],
     });
@@ -204,6 +205,11 @@ async function runWrapperCleanupScenario(
       const marker = JSON.parse(raw) as { childPid: number; grandchildPid: number };
       expect(marker.childPid).toBeGreaterThan(0);
       expect(marker.grandchildPid).toBeGreaterThan(0);
+
+      observeOwnedProcessTree(child.ownership);
+      expect(child.ownership.processes.has(marker.childPid)).toBe(true);
+      expect(child.ownership.processes.has(marker.grandchildPid)).toBe(true);
+      await writeFile(markerPath + '.release', 'release');
 
       if (opts?.signalAfterSpawn) {
         return await childExitPromise;
@@ -228,10 +234,7 @@ async function runWrapperCleanupScenario(
         context: `${caseItem.name} wrapper descendant shutdown`,
       });
     } finally {
-      if (!child.killed) {
-        child.kill('SIGTERM');
-      }
-      await terminateProcessTreeByPid(child.pid ?? 0, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
+      await child.stop();
     }
   });
 }
@@ -273,14 +276,9 @@ async function runWrapperParentExitCleanupScenario(caseItem: WrapperCase): Promi
         "});",
         "if (!child.pid) throw new Error('Failed to spawn wrapper');",
         "writeFileSync(wrapperPidPath, JSON.stringify({ wrapperPid: child.pid }), 'utf8');",
-        "const deadline = Date.now() + 10000;",
         "const poll = () => {",
-        "  if (existsSync(process.env.HAPPIER_HEARTBEAT_MARKER)) {",
+        "  if (existsSync(wrapperPidPath + '.release')) {",
         "    process.exit(0);",
-        "    return;",
-        "  }",
-        "  if (Date.now() >= deadline) {",
-        "    process.exit(2);",
         "    return;",
         "  }",
         "  setTimeout(poll, 50);",
@@ -291,7 +289,7 @@ async function runWrapperParentExitCleanupScenario(caseItem: WrapperCase): Promi
       'utf8',
     );
 
-    const launcher = spawn(process.execPath, [launcherPath], {
+    const launcher = spawnTestProcess(process.execPath, [launcherPath], {
       env: {
         ...env,
         HAPPIER_WRAPPER_PATH: wrapperPath,
@@ -304,7 +302,7 @@ async function runWrapperParentExitCleanupScenario(caseItem: WrapperCase): Promi
     let wrapperPid = 0;
     let marker: { childPid: number; grandchildPid: number } | null = null;
     try {
-      await once(launcher, 'exit');
+      const launcherExit = once(launcher, 'exit');
 
       await waitFor(async () => {
         try {
@@ -333,6 +331,12 @@ async function runWrapperParentExitCleanupScenario(caseItem: WrapperCase): Promi
       marker = JSON.parse(await readFile(markerPath, 'utf8')) as { childPid: number; grandchildPid: number };
       expect(marker.childPid).toBeGreaterThan(0);
       expect(marker.grandchildPid).toBeGreaterThan(0);
+      observeOwnedProcessTree(launcher.ownership);
+      for (const pid of [wrapperPid, marker.childPid, marker.grandchildPid]) {
+        expect(launcher.ownership.processes.has(pid)).toBe(true);
+      }
+      await writeFile(wrapperPidPath + '.release', 'release');
+      await launcherExit;
 
       await waitFor(() => !isProcessAlive(wrapperPid), {
         timeoutMs: 10_000,
@@ -352,16 +356,7 @@ async function runWrapperParentExitCleanupScenario(caseItem: WrapperCase): Promi
         context: `${caseItem.name} wrapper grandchild shutdown after parent exit`,
       });
     } finally {
-      await terminateProcessTreeByPid(launcher.pid ?? 0, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
-      if (wrapperPid > 0) {
-        await terminateProcessTreeByPid(wrapperPid, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
-      }
-      if (marker?.childPid) {
-        await terminateProcessTreeByPid(marker.childPid, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
-      }
-      if (marker?.grandchildPid) {
-        await terminateProcessTreeByPid(marker.grandchildPid, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).catch(() => {});
-      }
+      await launcher.stop();
     }
   });
 }

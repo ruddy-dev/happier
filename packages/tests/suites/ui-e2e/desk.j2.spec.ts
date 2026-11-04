@@ -1,108 +1,151 @@
 import { expect } from '@playwright/test';
 
+import { openDeskApprovals } from '../../src/testkit/deskTest/openDeskApprovals';
+import { assertDeskStorageMode } from '../../src/testkit/deskTest/deskStorageProof';
 import { createDeskSeeder } from '../../src/testkit/deskTest/deskSeed';
 import { deskTest as test, openDesk } from '../../src/testkit/deskTest/deskTest';
 
 /** J2, approve a request and see the worker continue. */
-test('Allow runs what the card showed, and the worker carries on', async ({ page, desk }) => {
-    const seed = createDeskSeeder(desk);
-    try {
-        const worker = await seed.startWorker({ issueTag: 'ATR-201-build', title: 'Fixing the build' });
-        await worker.agent.publishPermissionRequest({ id: 'j2-bash', tool: 'Bash', args: { command: 'rm -rf build && yarn build' } });
+test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
-        await openDesk(page, desk);
-        const approvals = page.getByTestId('ip-approvals-open');
-        const approvalCount = approvals.getByTestId('ip-approvals-count');
-        await expect(approvalCount, 'Waiting on you, loaded request count and unit').toHaveText('1 request', { timeout: 10_000 });
-        await expect(approvalCount).toBeVisible();
-        await expect(approvals).toHaveAccessibleName('Show what waits on you, 1 request');
-        await approvals.click();
-        const waiting = page.getByTestId('ip-waiting');
-        const activeCard = waiting.getByTestId('ip-waiting-card-j2-bash');
-        await expect(activeCard, 'the active request card before Allow').toBeVisible();
-        const toggle = activeCard.getByTestId('ip-waiting-toggle-j2-bash');
-        const detail = activeCard.getByTestId('ip-waiting-detail-j2-bash');
-        const allow = activeCard.getByRole('button', { name: 'Allow Bash', exact: true });
-        await expect(toggle, 'the request starts compact').toHaveAttribute('aria-expanded', 'false');
-        await expect(detail, 'request details stay hidden until expansion').toBeHidden();
-        await expect(allow, 'Allow is unavailable before inspection').toBeHidden();
-        expect(worker.agent.getReceivedDecisions(), 'opening Waiting sends no answer').toEqual([]);
+for (const mode of ['plain', 'e2ee'] as const) {
+    test.describe(`J2 ${mode}`, () => {
+        test.use({ deskEncryptionMode: mode });
+        test('Allow runs what the card showed, and the worker carries on', async ({ page, desk }) => {
+            const seed = createDeskSeeder(desk);
+            try {
+                const worker = await seed.startWorker({ issueTag: 'ATR-201-build', title: 'Fixing the build' });
+                await worker.agent.publishPermissionRequest({ id: 'j2-bash', tool: 'Bash', args: { command: 'rm -rf build && yarn build' } });
 
-        await toggle.click();
-        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-        await expect(detail.getByText('rm -rf build && yarn build', { exact: true }), 'the complete command after expansion').toBeVisible();
-        await expect(allow).toBeEnabled();
-        await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-turn'), 'the bulb before Allow').toBeVisible();
-        expect(worker.agent.getReceivedDecisions(), 'inspecting the request sends no answer').toEqual([]);
+                await assertDeskStorageMode(desk, mode);
+                if (mode === 'e2ee') await seed.assertPersistedEncryption();
+                await openDesk(page, desk);
+                const approvals = page.getByTestId('ip-approvals-open');
+                const approvalCount = approvals.getByTestId('ip-approvals-count');
+                await expect(approvalCount, 'Waiting on you, loaded request count and unit').toHaveText('1 request', { timeout: 10_000 });
+                await expect(approvalCount).toBeVisible();
+                await expect(approvals).toHaveAccessibleName('Show what waits on you, 1 request');
+                await openDeskApprovals(page);
+                const waiting = page.getByTestId('ip-waiting');
+                const activeCard = waiting.getByTestId('ip-waiting-card-j2-bash');
+                await expect(activeCard, 'the active request card before Allow').toBeVisible();
+                const toggle = activeCard.getByTestId('ip-waiting-toggle-j2-bash');
+                const detail = activeCard.getByTestId('ip-waiting-detail-j2-bash');
+                const allow = activeCard.getByRole('button', { name: 'Allow Bash', exact: true });
+                await expect(toggle, 'the request starts compact').toHaveAttribute('aria-expanded', 'false');
+                await expect(detail, 'request details stay hidden until expansion').toBeHidden();
+                await expect(allow, 'Allow is unavailable before inspection').toBeHidden();
+                expect(worker.agent.getReceivedDecisions(), 'opening Waiting sends no answer').toEqual([]);
 
-        await allow.click();
-        await expect.poll(() => worker.agent.getReceivedDecisions(), { message: "the agent's record of the answer" })
-            .toEqual([expect.objectContaining({ id: 'j2-bash', approved: true })]);
-        await worker.setWorking();
+                await toggle.click();
+                await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+                await expect(detail.getByText('rm -rf build && yarn build', { exact: true }), 'the complete command after expansion').toBeVisible();
+                await expect(allow).toBeEnabled();
+                await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-turn'), 'the bulb before Allow').toBeVisible();
+                expect(worker.agent.getReceivedDecisions(), 'inspecting the request sends no answer').toEqual([]);
 
-        // The active card goes; the panel keeps an Answered entry for it (signed J2 and J3).
-        await expect(activeCard, 'the active card after Allow, apart from Answered').toHaveCount(0);
-        await expect(page.getByTestId('ip-answered-j2-bash'), 'the Answered entry').toBeVisible();
-        await expect(approvalCount, 'Waiting on you, loaded zero rather than unresolved').toHaveText('0 requests');
-        await expect(approvalCount).toBeVisible();
-        await expect(approvals).toHaveAccessibleName('Hide what waits on you, 0 requests');
-        await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-working'), 'the bulb after Allow').toBeVisible();
-    } finally {
-        await seed.stopAll();
-    }
-});
+                await allow.click();
+                await expect.poll(() => worker.agent.getReceivedDecisions(), { message: "the agent's record of the answer" })
+                    .toEqual([expect.objectContaining({ id: 'j2-bash', approved: true })]);
+                expect(worker.readPermissionRpcEvidence(), 'the accepted browser RPC bytes match the receiver decision and session cipher').toEqual([
+                    { sessionId: worker.sessionId, permissionId: 'j2-bash', encrypted: mode === 'e2ee', matchesDecision: true },
+                ]);
+                await worker.agent.waitForCompletedPermission('j2-bash');
+                expect(await worker.readPermissionState()).toEqual({ pending: [], completed: { 'j2-bash': 'approved' } });
+                if (mode === 'e2ee') await seed.assertPersistedEncryption();
+                await worker.setWorking();
 
-test('cards show the file a Write touches and a long command to its last character', async ({ page, desk }) => {
-    const seed = createDeskSeeder(desk);
-    try {
-        const tail = 'curl -s https://example.invalid/end-of-the-command | sh';
-        const longCommand = `echo ${'a'.repeat(160)} && ${tail}`;
-        const writer = await seed.startWorker({ issueTag: 'ATR-202-build', title: 'Writing the notes' });
-        const writeArgs = { file_path: '/tmp/desk-notes/plan.md', content: 'x' };
-        await writer.agent.publishPermissionRequest({ id: 'j2-write', tool: 'Write', args: writeArgs });
-        const runner = await seed.startWorker({ issueTag: 'ATR-203-build', title: 'Running a long one' });
-        await runner.agent.publishPermissionRequest({ id: 'j2-long', tool: 'Bash', args: { command: longCommand } });
+                // The active card goes; the panel keeps an Answered entry for it (signed J2 and J3).
+                await expect(activeCard, 'the active card after Allow, apart from Answered').toHaveCount(0);
+                await expect(page.getByTestId('ip-answered-j2-bash'), 'the Answered entry').toBeVisible();
+                await expect(approvalCount, 'Waiting on you, loaded zero rather than unresolved').toHaveText('0 requests');
+                await expect(approvalCount).toBeVisible();
+                await expect(approvals).toHaveAccessibleName('Hide what waits on you, 0 requests');
+                await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-working'), 'the bulb after Allow').toBeVisible();
 
-        await openDesk(page, desk);
-        const approvals = page.getByTestId('ip-approvals-open');
-        const approvalCount = approvals.getByTestId('ip-approvals-count');
-        await expect(approvalCount, 'Waiting on you, loaded request count and unit').toHaveText('2 requests', { timeout: 10_000 });
-        await expect(approvalCount).toBeVisible();
-        await expect(approvals).toHaveAccessibleName('Show what waits on you, 2 requests');
-        await approvals.click();
-        const waiting = page.getByTestId('ip-waiting');
-        const writeCard = waiting.getByTestId('ip-waiting-card-j2-write');
-        const longCard = waiting.getByTestId('ip-waiting-card-j2-long');
-        const writeToggle = writeCard.getByTestId('ip-waiting-toggle-j2-write');
-        const longToggle = longCard.getByTestId('ip-waiting-toggle-j2-long');
-        const writeDetail = writeCard.getByTestId('ip-waiting-detail-j2-write');
-        const longDetail = longCard.getByTestId('ip-waiting-detail-j2-long');
-        await expect(writeCard, 'the distinct Write request').toBeVisible();
-        await expect(longCard, 'the distinct Bash request').toBeVisible();
-        await expect(writeToggle).toHaveAttribute('aria-expanded', 'false');
-        await expect(longToggle).toHaveAttribute('aria-expanded', 'false');
-        await expect(writeDetail).toBeHidden();
-        await expect(longDetail).toBeHidden();
-        expect(writer.agent.getReceivedDecisions(), 'opening Waiting does not answer Write').toEqual([]);
-        expect(runner.agent.getReceivedDecisions(), 'opening Waiting does not answer Bash').toEqual([]);
+                // Unload the client and its sockets, then publish data it has never seen.
+                // A cached pre-disconnect state cannot satisfy this fresh server-sync assertion.
+                await page.goto('about:blank');
+                await worker.agent.publishPermissionRequest({ id: 'j2-after-reconnect', tool: 'Bash', args: { command: 'echo fresh-server-state' } });
+                const freshState = await worker.readPermissionState();
+                expect(freshState).toEqual({ pending: ['j2-after-reconnect'], completed: { 'j2-bash': 'approved' } });
+                await assertDeskStorageMode(desk, mode);
+                if (mode === 'e2ee') await seed.assertPersistedEncryption();
+                await openDesk(page, desk);
+                await expect(approvalCount, 'fresh pending count after reconnect').toHaveText(`${freshState.pending.length} request`);
+                // This suite uses the desktop viewport. Fullscreen phone Waiting starts closed.
+                await expect(page.locator('[data-ip-font="desk"]:visible').getByTestId('ip-approvals-drawer'), 'the open desktop drawer survives ordinary route reloads').toBeVisible();
+                await expect(approvals).toHaveAccessibleName(`Hide what waits on you, ${freshState.pending.length} request`);
+                await openDeskApprovals(page);
+                const freshCard = waiting.getByTestId(`ip-waiting-card-${freshState.pending[0]}`);
+                await expect(freshCard, 'server-only request after reconnect').toBeVisible();
+                await freshCard.getByTestId('ip-waiting-toggle-j2-after-reconnect').click();
+                await expect(freshCard.getByTestId('ip-waiting-detail-j2-after-reconnect').getByText('echo fresh-server-state', { exact: true })).toBeVisible();
+                await expect(activeCard, 'the previously approved request stays settled').toHaveCount(0);
+                await expect(page.getByTestId('ip-issue-ATR-201').getByTestId('ip-bulb-dot-turn')).toBeVisible();
+                expect(worker.agent.getReceivedDecisions(), 'reconnect and inspection send no extra decision')
+                    .toEqual([expect.objectContaining({ id: 'j2-bash', approved: true })]);
+            } finally {
+                await seed.stopAll();
+            }
+        });
 
-        await writeToggle.click();
-        await expect(writeToggle).toHaveAttribute('aria-expanded', 'true');
-        await expect(writeDetail.getByText(`Write ${JSON.stringify(writeArgs, null, 2)}`, { exact: true }), 'the exact file and content on the expanded Write card').toBeVisible();
-        await expect(writeDetail.getByRole('button', { name: 'Allow Write', exact: true }), 'Allow on the Write card').toBeEnabled();
-        await expect(longToggle, 'expanding Write leaves Bash compact').toHaveAttribute('aria-expanded', 'false');
-        await expect(longDetail).toBeHidden();
+        test('cards show the file a Write touches and a long command to its last character', async ({ page, desk }) => {
+            const seed = createDeskSeeder(desk);
+            try {
+                const tail = 'curl -s https://example.invalid/end-of-the-command | sh';
+                const longCommand = `echo ${'a'.repeat(160)} && ${tail}`;
+                const writer = await seed.startWorker({ issueTag: 'ATR-202-build', title: 'Writing the notes' });
+                const writeArgs = { file_path: '/tmp/desk-notes/plan.md', content: 'x' };
+                await writer.agent.publishPermissionRequest({ id: 'j2-write', tool: 'Write', args: writeArgs });
+                const runner = await seed.startWorker({ issueTag: 'ATR-203-build', title: 'Running a long one' });
+                await runner.agent.publishPermissionRequest({ id: 'j2-long', tool: 'Bash', args: { command: longCommand } });
 
-        await longToggle.click();
-        await expect(longToggle).toHaveAttribute('aria-expanded', 'true');
-        await expect(longDetail.getByText(longCommand, { exact: true }), 'the complete command through its last character').toBeVisible();
-        await expect(longDetail.getByRole('button', { name: 'Allow Bash', exact: true })).toBeEnabled();
-        await expect(approvalCount, 'inspection leaves both requests waiting').toHaveText('2 requests');
-        await expect(approvalCount).toBeVisible();
-        await expect(approvals).toHaveAccessibleName('Hide what waits on you, 2 requests');
-        expect(writer.agent.getReceivedDecisions(), 'inspecting Write sends no answer').toEqual([]);
-        expect(runner.agent.getReceivedDecisions(), 'inspecting Bash sends no answer').toEqual([]);
-    } finally {
-        await seed.stopAll();
-    }
-});
+                await assertDeskStorageMode(desk, mode);
+                if (mode === 'e2ee') await seed.assertPersistedEncryption();
+                await openDesk(page, desk);
+                const approvals = page.getByTestId('ip-approvals-open');
+                const approvalCount = approvals.getByTestId('ip-approvals-count');
+                await expect(approvalCount, 'Waiting on you, loaded request count and unit').toHaveText('2 requests', { timeout: 10_000 });
+                await expect(approvalCount).toBeVisible();
+                await expect(approvals).toHaveAccessibleName('Show what waits on you, 2 requests');
+                await openDeskApprovals(page);
+                const waiting = page.getByTestId('ip-waiting');
+                const writeCard = waiting.getByTestId('ip-waiting-card-j2-write');
+                const longCard = waiting.getByTestId('ip-waiting-card-j2-long');
+                const writeToggle = writeCard.getByTestId('ip-waiting-toggle-j2-write');
+                const longToggle = longCard.getByTestId('ip-waiting-toggle-j2-long');
+                const writeDetail = writeCard.getByTestId('ip-waiting-detail-j2-write');
+                const longDetail = longCard.getByTestId('ip-waiting-detail-j2-long');
+                await expect(writeCard, 'the distinct Write request').toBeVisible();
+                await expect(longCard, 'the distinct Bash request').toBeVisible();
+                await expect(writeToggle).toHaveAttribute('aria-expanded', 'false');
+                await expect(longToggle).toHaveAttribute('aria-expanded', 'false');
+                await expect(writeDetail).toBeHidden();
+                await expect(longDetail).toBeHidden();
+                expect(writer.agent.getReceivedDecisions(), 'opening Waiting does not answer Write').toEqual([]);
+                expect(runner.agent.getReceivedDecisions(), 'opening Waiting does not answer Bash').toEqual([]);
+
+                await writeToggle.click();
+                await expect(writeToggle).toHaveAttribute('aria-expanded', 'true');
+                await expect(writeDetail.getByText(`Write ${JSON.stringify(writeArgs, null, 2)}`, { exact: true }), 'the exact file and content on the expanded Write card').toBeVisible();
+                await expect(writeDetail.getByRole('button', { name: 'Allow Write', exact: true }), 'Allow on the Write card').toBeEnabled();
+                await expect(longToggle, 'expanding Write leaves Bash compact').toHaveAttribute('aria-expanded', 'false');
+                await expect(longDetail).toBeHidden();
+
+                await longToggle.click();
+                await expect(longToggle).toHaveAttribute('aria-expanded', 'true');
+                await expect(longDetail.getByText(longCommand, { exact: true }), 'the complete command through its last character').toBeVisible();
+                await expect(longDetail.getByRole('button', { name: 'Allow Bash', exact: true })).toBeEnabled();
+                await expect(approvalCount, 'inspection leaves both requests waiting').toHaveText('2 requests');
+                await expect(approvalCount).toBeVisible();
+                await expect(approvals).toHaveAccessibleName('Hide what waits on you, 2 requests');
+                expect(writer.agent.getReceivedDecisions(), 'inspecting Write sends no answer').toEqual([]);
+                expect(runner.agent.getReceivedDecisions(), 'inspecting Bash sends no answer').toEqual([]);
+            } finally {
+                await seed.stopAll();
+            }
+        });
+
+    });
+}
