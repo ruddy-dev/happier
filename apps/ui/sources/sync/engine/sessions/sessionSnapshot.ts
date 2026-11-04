@@ -393,6 +393,7 @@ function buildRenderableFromRowAndCache(
 
     return {
         id: row.id,
+        encryptionMode: row.encryptionMode === 'plain' ? 'plain' : 'e2ee',
         seq: row.seq,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,

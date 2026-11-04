@@ -19,7 +19,7 @@ import { t } from '@/text';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { DeskFixtureRouteContext } from '../deskFixtureGate';
 import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
-import { useDeskSessions } from '../useDeskSessions';
+import { selectDeskSessionListRenderables, useDeskSessions } from '../useDeskSessions';
 import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useIssueKeys } from '../model/useIssueKeys';
 import { hasSessionIssueMetadata } from '../model/resolveIssue';
@@ -81,7 +81,7 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
     const mounted = React.useRef(false);
     React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
     const desk = useDeskSessions();
-    const renderables = storage(state => state.sessionListRenderables);
+    const renderables = storage(selectDeskSessionListRenderables);
     const deleted = storage(state => state.deletedSessionIds);
     const ready = desk.ready && (fixture || scope !== null);
     const belongsToScope = React.useCallback((id: string) => {
