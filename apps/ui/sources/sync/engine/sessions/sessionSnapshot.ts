@@ -65,7 +65,7 @@ type HydratedSession = Omit<Session, 'presence'> & {
 };
 export type SessionListFetchResult = Readonly<{
     sessionIds: string[];
-    // Fetched versions, including rows still unreadable or awaiting hydration.
+    // Allowed fetched versions, including rows still unreadable or awaiting hydration.
     sessionMetadataVersions: ReadonlyMap<string, number>;
     nextCursor: string | null;
     hasNext: boolean;
@@ -74,6 +74,8 @@ export type SessionListFetchResult = Readonly<{
     serverReportedListEnd: boolean;
     cancelled: boolean;
     hasUnmaterializedRows: boolean;
+    // Aggregate only: policy-blocked rows supply no identity or hydration evidence.
+    hasPolicyFilteredRows: boolean;
 }>;
 type HydrationApplyFlushReason = 'size' | 'timer' | 'required' | 'final' | 'manual';
 type CurrentSessionListRenderableLookup = (sessionId: string) => SessionListRenderableSession | null | undefined;
@@ -1387,6 +1389,7 @@ export async function fetchAndApplySessions(params: {
     let validPageChain = true;
     let source: 'v2' | 'v1' = 'v2';
     let hasUnmaterializedRows = false;
+    let hasPolicyFilteredRows = false;
     const buildFetchResult = (): SessionListFetchResult => {
         const cancelled = !shouldContinue();
         const sessionMetadataVersions = new Map(sessions.map(row => [row.id, row.metadataVersion]));
@@ -1403,7 +1406,8 @@ export async function fetchAndApplySessions(params: {
             source,
             serverReportedListEnd: !cancelled && validPageChain && source === 'v2' && serverReportedListEnd,
             cancelled,
-            hasUnmaterializedRows: cancelled || unreadableRenderables,
+            hasUnmaterializedRows: cancelled || hasPolicyFilteredRows || unreadableRenderables,
+            hasPolicyFilteredRows,
         };
     };
     const appendRows = (rows: V2SessionListResponse['sessions']): void => {
@@ -1519,6 +1523,7 @@ export async function fetchAndApplySessions(params: {
                 params.clientEncryptionRequirement,
                 session.encryptionMode === 'plain' ? 'plain' : 'e2ee',
             )) {
+                hasPolicyFilteredRows = true;
                 sessions.splice(index, 1);
             }
         }

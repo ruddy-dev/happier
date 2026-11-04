@@ -1018,6 +1018,9 @@ class Sync {
     private readonly sessionListRequestIds: Record<SessionListKind, number> = { current: 0, archived: 0 };
     private readonly sessionListCoverageContiguous: Record<SessionListKind, boolean> = { current: false, archived: false };
     private readonly sessionListMetadataVersions = new Map<string, number>();
+    // No blocked row identities survive the snapshot; readable hydration cannot
+    // resolve this aggregate gap within the accepted current page chain.
+    private sessionListHasPolicyFilteredRows = false;
     // A request owns page acceptance; accepted pages share hydration until a new head
     // replaces their chain. Appending must not cancel useful work from prior pages.
     private sessionListHeadRequestId = 0;
@@ -2145,6 +2148,7 @@ class Sync {
         this.sessionListCoverageContiguous.current = false;
         this.sessionListCoverageContiguous.archived = false;
         this.sessionListMetadataVersions.clear();
+        this.sessionListHasPolicyFilteredRows = false;
         this.archivedSessionListMetadataVersions.clear();
         this.publishSessionListPagingState('current', 'not-loaded', null, false);
         this.publishSessionListPagingState('archived', 'not-loaded', null, false);
@@ -4231,6 +4235,7 @@ class Sync {
         for (const [sessionId, version] of result.sessionMetadataVersions) {
             versions.set(sessionId, Math.max(version, versions.get(sessionId) ?? version));
         }
+        if (kind === 'current') this.sessionListHasPolicyFilteredRows ||= result.hasPolicyFilteredRows;
         const hasUnmaterializedRows = kind === 'current' ? this.hasUnmaterializedCurrentSessionListRows()
             : result.hasUnmaterializedRows || (requestedCursor !== null && this.sessionListPagingStates[kind].hasUnmaterializedRows);
         const cursor = kind === 'current' ? this.sessionListNextCursor : this.archivedSessionListNextCursor;
@@ -4242,7 +4247,7 @@ class Sync {
     }
 
     private hasUnmaterializedCurrentSessionListRows(): boolean {
-        return hasUnmaterializedSessionListMetadata(this.sessionListMetadataVersions,
+        return this.sessionListHasPolicyFilteredRows || hasUnmaterializedSessionListMetadata(this.sessionListMetadataVersions,
             sessionId => storage.getState().sessionListRenderables[sessionId]);
     }
 
@@ -4261,6 +4266,7 @@ class Sync {
             this.sessionListHeadRequestId = requestId;
             this.sessionListCoverageContiguous.current = false;
             this.sessionListMetadataVersions.clear();
+            this.sessionListHasPolicyFilteredRows = false;
             this.sessionListNextCursor = null;
             this.sessionListHasMore = false;
             // A new head cannot share an append from the previous chain.
