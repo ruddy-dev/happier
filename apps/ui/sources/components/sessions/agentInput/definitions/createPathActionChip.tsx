@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, type View } from 'react-native';
 
 import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeForView';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from './agentInputChipIconMetrics';
@@ -34,9 +34,7 @@ export function createPathActionChip(params: Readonly<{
              * Path selection stays label-visible even when chip density is icon-only.
              * This keeps the selected folder/path readable on mobile layouts.
              */}
-            <Text numberOfLines={1} ellipsizeMode="middle" style={params.textStyle}>
-                {label}
-            </Text>
+            <DeskActionLabel numberOfLines={1} ellipsizeMode="middle" style={params.textStyle} label={label} />
         </Pressable>
     );
 }

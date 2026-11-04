@@ -3,7 +3,7 @@ import { Pressable, type View } from 'react-native';
 import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
 import { t } from '@/text';
 import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeForView';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from '@/components/sessions/agentInput/definitions/agentInputChipIconMetrics';
 
@@ -69,13 +69,12 @@ export function ResumeChip(props: ResumeChipProps) {
                 )
             )}
             {label ? (
-                <Text
+                <DeskActionLabel
                     numberOfLines={1}
                     ellipsizeMode="tail"
                     style={[props.textStyle, { flexShrink: 1, minWidth: 0 }]}
-                >
-                    {label}
-                </Text>
+                    label={label}
+                />
             ) : null}
         </Pressable>
     );

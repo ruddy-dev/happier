@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 
 import type { AgentInputExtraActionChip } from '@/components/sessions/agentInput/agentInputContracts';
 import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeForView';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from '../definitions/agentInputChipIconMetrics';
 
@@ -32,9 +32,7 @@ export function createAgentInputActionShortcutChip(params: Readonly<{
         render: ({ chipStyle, iconColor, showLabel, textStyle }) => {
             const iconNode = normalizeNodeForView(<Icon name="lightning" size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={iconColor} style={AGENT_INPUT_CHIP_ICON_STYLE} />);
             const labelNode = showLabel ? (
-                <Text numberOfLines={1} style={textStyle}>
-                    {params.label}
-                </Text>
+                <DeskActionLabel numberOfLines={1} style={textStyle} label={params.label} />
             ) : null;
 
             return (

@@ -4,14 +4,21 @@ import { expect, it, vi } from 'vitest';
 import { renderScreen } from '@/dev/testkit';
 import { installFormsCommonModuleMocks } from '@/components/ui/forms/formsTestHelpers';
 import type { MultiTextInputHandle } from '@/components/ui/forms/MultiTextInput';
-import { CoordinatorComposerInputContext, createCoordinatorComposerObserver } from '../model/coordinatorComposerInput';
+import { CoordinatorComposerInputContext, createCoordinatorComposerObserver, useCoordinatorComposerLayout } from '../model/coordinatorComposerInput';
 import { readComposerText, registerComposerRequestHandle, useComposerRequestHandle } from '@/components/sessions/model/composerRequests';
+import { deskPrefs } from '../deskPrefs';
+import { deskThemes, terminalPalettes } from '../palette';
 
 vi.mock('@/sync/store/hooks', () => ({ useLocalSetting: () => 1 }));
 installFormsCommonModuleMocks({ reactNative: async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
     return createReactNativeWebMock({ Platform: { OS: 'ios' }, View: 'View', TextInput: (props: object) => React.createElement('TextInput', props) });
 } });
+
+function ComposerPaintProbe() {
+    const layout = useCoordinatorComposerLayout();
+    return React.createElement('composer-paint', { background: layout.panelBackground, ink: layout.controlInk });
+}
 
 it('observes the native composer draft and places the row at the real panel, without observing other inputs', async () => {
     const { MultiTextInput } = await import('@/components/ui/forms/MultiTextInput');
@@ -59,6 +66,64 @@ it('keeps a regular native input outside a desk provider unchanged', async () =>
     expect(input.props.value).toBe('ordinary');
     await act(async () => input.props.onChangeText('ordinary edit'));
     expect(onChangeText).toHaveBeenCalledWith('ordinary edit');
+});
+
+it.each(['terminalPaper', 'tokyo'] as const)('paints the native panel, input, placeholder and control together for %s', async (palette) => {
+    const oldStyle = deskPrefs.get('chatStyle');
+    const oldPalette = deskPrefs.get('terminalPalette');
+    try {
+        deskPrefs.set('chatStyle', 'terminal'); deskPrefs.set('terminalPalette', palette);
+        const { CoordinatorComposer } = await import('./CoordinatorComposer');
+        const { MultiTextInput } = await import('@/components/ui/forms/MultiTextInput');
+        const { WebDropTargetView } = await import('@/components/sessions/files/repositoryTree/WebDropTargetView');
+        const { DeskActionLabel } = await import('./DeskActionLabel');
+        const screen = await renderScreen(<CoordinatorComposer><WebDropTargetView testID="agent-input-drop-zone" style={{ backgroundColor: palette === 'tokyo' ? '#fff' : '#14161c' }}>
+            <ComposerPaintProbe />
+            <MultiTextInput testID="session-composer-input" value="" onChangeText={() => {}} /><DeskActionLabel testID="control" label="mode" />
+        </WebDropTargetView></CoordinatorComposer>);
+        const panel = screen.findByTestId('agent-input-drop-zone')!;
+        const flat = (style: unknown): Record<string, unknown> => Object.assign({}, ...(Array.isArray(style) ? style.flat(Infinity).filter(Boolean) : [style]));
+        expect(flat(panel.props.style).backgroundColor).toBe(terminalPalettes[palette].bg);
+        expect(screen.tree.root.findByType('composer-paint' as never).props).toMatchObject({ background: terminalPalettes[palette].bg, ink: terminalPalettes[palette].ink });
+        const input = screen.tree.root.findByType('TextInput' as never);
+        expect(flat(input.props.style).color).toBe(terminalPalettes[palette].ink);
+        const { deskMonoFontFamily } = await import('../fonts/deskFont');
+        expect(flat(input.props.style).fontFamily).toBe(deskMonoFontFamily());
+        expect(input.props.placeholderTextColor).toBe(terminalPalettes[palette].mute);
+        expect(flat(screen.findByTestId('control')!.props.style).color).toBe(terminalPalettes[palette].ink);
+        await act(async () => screen.tree.unmount());
+    } finally { deskPrefs.set('chatStyle', oldStyle); deskPrefs.set('terminalPalette', oldPalette); }
+});
+
+it('pairs Slip panel, input, placeholder and control paint while leaving ordinary input unchanged', async () => {
+    const oldStyle = deskPrefs.get('chatStyle');
+    try {
+        deskPrefs.set('chatStyle', 'mask');
+        const { CoordinatorComposer } = await import('./CoordinatorComposer');
+        const { MultiTextInput } = await import('@/components/ui/forms/MultiTextInput');
+        const { WebDropTargetView } = await import('@/components/sessions/files/repositoryTree/WebDropTargetView');
+        const { DeskActionLabel } = await import('./DeskActionLabel');
+        const { useUnistyles } = await import('react-native-unistyles');
+        const flat = (style: unknown): Record<string, unknown> => Object.assign({}, ...(Array.isArray(style) ? style.flat(Infinity).filter(Boolean) : [style]));
+        let dark = false;
+        let ordinaryText = '';
+        let ordinaryPlaceholder = '';
+        function ThemeProbe() { const { theme } = useUnistyles(); dark = theme.dark; ordinaryText = theme.colors.input.text; ordinaryPlaceholder = theme.colors.input.placeholder; return null; }
+        const input = <MultiTextInput testID="session-composer-input" value="" onChangeText={() => {}} />;
+        const screen = await renderScreen(<CoordinatorComposer><ThemeProbe /><ComposerPaintProbe /><WebDropTargetView testID="agent-input-drop-zone">{input}<DeskActionLabel testID="control" label="mode" /></WebDropTargetView></CoordinatorComposer>);
+        const paint = dark ? deskThemes.night : deskThemes.paper;
+        expect(flat(screen.findByTestId('agent-input-drop-zone')!.props.style).backgroundColor).toBe(dark ? paint.bg : paint.panel2);
+        expect(screen.tree.root.findByType('composer-paint' as never).props).toMatchObject({ background: dark ? paint.bg : paint.panel2, ink: paint.ink });
+        const host = screen.tree.root.findByType('TextInput' as never);
+        expect(flat(host.props.style).color).toBe(paint.ink);
+        expect(host.props.placeholderTextColor).toBe(paint.mute);
+        expect(flat(screen.findByTestId('control')!.props.style).color).toBe(paint.ink);
+        await screen.update(input);
+        const ordinary = screen.tree.root.findByType('TextInput' as never);
+        expect(flat(ordinary.props.style).color).toBe(ordinaryText);
+        expect(ordinary.props.placeholderTextColor).toBe(ordinaryPlaceholder);
+        await act(async () => screen.tree.unmount());
+    } finally { deskPrefs.set('chatStyle', oldStyle); }
 });
 
 it('keeps the actual native input and session descendants mounted across the phone breakpoint', async () => {

@@ -519,11 +519,12 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
                     paddingRight: props.paddingRight,
                     ...Typography.default(),
                     ...props.textStyle,
+                    ...coordinatorInput?.textStyle,
                     minHeight: resolvedInputMinHeight,
                     maxHeight: normalizedMaxHeight,
                 }}
                 placeholder={placeholder}
-                placeholderTextColor={theme.colors.input.placeholder}
+                placeholderTextColor={coordinatorInput?.placeholderColor ?? theme.colors.input.placeholder}
                 value={value}
                 onChangeText={handleTextChange}
                 onContentSizeChange={handleContentSizeChange}

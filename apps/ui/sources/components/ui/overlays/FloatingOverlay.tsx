@@ -97,6 +97,8 @@ interface FloatingOverlayProps {
     keyboardShouldPersistTaps?: boolean | 'always' | 'never' | 'handled';
     edgeFades?: FloatingOverlayEdgeFades;
     containerStyle?: StyleProp<ViewStyle>;
+    /** Optional matching paint for both the frame and the clipped content surface. */
+    surfaceColor?: string;
     scrollViewStyle?: StyleProp<ViewStyle>;
     /** Override the radius of both the shadow frame and clipped surface. */
     borderRadius?: number;
@@ -135,6 +137,7 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
         arrow = false,
         surfaceChrome = 'modal',
         containerStyle,
+        surfaceColor,
         scrollViewStyle,
         borderRadius,
         scrollViewRef,
@@ -238,18 +241,20 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
             surfaceChrome === 'theme' ? styles.themedSurfaceShadowFrame : styles.modalShadowFrame,
             { maxHeight },
             containerStyle,
+            surfaceColor ? { backgroundColor: surfaceColor } : null,
             borderRadius === undefined ? null : { borderRadius },
             terminalVoice ? { borderRadius: 2 } : null,
         ]}>
             <Animated.View style={[
                 surfaceChrome === 'theme' ? styles.themedSurfaceClip : styles.modalClipSurface,
                 { maxHeight },
+                surfaceColor ? { backgroundColor: surfaceColor } : null,
                 terminalVoice ? { borderRadius: 2 } : borderRadius === undefined ? null : { borderRadius },
             ]}>
                 {content}
                 {scrollEnabled && fadeCfg ? (
                     <ScrollEdgeFades
-                        color={theme.colors.surface.base}
+                        color={surfaceColor ?? theme.colors.surface.base}
                         size={fadeCfg.size}
                         edges={fades.visibility}
                     />
@@ -275,7 +280,7 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
     const arrowBoxStyle: ViewStyle & { boxShadow?: string } = {
         width: arrowSize,
         height: arrowSize,
-        backgroundColor: theme.colors.surface.base,
+        backgroundColor: surfaceColor ?? theme.colors.surface.base,
         transform: [{ rotate: '45deg' as const }],
     };
 

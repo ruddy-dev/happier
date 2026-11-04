@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 import { Modal } from '@/modal';
@@ -11,12 +11,17 @@ import { displayText } from '../model/displayText';
 import { DeskText } from '../typography/DeskText';
 import { usePhoneControlPaint } from './usePhoneControlPaint';
 
-function PromptChip({ testID, label, onPress, phone }: { testID: string; label: string; onPress: () => void; phone: boolean }) {
+function PromptChip({ testID, label, onPress, phone, reveal }: { testID: string; label: string; onPress: () => void; phone: boolean; reveal: (node: View | null) => void }) {
     const { theme } = useUnistyles();
     const { terminal, paint } = usePhoneControlPaint();
     const [focused, setFocused] = React.useState(false);
+    const chipRef = React.useRef<View>(null);
+    // Measure after the focus border has committed, so the whole focused chip is revealed.
+    React.useLayoutEffect(() => {
+        if (phone && focused) reveal(chipRef.current);
+    }, [phone, focused, reveal]);
     const styled = phone && terminal;
-    return <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} onPress={onPress}
+    return <Pressable ref={chipRef} testID={testID} accessibilityRole="button" accessibilityLabel={label} onPress={onPress}
         onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         style={{ flexShrink: 0, minHeight: phone ? 48 : undefined, justifyContent: 'center', paddingHorizontal: 10,
             paddingVertical: 6, borderRadius: styled ? 0 : 10, borderWidth: phone && focused ? 2 : 1,
@@ -62,6 +67,17 @@ function waitingList({ items, unloaded }: DeskWaits): string {
  */
 export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinatorId: string; phone?: boolean }) {
     const { count } = useDeskWaitsSummary(coordinatorId);
+    const shortcutsRef = React.useRef<ScrollView>(null);
+    const revealPhoneChip = React.useCallback((chip: View | null) => {
+        if (Platform.OS !== 'web' || !(chip instanceof HTMLElement)) return;
+        const scroller: unknown = shortcutsRef.current?.getScrollableNode();
+        if (!(scroller instanceof HTMLElement)) return;
+        const viewport = scroller.getBoundingClientRect();
+        const focused = chip.getBoundingClientRect();
+        // Scroll this row only. scrollIntoView can also move the surrounding conversation/page.
+        if (focused.left < viewport.left) scroller.scrollLeft += focused.left - viewport.left;
+        else if (focused.right > viewport.right) scroller.scrollLeft += focused.right - viewport.right;
+    }, []);
     // A chip never wipes what is already typed: the prompt goes after the draft, a blank line apart.
     const fill = (text: string) => {
         const draft = (readComposerText(coordinatorId) ?? '').trimEnd();
@@ -71,7 +87,7 @@ export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinat
     };
 
     const chip = (testID: string, label: string, onPress: () => void) => (
-        <PromptChip testID={testID} label={label} onPress={onPress} phone={phone} />
+        <PromptChip testID={testID} label={label} onPress={onPress} phone={phone} reveal={revealPhoneChip} />
     );
 
     const contents = <>
@@ -85,7 +101,7 @@ export function CoordinatorPrompts({ coordinatorId, phone = false }: { coordinat
                 : null}
             {chip('ip-walk-prs', t('ignorePrevious.walkPrs'), () => fill(t('ignorePrevious.walkPrsPrompt')))}
         </>;
-    if (phone) return <ScrollView testID="ip-phone-shortcuts" horizontal keyboardShouldPersistTaps="handled" style={{ flexGrow: 0, minWidth: 0, maxWidth: '100%' }} contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>{contents}</ScrollView>;
+    if (phone) return <ScrollView ref={shortcutsRef} testID="ip-phone-shortcuts" horizontal keyboardShouldPersistTaps="handled" style={{ flexGrow: 0, minWidth: 0, maxWidth: '100%' }} contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>{contents}</ScrollView>;
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
             {contents}

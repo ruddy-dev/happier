@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, type View } from 'react-native';
 
 import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeForView';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from './agentInputChipIconMetrics';
 
@@ -27,7 +27,7 @@ export function createPermissionActionChip(params: Readonly<{
         >
             {normalizeNodeForView(<Icon name="shield-check" size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={params.tint} style={AGENT_INPUT_CHIP_ICON_STYLE} />)}
             {params.showLabel && params.label ? (
-                <Text style={params.textStyle}>{params.label}</Text>
+                <DeskActionLabel style={params.textStyle} label={params.label} />
             ) : null}
         </Pressable>
     );

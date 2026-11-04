@@ -1,6 +1,6 @@
 import * as React from 'react';
 
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 
 export const AgentInputChipLabel = React.memo(function AgentInputChipLabel(props: Readonly<{
     label: string;
@@ -8,16 +8,5 @@ export const AgentInputChipLabel = React.memo(function AgentInputChipLabel(props
     textStyle?: any;
     countTextStyle?: any;
 }>) {
-    const hasCount = typeof props.count === 'number' && Number.isFinite(props.count) && props.count > 0;
-
-    return (
-        <Text numberOfLines={1} style={props.textStyle}>
-            {props.label}
-            {hasCount ? (
-                <Text style={props.countTextStyle}>
-                    {` (${props.count})`}
-                </Text>
-            ) : null}
-        </Text>
-    );
+    return <DeskActionLabel numberOfLines={1} label={props.label} style={props.textStyle} count={props.count} countStyle={props.countTextStyle} />;
 });

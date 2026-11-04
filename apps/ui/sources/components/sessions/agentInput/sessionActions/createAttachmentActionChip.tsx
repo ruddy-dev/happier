@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, View, Platform } from 'react-native';
 
 import type { AgentInputExtraActionChip, AgentInputExtraActionChipRenderContext } from '@/components/sessions/agentInput/agentInputContracts';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeForView';
 import { ActionListSection } from '@/components/ui/lists/ActionListSection';
 import { t } from '@/text';
@@ -137,7 +137,7 @@ export function createAttachmentActionChip(params: Readonly<{
             >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     {normalizeNodeForView(<Icon name="paperclip" size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={ctx.iconColor} style={AGENT_INPUT_CHIP_ICON_STYLE} />)}
-                    {ctx.showLabel ? <Text style={ctx.textStyle}>{t('common.attach')}</Text> : null}
+                    {ctx.showLabel ? <DeskActionLabel style={ctx.textStyle} label={t('common.attach')} /> : null}
                 </View>
             </Pressable>
         ),

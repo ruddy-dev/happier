@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
 
 type DraftStatus = Readonly<{ writing: boolean; multiline: boolean; line: number; column: number }>;
 
@@ -36,12 +37,18 @@ export const CoordinatorComposerInputContext = React.createContext<Readonly<{
     panelFooter: React.ReactNode;
     panelLeading: React.ReactNode;
     phone?: boolean;
+    terminal?: boolean;
+    controlInk?: string;
+    panelBackground?: string;
+    submitColors?: Readonly<{ background: string; tint: string }>;
+    panelStyle?: StyleProp<ViewStyle>;
     textStyle?: Readonly<{ fontFamily: string; color: string }>;
+    placeholderColor?: string;
 }> | null>(null);
 
 export function useCoordinatorComposerLayout() {
     const context = React.useContext(CoordinatorComposerInputContext);
-    return { desk: context !== null, phone: context?.phone === true };
+    return { desk: context !== null, phone: context?.phone === true, terminal: context?.terminal === true, controlInk: context?.controlInk, panelBackground: context?.panelBackground, submitColors: context?.submitColors };
 }
 
 /** AgentInput's session input is the only consumer, even when other textareas share the pane. */
@@ -59,4 +66,10 @@ export function useCoordinatorComposerPanelFooter(testID: string | undefined) {
 export function useCoordinatorComposerPanelLeading(testID: string | undefined) {
     const context = React.useContext(CoordinatorComposerInputContext);
     return testID === 'agent-input-drop-zone' ? context?.panelLeading : null;
+}
+
+/** Paint the real panel only while it belongs to a desk composer. */
+export function useCoordinatorComposerPanelStyle(testID: string | undefined) {
+    const context = React.useContext(CoordinatorComposerInputContext);
+    return testID === 'agent-input-drop-zone' ? context?.panelStyle : undefined;
 }
