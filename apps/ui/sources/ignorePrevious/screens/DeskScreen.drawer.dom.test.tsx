@@ -109,6 +109,53 @@ async function type(id: string, text: string) {
     });
 }
 
+it('keeps Work beside the coordinator at 900', async () => {
+    await render(900);
+    const work = element('ip-work');
+    const coordinator = element('ip-coordinator-pane-wrapper');
+    expect(work.parentElement!.parentElement).toBe(coordinator.parentElement);
+    expect(getComputedStyle(coordinator.parentElement!).flexDirection).toBe('row');
+    expect(getComputedStyle(work).width).toBe('330px');
+    expect(getComputedStyle(coordinator).display).toBe('flex');
+});
+
+it('keeps the coordinator mounted through phone, column, rail and Waiting boundaries', async () => {
+    await render(820);
+    const composer = element('composer');
+    expect(element('ip-tab-work')).toBeTruthy();
+    for (const width of [821, 900, 1100, 1180, 1181]) {
+        await render(width);
+        expect(element('composer')).toBe(composer);
+        const coordinator = element('ip-coordinator-pane-wrapper');
+        expect(getComputedStyle(coordinator).display).toBe('flex');
+        expect(getComputedStyle(coordinator.parentElement!).flexDirection).toBe('row');
+        expect(getComputedStyle(element('ip-work')).width).toBe('330px');
+        expect(container.querySelector('[data-testid="ip-tab-work"]')).toBeNull();
+    }
+    await render(821);
+    await act(async () => element('ip-work-collapse').focus());
+    expect(document.activeElement).toBe(element('ip-work-collapse'));
+    await act(async () => element('ip-work-collapse').click());
+    expect(getComputedStyle(element('ip-work-rail')).width).toBe('76px');
+    expect(element('composer')).toBe(composer);
+    expect(document.activeElement).toBe(element('ip-work-expand'));
+    await act(async () => element('ip-work-expand').click());
+    expect(getComputedStyle(element('ip-work')).width).toBe('330px');
+    expect(document.activeElement).toBe(element('ip-work-collapse'));
+    await render(820);
+    expect(element('composer')).toBe(composer);
+    expect(element('ip-tab-work')).toBeTruthy();
+});
+
+it('does not steal composer focus when the Work preference changes', async () => {
+    await render(900);
+    await act(async () => element('composer').focus());
+    await act(async () => setWorkCollapsed(true));
+    expect(document.activeElement).toBe(element('composer'));
+    await act(async () => setWorkCollapsed(false));
+    expect(document.activeElement).toBe(element('composer'));
+});
+
 it('Medium 1: stored open at 390 starts closed without rewriting the stored choice', async () => {
     setApprovalsOpen(true); await render(390);
     expect(drawer()).toBeNull(); expect(getApprovalsOpen()).toBe(true);
@@ -263,6 +310,54 @@ it.each([390, 820])('keeps phone top bar controls and accessible tabs at %i', as
     expect(element('ip-tab-waiting').getAttribute('role')).toBe('tab');
     expect(element('ip-tab-waiting').closest('[role="tablist"]')).not.toBeNull();
     expect(element('ip-tab-shog').getAttribute('aria-selected')).toBe('true');
+});
+it.each(['Enter', ' '])('activates phone tabs once on %j release and retains the draft', async key => {
+    await render(820);
+    const composer = element('composer') as HTMLInputElement;
+    composer.value = 'Unsent draft';
+    const press = async (id: string) => {
+        const tab = element(id);
+        await act(async () => tab.focus());
+        expect(getComputedStyle(tab).borderTopWidth).toBe('2px');
+        await act(async () => {
+            tab.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+            tab.dispatchEvent(new KeyboardEvent('keydown', { key, repeat: true, bubbles: true, cancelable: true }));
+        });
+        expect(tab.getAttribute('aria-selected')).toBe('false');
+        await act(async () => tab.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true })));
+        expect(tab.getAttribute('aria-selected')).toBe('true');
+    };
+    await press('ip-tab-work');
+    await press('ip-tab-shog');
+    expect(element('composer')).toBe(composer);
+    expect(composer.value).toBe('Unsent draft');
+    await press('ip-tab-waiting');
+    expect(drawer()).not.toBeNull();
+});
+it('opens Waiting once when Space is released', async () => {
+    await render(820);
+    const tab = element('ip-tab-waiting');
+    await act(async () => tab.focus());
+    await act(async () => tab.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })));
+    expect(tab.getAttribute('aria-selected')).toBe('false');
+    await act(async () => tab.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true })));
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(drawer()).not.toBeNull();
+});
+it('cancels a held tab Space on blur and does not activate from a repeat alone', async () => {
+    await render(820);
+    const work = element('ip-tab-work');
+    await act(async () => work.focus());
+    const down = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    await act(async () => work.dispatchEvent(down));
+    expect(down.defaultPrevented).toBe(true);
+    await act(async () => element('ip-tab-shog').focus());
+    await act(async () => work.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true })));
+    expect(work.getAttribute('aria-selected')).toBe('false');
+    await act(async () => work.focus());
+    await act(async () => work.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', repeat: true, bubbles: true, cancelable: true })));
+    await act(async () => work.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true })));
+    expect(work.getAttribute('aria-selected')).toBe('false');
 });
 it('uses the selected desk palette for phone tabs and provides real focusable targets', async () => {
     deskPrefs.set('chatStyle', 'terminal'); deskPrefs.set('terminalPalette', 'tokyo');
