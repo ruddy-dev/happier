@@ -75,8 +75,8 @@ export function createDeskSeeder(desk: DeskAccount) {
     const register = (close: () => Promise<void> | void) => { closers.push(close); };
 
     return {
-        async startCoordinator(path: string): Promise<string> {
-            const sessionId = await createPlainSession(desk, { name: 'Coordinator chat', path });
+        async startCoordinator(path: string, machineId?: string): Promise<string> {
+            const sessionId = await createPlainSession(desk, { name: 'Coordinator chat', path, ...(machineId ? { machineId } : {}) });
             await goOnline(desk, sessionId, register);
             return sessionId;
         },
