@@ -36,8 +36,7 @@ import { useDeskSessions } from '../useDeskSessions';
 import { isIssueArchiveTarget, useIssueArchiveTargets } from '../model/issueArchiveOperation';
 import { DeskBrowserNotifier } from '../model/useDeskBrowserNotifier';
 import { usePhoneControlPaint } from '../components/usePhoneControlPaint';
-
-const WIDE = 1100;
+import { useWebTabSpace } from '../components/useWebTabSpace';
 
 function CoordinatorPicker({
     sessions,
@@ -128,8 +127,9 @@ function PhoneTabBarContent({ children, bottom }: React.PropsWithChildren<{ bott
 function PhoneTab({ id, label, selected, onPress }: { id: string; label: string; selected: boolean; onPress: () => void }) {
     const { terminal, paint } = usePhoneControlPaint();
     const [focused, setFocused] = React.useState(false);
+    const { webProps, cancel } = useWebTabSpace(onPress);
     return <Pressable testID={id} accessibilityRole="tab" aria-selected={selected} accessibilityState={{ selected }}
-        onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        {...webProps} onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => { cancel(); setFocused(false); }}
         style={{ flex: 1, minWidth: 0, minHeight: 48, alignItems: 'center', justifyContent: 'center',
             borderWidth: focused ? 2 : 1, borderColor: focused ? (selected ? paint.bg : paint.ink) : paint.rule, borderRadius: terminal ? 0 : 8,
             backgroundColor: selected ? paint.ink : paint.panel }}>
@@ -154,7 +154,7 @@ function useApprovalsDrawer(width: number) {
 
 /**
  * The Ignore Previous desk: the coordinator's chat in the middle, the work by issue beside it
- * (left when wide, above when narrow) and what waits on you in a drawer on the right. The Work
+ * (beside it above phone width) and what waits on you in a drawer on the right. The Work
  * panel collapses to a rail of issue keys and states; both choices survive a reload.
  */
 export function DeskScreen() {
@@ -163,7 +163,7 @@ export function DeskScreen() {
     const [chatStyle] = useDeskPref('chatStyle');
     const workSurface = chatStyle === 'terminal' ? { backgroundColor: workPaint.paint.panel } : {};
     const router = useRouter();
-    const { width, height } = useWindowDimensions();
+    const { width } = useWindowDimensions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const { list: sessions, ready: dataReady } = useDeskSessions();
     const [workCollapsed, collapseWork] = useDeskPref('workCollapsed');
@@ -239,74 +239,49 @@ export function DeskScreen() {
         </ScrollView>
     );
 
-    const wide = width >= WIDE;
+    const wide = !phone;
     const coordinatorCard = (form: 'full' | 'slim' | 'rail') => coordinatorId ? (
         <CoordinatorCard sessionId={coordinatorId} form={form} onOpen={() => { setChanging(false); setPhonePane('shog'); }} />
     ) : null;
-    const collapse = (
-        <PanelToggle
-            testID="ip-work-collapse"
-            colour={workPaint.text.secondary}
-            icon={wide ? 'sidebar-left-close' : 'caret-up'}
-            label={t('ignorePrevious.collapseWork')}
-            onPress={() => collapseWork(true)}
-        />
-    );
-    const expand = (
-        <PanelToggle
-            testID="ip-work-expand"
-            colour={workPaint.text.secondary}
-            icon={wide ? 'sidebar-left-open' : 'caret-down'}
-            label={t('ignorePrevious.expandWork')}
-            onPress={() => collapseWork(false)}
-        />
-    );
     const divider = wide
         ? { borderRightWidth: 1, borderRightColor: workPaint.controlBorder }
         : { borderBottomWidth: 1, borderBottomColor: workPaint.controlBorder };
 
     let work: React.ReactNode;
     if (wide) {
-        work = workCollapsed ? (
+        work = (
             <ScrollView
-                testID="ip-work-rail"
+                testID={workCollapsed ? 'ip-work-rail' : 'ip-work'}
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ width: 76, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }}
-                contentContainerStyle={{ gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }}
+                style={{ width: workCollapsed ? 76 : 330, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }}
+                contentContainerStyle={workCollapsed
+                    ? { gap: 4, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }
+                    : { gap: 8, padding: 10 }}
             >
-                {expand}
-                {coordinatorCard('rail')}
-                <WorkColumn compact="column" />
-            </ScrollView>
-        ) : (
-            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
-                <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
-                {coordinatorCard('slim')}
-                <WorkColumn />
+                <View style={workCollapsed ? undefined : { alignItems: 'flex-end' }}>
+                    <PanelToggle
+                        testID={workCollapsed ? 'ip-work-expand' : 'ip-work-collapse'}
+                        colour={workPaint.text.secondary}
+                        icon={workCollapsed ? 'sidebar-left-open' : 'sidebar-left-close'}
+                        label={t(workCollapsed ? 'ignorePrevious.expandWork' : 'ignorePrevious.collapseWork')}
+                        onPress={() => collapseWork(!workCollapsed)}
+                    />
+                </View>
+                {coordinatorCard(workCollapsed ? 'rail' : 'slim')}
+                <WorkColumn compact={workCollapsed ? 'column' : undefined} />
             </ScrollView>
         );
     } else {
-        work = workCollapsed && !phone ? (
-            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...workSurface, ...divider }}>
-                <ScrollView horizontal={false} showsHorizontalScrollIndicator={false} style={{ flex: 1, minWidth: 0, maxHeight: Math.max(0, Math.round(height * 0.45) - 16), overflow: 'hidden' }} contentContainerStyle={{ minWidth: 0 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4, minWidth: 0 }}>
-                        {coordinatorCard('rail')}
-                        <View style={{ flex: 1, minWidth: 0 }}><WorkColumn compact="row" /></View>
-                    </View>
-                </ScrollView>
-                {expand}
-            </View>
-        ) : (
+        work = (
             <ScrollView
                 testID="ip-work"
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...workSurface, ...divider }}
+                style={{ minWidth: 0, overflow: 'hidden', flexGrow: 1, ...workSurface, ...divider }}
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
-                {!phone && <View style={{ alignItems: 'flex-end' }}>{collapse}</View>}
-                {coordinatorCard(phone && phonePane === 'work' ? 'full' : 'slim')}
+                {coordinatorCard(phonePane === 'work' ? 'full' : 'slim')}
                 <WorkColumn />
             </ScrollView>
         );

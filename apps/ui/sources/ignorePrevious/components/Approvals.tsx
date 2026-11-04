@@ -18,12 +18,14 @@ import { createWaitingHistory } from '../model/waitingHistory';
 import { observeWaitingActions } from '../model/observeWaitingActions';
 import { useWaitingAppearance } from './waitingAppearance';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
+import { useWebTabSpace } from './useWebTabSpace';
 
 /** Opens and closes the approvals drawer, with how many things wait on you. */
 export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { open: boolean; onPress: () => void; openerRef?: React.RefObject<View | null>; phone?: boolean }) {
     const { theme } = useUnistyles();
     const { terminal, paint } = useTopBarAppearance();
     const [focused, setFocused] = React.useState(false);
+    const { webProps, cancel } = useWebTabSpace(onPress, phone);
     const { count, ready } = useDeskWaitsSummary();
     const waiting = ready && count > 0;
     // Before the first sync the count is not known yet; 0 would say nothing waits (F4).
@@ -39,9 +41,10 @@ export function ApprovalsButton({ open, onPress, openerRef, phone = false }: { o
             accessibilityState={phone ? { selected: open, expanded: open } : { expanded: open }}
             accessibilityLabel={label}
             accessibilityHint={phone ? t('ignorePrevious.topBar.waitingHint') : undefined}
+            {...webProps}
             onPress={onPress}
             onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onBlur={() => { cancel(); setFocused(false); }}
             hitSlop={6}
             style={{
                 flexDirection: phone ? 'column' : 'row',
