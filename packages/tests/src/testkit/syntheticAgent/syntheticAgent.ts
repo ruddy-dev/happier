@@ -25,6 +25,12 @@ export type PermissionDecision = {
   answers?: Record<string, string>;
 };
 
+export type SyntheticPermissionFailure = Readonly<{
+  ok: false;
+  errorCode: 'permission_request_not_found' | 'permission_request_expired' | 'permission_response_failed';
+  errorMessage: string;
+}>;
+
 type AgentStateShape = {
   requests?: Record<string, { tool: string; arguments: unknown; createdAt?: number | null }>;
   completedRequests?: Record<
@@ -96,6 +102,9 @@ export type SyntheticAgentParams = Readonly<{
   sessionId: string;
   /** In-memory observation of the accepted RPC, independent of polling/WebSocket transport. */
   onPermissionDecision?: (request: Readonly<{ method: string; params: unknown }>, decision: PermissionDecision) => void;
+  /** Per-agent test control after receipt: await a gate, return a failure without
+   * applying the decision, or return void for the unchanged success path. */
+  permissionResponse?: (decision: Readonly<PermissionDecision>) => SyntheticPermissionFailure | void | Promise<SyntheticPermissionFailure | void>;
 }> &
   (Readonly<{ dataKey: Uint8Array }> | Readonly<{ encryption: SyntheticAgentEncryption }>);
 
@@ -106,6 +115,7 @@ export class SyntheticAgent {
   private readonly codec: SyntheticAgentCodec;
   private readonly receivedDecisions: PermissionDecision[] = [];
   private readonly onPermissionDecision: SyntheticAgentParams['onPermissionDecision'];
+  private readonly permissionResponse: SyntheticAgentParams['permissionResponse'];
   private socket: SocketCollector | null = null;
 
   constructor(params: SyntheticAgentParams) {
@@ -113,6 +123,7 @@ export class SyntheticAgent {
     this.token = params.token;
     this.sessionId = params.sessionId;
     this.onPermissionDecision = params.onPermissionDecision;
+    this.permissionResponse = params.permissionResponse;
     this.codec = createCodec('encryption' in params ? params.encryption : { type: 'dataKey', dataKey: params.dataKey });
   }
 
@@ -157,6 +168,8 @@ export class SyntheticAgent {
 
       this.receivedDecisions.push(decision);
       this.onPermissionDecision?.(req, decision);
+      const failure = await this.permissionResponse?.(decision);
+      if (failure) return this.codec.encodeRpc(failure);
       await this.applyPermissionDecision(decision);
       return this.codec.encodeRpc({ ok: true });
     });
@@ -177,6 +190,12 @@ export class SyntheticAgent {
       next.requests = requests;
       return next;
     });
+  }
+
+  /** Simulate another client answering through the same socket state writer,
+   * without fabricating an RPC received from the desk. Never executes tools. */
+  async completePermissionExternally(decision: PermissionDecision): Promise<void> {
+    await this.applyPermissionDecision(decision);
   }
 
   async waitForCompletedPermission(permissionId: string, opts?: { timeoutMs?: number }): Promise<void> {
