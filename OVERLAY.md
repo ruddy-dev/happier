@@ -175,6 +175,8 @@ local status; the snapshot's null PR remains unknown. Existing create/view polic
 
 | File | Reason |
 |---|---|
+| `apps/cli/src/scm/backends/git/operations/pullRequestOperations.ts` | ATR-99 returns the existing command-failure response when list cannot query an authenticated provider, preserving unknown PR status. Successful empty provider responses, fresh verified cache results, REST-to-CLI fallback and provider errors retain their existing paths. |
+| `apps/cli/src/scm/backends/git/operations/pullRequestOperations.test.ts` | ATR-99 exercises the real list owner and auth detectors with external command/provider boundaries, covering unavailable authentication/adapters without provider queries and genuine empty, fresh/expired cache, fallback and error controls. |
 | `apps/ui/sources/components/sessions/panes/git/SessionRightPanelGitView.tsx` | Keeps Update reachable when the snapshot supports PR reads, even with remote writes disabled; action grants and write policy remain with their existing owners. |
 | `apps/ui/sources/components/sessions/sourceControl/pullRequests/SourceControlPullRequestSection.tsx` | Wires the clicked read action and its existing operation status into the opened SCM section. |
 | `apps/ui/sources/components/sessions/sourceControl/pullRequests/PullRequestActionRail.tsx` | Adds a secondary Find PR button to each ready branch state, independently of write permission, using the ordinary toolbar button and wrapping rail. |
