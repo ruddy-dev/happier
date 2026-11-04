@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 
 import type { AgentInputExtraActionChip, AgentInputExtraActionChipRenderContext } from '@/components/sessions/agentInput/agentInputContracts';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { Modal } from '@/modal';
 import {
     buildReviewCommentsDisplayText,
@@ -138,7 +138,7 @@ export function createReviewCommentsActionChip(params: Readonly<{
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Icon name="chat-dots" size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={ctx.iconColor} style={AGENT_INPUT_CHIP_ICON_STYLE} />
                     {ctx.showLabel ? (
-                        <Text style={ctx.textStyle}>{label}</Text>
+                        <DeskActionLabel style={ctx.textStyle} label={label} />
                     ) : null}
                 </View>
             </Pressable>

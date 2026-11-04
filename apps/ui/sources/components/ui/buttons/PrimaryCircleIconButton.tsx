@@ -27,6 +27,8 @@ export const PrimaryCircleIconButton = React.memo(
   (
     props: Readonly<{
       active: boolean;
+      /** Solid active paint replaces the theme gradient; callers pair their glyph with tint. */
+      activeColors?: Readonly<{ background: string; tint: string }>;
       disabled?: boolean;
       loading?: boolean;
       testID?: string;
@@ -45,9 +47,9 @@ export const PrimaryCircleIconButton = React.memo(
     const computedDisabled = Boolean(props.disabled || props.loading || !props.onPress);
     const primary = theme.colors.button?.primary;
     const backgroundColor = props.active
-      ? (primary?.background ?? theme.colors.surface.inset ?? theme.colors.surface.base)
+      ? (props.activeColors?.background ?? primary?.background ?? theme.colors.surface.inset ?? theme.colors.surface.base)
       : (primary?.disabled ?? theme.colors.border.default);
-    const tintColor = primary?.tint ?? theme.colors.text.primary;
+    const tintColor = (props.active ? props.activeColors?.tint : undefined) ?? primary?.tint ?? theme.colors.text.primary;
 
     return (
       <View style={[styles.root, props.style]}>
@@ -70,7 +72,7 @@ export const PrimaryCircleIconButton = React.memo(
             },
           ]}
         >
-          {props.active && primary?.gradient ? (
+          {props.active && !props.activeColors && primary?.gradient ? (
             <GradientSurface
               fallbackColor={backgroundColor}
               gradient={primary.gradient}

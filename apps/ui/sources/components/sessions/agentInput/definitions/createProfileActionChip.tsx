@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Pressable, type View } from 'react-native';
 
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from './agentInputChipIconMetrics';
@@ -28,9 +28,7 @@ export function createProfileActionChip(params: Readonly<{
         >
             <Icon name={params.profileIcon as never} size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={params.tint} style={AGENT_INPUT_CHIP_ICON_STYLE} />
             {params.showLabel ? (
-                <Text style={params.textStyle}>
-                    {params.profileLabel ?? t('profiles.noProfile')}
-                </Text>
+                <DeskActionLabel style={params.textStyle} label={params.profileLabel ?? t('profiles.noProfile')} />
             ) : null}
         </Pressable>
     );

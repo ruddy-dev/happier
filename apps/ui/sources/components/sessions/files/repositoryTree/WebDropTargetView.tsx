@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Platform, View, type ViewProps } from 'react-native';
-import { useCoordinatorComposerPanelFooter, useCoordinatorComposerPanelLeading } from '@/ignorePrevious/model/coordinatorComposerInput';
+import { useCoordinatorComposerPanelFooter, useCoordinatorComposerPanelLeading, useCoordinatorComposerPanelStyle } from '@/ignorePrevious/model/coordinatorComposerInput';
 
 type WebDragDropHandlers = Readonly<{
     onDragEnter?: (event: any) => void;
@@ -12,6 +12,7 @@ type WebDragDropHandlers = Readonly<{
 export type WebDropTargetViewProps = ViewProps & WebDragDropHandlers;
 
 export function WebDropTargetView(props: WebDropTargetViewProps): React.ReactElement {
+    const panelStyle = useCoordinatorComposerPanelStyle(props.testID);
     const panelLeading = useCoordinatorComposerPanelLeading(props.testID);
     const panelFooter = useCoordinatorComposerPanelFooter(Platform.OS === 'web' ? props.testID : undefined);
     const { onDragEnter, onDragLeave, onDragOver, onDrop, ...rest } = props;
@@ -72,6 +73,7 @@ export function WebDropTargetView(props: WebDropTargetViewProps): React.ReactEle
         {panelLeading}
         <View
             {...rest}
+            style={[rest.style, panelStyle]}
             ref={setHostRef}
         >
             {props.children}

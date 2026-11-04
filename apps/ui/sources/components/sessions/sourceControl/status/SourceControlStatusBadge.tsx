@@ -7,6 +7,8 @@ import { Text } from '@/components/ui/text/Text';
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from '@/components/sessions/agentInput/definitions/agentInputChipIconMetrics';
+import { useCoordinatorComposerLayout } from '@/ignorePrevious/model/coordinatorComposerInput';
+import { deskMonoFontFamily } from '@/ignorePrevious/fonts/deskFont';
 
 const LINE_ADDED_PREFIX = '+';
 const LINE_REMOVED_PREFIX = '-';
@@ -26,6 +28,8 @@ export function SourceControlStatusBadge({ sessionId }: SourceControlStatusBadge
     const snapshot = useSessionProjectScmSnapshot(sessionId);
     const scmStatusSummary = buildScmStatusSummaryFromSnapshot(snapshot);
     const { theme } = useUnistyles();
+    const { terminal, controlInk } = useCoordinatorComposerLayout();
+    const mono = terminal ? { fontFamily: deskMonoFontFamily() } : null;
 
     if (!scmStatusSummary) {
         return null;
@@ -40,18 +44,20 @@ export function SourceControlStatusBadge({ sessionId }: SourceControlStatusBadge
             <Icon
                 name="git-branch"
                 size={AGENT_INPUT_CHIP_ICON_SIZE_PX}
-                color={theme.colors.button.secondary.tint} style={AGENT_INPUT_CHIP_ICON_STYLE} />
+                color={controlInk ?? theme.colors.button.secondary.tint} style={AGENT_INPUT_CHIP_ICON_STYLE} />
 
             {/* Line changes only */}
             {hasLineChanges && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                    {terminal ? <Text useDefaultTypography={false} style={[{ color: controlInk }, mono]}>[</Text> : null}
                     {scmStatusSummary.linesAdded > 0 && (
                         <Text
-                            style={{
+                            useDefaultTypography={!terminal}
+                            style={[{
                                 fontSize: 12,
                                 color: theme.colors.versionControl.added.foreground,
                                 fontWeight: '600',
-                            }}
+                            }, mono]}
                             numberOfLines={1}
                           >
                               {`${LINE_ADDED_PREFIX}${scmStatusSummary.linesAdded}`}
@@ -59,28 +65,31 @@ export function SourceControlStatusBadge({ sessionId }: SourceControlStatusBadge
                       )}
                     {scmStatusSummary.linesRemoved > 0 && (
                         <Text
-                            style={{
+                            useDefaultTypography={!terminal}
+                            style={[{
                                 fontSize: 12,
                                 color: theme.colors.versionControl.removed.foreground,
                                 fontWeight: '600',
-                            }}
+                            }, mono]}
                             numberOfLines={1}
                           >
                               {`${LINE_REMOVED_PREFIX}${scmStatusSummary.linesRemoved}`}
                           </Text>
                       )}
+                    {terminal ? <Text useDefaultTypography={false} style={[{ color: controlInk }, mono]}>]</Text> : null}
                 </View>
             )}
             {!hasLineChanges && scmStatusSummary.hasAnyChanges && (
                 <Text
-                    style={{
+                    useDefaultTypography={!terminal}
+                    style={[{
                         fontSize: 12,
-                        color: theme.colors.text.secondary,
+                        color: controlInk ?? theme.colors.text.secondary,
                         fontWeight: '600',
-                    }}
+                    }, mono]}
                     numberOfLines={1}
                 >
-                    {changedFilesLabel}
+                    {terminal ? `[${changedFilesLabel}]` : changedFilesLabel}
                 </Text>
             )}
         </View>

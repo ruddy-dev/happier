@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Pressable, type View } from 'react-native';
 
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeForView';
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
@@ -32,13 +32,11 @@ export function createMachineActionChip(params: Readonly<{
         >
             {normalizeNodeForView(<Icon name="desktop" size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={params.tint} style={AGENT_INPUT_CHIP_ICON_STYLE} />)}
             {params.showLabel ? (
-                <Text style={params.textStyle}>
-                    {params.machineName === null
-                        ? t('agentInput.noMachinesAvailable')
-                        : (typeof params.machineName === 'string'
-                            ? truncateWithEllipsis(params.machineName, 12)
-                            : t('newSession.selectMachineTitle'))}
-                </Text>
+                <DeskActionLabel style={params.textStyle} label={params.machineName === null
+                    ? t('agentInput.noMachinesAvailable')
+                    : (typeof params.machineName === 'string'
+                        ? truncateWithEllipsis(params.machineName, 12)
+                        : t('newSession.selectMachineTitle'))} />
             ) : null}
         </Pressable>
     );
