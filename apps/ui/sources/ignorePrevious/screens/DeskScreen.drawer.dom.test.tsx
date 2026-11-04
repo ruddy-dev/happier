@@ -134,16 +134,25 @@ it('keeps the coordinator mounted through phone, column, rail and Waiting bounda
     await render(821);
     await act(async () => element('ip-work-collapse').focus());
     expect(document.activeElement).toBe(element('ip-work-collapse'));
-    await click('ip-work-collapse');
+    await act(async () => element('ip-work-collapse').click());
     expect(getComputedStyle(element('ip-work-rail')).width).toBe('76px');
     expect(element('composer')).toBe(composer);
-    await act(async () => element('ip-work-expand').focus());
     expect(document.activeElement).toBe(element('ip-work-expand'));
-    await click('ip-work-expand');
+    await act(async () => element('ip-work-expand').click());
     expect(getComputedStyle(element('ip-work')).width).toBe('330px');
+    expect(document.activeElement).toBe(element('ip-work-collapse'));
     await render(820);
     expect(element('composer')).toBe(composer);
     expect(element('ip-tab-work')).toBeTruthy();
+});
+
+it('does not steal composer focus when the Work preference changes', async () => {
+    await render(900);
+    await act(async () => element('composer').focus());
+    await act(async () => setWorkCollapsed(true));
+    expect(document.activeElement).toBe(element('composer'));
+    await act(async () => setWorkCollapsed(false));
+    expect(document.activeElement).toBe(element('composer'));
 });
 
 it('Medium 1: stored open at 390 starts closed without rewriting the stored choice', async () => {
