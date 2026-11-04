@@ -1,13 +1,13 @@
 import { shallow } from 'zustand/shallow';
 import { storage } from '@/sync/domains/state/storage';
-import { observePendingSessionRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
+import { observePendingSessionRequest, type SessionPendingRequest } from '@/sync/domains/session/pending/listPendingSessionRequests';
 import { canReuseTranscriptRenderableAggregateRequestStates } from '@/sync/domains/messages/transcriptRenderableAggregate';
 import { waitingItemGenerationKey, waitingRequestContent, type WaitingItem } from './waitingItems';
 import { isUserFacingSession } from '@/sync/domains/session/listing/isUserFacingSession';
 import { forgetWaitingAction, setWaitingAction, type WaitingHistory } from './waitingHistory';
 
 type State = ReturnType<typeof storage.getState>;
-type Watch = { item: WaitingItem; source?: readonly unknown[] };
+type Watch = { item: WaitingItem; request?: SessionPendingRequest; source?: readonly unknown[] };
 const observers = new WeakMap<WaitingHistory, { users: number; stop: () => void }>();
 
 /**
@@ -69,18 +69,21 @@ function startObserving(history: WaitingHistory) {
             const available = session.active && !row.archivedAt && isUserFacingSession(row);
             // Per-ID terminal evidence survives a lagging count. Absence without readable details
             // remains unknown, including a partial transcript or a genuine R24 placeholder.
-            const observation = available ? observePendingSessionRequest(session, item.requestId, transcriptState)
+            const observation = available ? observePendingSessionRequest(session, item.requestId, transcriptState, watch.request)
                 : { status: 'absent' as const };
             const request = available && observation.status === 'pending' ? observation.request : null;
+            const sameOccurrence = request && waitingRequestContent(request) === item.requestContent
+                && (request.createdAt === null || item.createdAt === null || request.createdAt === item.createdAt);
+            // Retain only the occurrence this action inspected. After live deletion the
+            // canonical owner still needs its payload and time to validate completion.
+            if (sameOccurrence && !watch.request) watch.request = request;
             if (!request) {
                 if (available && observation.status === 'absent'
                     && (((session.pendingPermissionRequestCount ?? 0) > 0 || (session.pendingUserActionRequestCount ?? 0) > 0)
                         || (entry?.isLoaded !== true && !session.agentState?.requests))) continue;
                 history.setState(current => current.departed.has(key) ? current
                     : { departed: new Set(current.departed).add(key) });
-            } else if (history.getState().departed.has(key)
-                || waitingRequestContent(request) !== item.requestContent
-                || (request.createdAt !== null && item.createdAt !== null && request.createdAt !== item.createdAt)) {
+            } else if (history.getState().departed.has(key) || !sameOccurrence) {
                 // Retire feedback only. The shared transport guard still owns the actual call.
                 const action = history.getState().actions.get(key);
                 if (action?.phase === 'sending' && !action.contentsChanged) {
