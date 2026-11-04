@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { lightTheme } from '@/theme';
 import { t } from '@/text';
 import type { WaitingItem } from '../model/waitingItems';
@@ -250,6 +251,7 @@ it('shows desk chrome and phone panes at the agreed boundary', async () => {
 
 
 it('opens a searchable non-modal Sessions sheet and returns focus on Escape', async () => {
+    storage.setState({ profileScope: { serverId: String(getActiveServerSnapshot().serverId), accountId: 'sheet-test-account' } });
     storage.getState().applySessions([createSessionFixture({ id: 'worker', active: true })]);
     await render(1440);
     await click('ip-top-sessions');
@@ -268,6 +270,7 @@ it('opens a searchable non-modal Sessions sheet and returns focus on Escape', as
 });
 
 function seedSheetWorkers() {
+    storage.setState({ profileScope: { serverId: String(getActiveServerSnapshot().serverId), accountId: 'sheet-test-account' } });
     const base = createSessionFixture().metadata!;
     storage.getState().applySessions([
         createSessionFixture({ id: 'issued', active: true, metadata: { ...base, tag: 'ATR-6-build', summary: { text: 'Builder', updatedAt: 1 } } }),
@@ -279,7 +282,17 @@ it('groups sheet rows by issue and keeps the coordinator separate', async () => 
     seedSheetWorkers(); await render(1440); await click('ip-top-sessions');
     const sheet = element('ip-sessions-sheet');
     const group = (heading: string) => [...sheet.querySelectorAll('[role="heading"]')].find(node => node.textContent === heading)!.parentElement!;
-    expect(group('On issues').querySelector('[data-testid="ip-sessions-row-issued"]')?.textContent).toBe('ATR-6 Builder');
+    const issued = group('On issues').querySelector<HTMLElement>('[data-testid="ip-sessions-row-issued"]')!;
+    const context = t('ignorePrevious.sessions.rowContext', {
+        state: t('ignorePrevious.countIdle'), mode: t('ignorePrevious.workerControl.modeUnknown'),
+    });
+    // The title and row context are separate visible text, both named by the button.
+    const rowText = [...issued.querySelectorAll('*')];
+    expect(issued.textContent).toBe(`ATR-6 Builder${context}`);
+    expect(rowText.filter(node => node.textContent === 'ATR-6 Builder')).toHaveLength(1);
+    expect(rowText.filter(node => node.textContent === context)).toHaveLength(1);
+    expect(issued.getAttribute('role')).toBe('button');
+    expect(issued.getAttribute('aria-label')).toBe(t('ignorePrevious.sessions.openSession', { title: `ATR-6 Builder, ${context}` }));
     expect(group('No issue').querySelector('[data-testid="ip-sessions-row-unassigned"]')).not.toBeNull();
     expect(group('Coordinator').querySelectorAll('[data-testid="ip-sessions-row-coordinator"]')).toHaveLength(1);
     expect(sheet.querySelectorAll('[data-testid="ip-sessions-row-coordinator"]')).toHaveLength(1);

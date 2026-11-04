@@ -1,6 +1,6 @@
 import { useCallback, useContext } from 'react';
 
-import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
+import { useNavigateToSession, type NavigateToSessionOptions } from '@/hooks/session/useNavigateToSession';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { DeskDemoContext } from './deskFixtureGate';
@@ -9,11 +9,11 @@ import { DeskDemoContext } from './deskFixtureGate';
 export function useDeskSessionNavigation() {
     const demo = useContext(DeskDemoContext);
     const navigate = useNavigateToSession();
-    return useCallback((sessionId: string) => {
+    return useCallback((sessionId: string, options?: NavigateToSessionOptions) => {
         if (demo) {
             Modal.alert(t('ignorePrevious.demo.noteTitle'), t('ignorePrevious.demo.openWorkerNote'));
             return;
         }
-        return navigate(sessionId);
+        return navigate(sessionId, options);
     }, [demo, navigate]);
 }

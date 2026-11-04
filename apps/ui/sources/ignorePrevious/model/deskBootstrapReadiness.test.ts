@@ -209,7 +209,14 @@ describe('desk readiness through public cold bootstrap', () => {
                     pendingPermissionRequestCount: id === coordinatorId ? 0 : 1,
                 };
             }));
-            harness.setListResponse(async () => jsonResponse({ sessions: rows, nextCursor: null, hasNext: false }));
+            // The delayed case also proves that bootstrap waits for the fetched
+            // head's metadata, while coverage still belongs to the remaining pages.
+            harness.setListResponse(async path => {
+                const url = new URL(path, 'http://localhost');
+                const append = url.searchParams.has('cursor');
+                const hasNext = mode === 'delayed' && !append && url.pathname !== '/v2/sessions/active';
+                return jsonResponse({ sessions: append ? [] : rows, nextCursor: hasNext ? 'bootstrap-tail' : null, hasNext });
+            });
             const http = harness.http.getMockImplementation()!;
             harness.http.mockImplementation(async (path) => {
                 const pathname = new URL(path, 'http://localhost').pathname;
@@ -245,6 +252,7 @@ describe('desk readiness through public cold bootstrap', () => {
                         deskRows: 0, waitingCount: null, connecting: true,
                     });
                     expect.soft(harness.hook.getCurrent().coordinatorId).toBeNull();
+                    expect(harness.sync.getSessionListPagingState('current').status).toBe('loading');
                 }
                 await act(async () => {
                     if (mode === 'disconnect') harness.sync.disconnectServer();
@@ -254,6 +262,7 @@ describe('desk readiness through public cold bootstrap', () => {
                 });
                 if (mode === 'disconnect') {
                     expect(harness.observe()).toMatchObject({ isDataReady: false, deskRows: 0, waitingCount: null });
+                    expect(harness.sync.getSessionListPagingState('current').status).toBe('not-loaded');
                 } else {
                     const { desk, coordinatorId: selected } = harness.hook.getCurrent();
                     expect(selected).toBe(coordinatorId);
@@ -262,6 +271,21 @@ describe('desk readiness through public cold bootstrap', () => {
                         .toEqual(mode === 'unreadable' ? [] : [harness.workerId]);
                     expect(desk.unreadable.map(row => row.id)).toEqual(mode === 'unreadable' ? [harness.workerId] : []);
                     if (mode !== 'unreadable') expect(desk.lookup.get(harness.workerId)?.metadata?.tag).toBe('ATR-101-build');
+                    expect(harness.sync.getSessionListPagingState('current')).toEqual({
+                        status: mode === 'delayed' ? 'more' : mode === 'unreadable' ? 'unavailable' : 'exhausted',
+                        retry: null, hasUnmaterializedRows: mode === 'unreadable',
+                    });
+                    if (mode === 'delayed') {
+                        const listUrls = () => harness.http.mock.calls.map(([path]) => new URL(path, 'http://localhost'))
+                            .filter(url => url.pathname === '/v2/sessions');
+                        expect(listUrls().some(url => url.searchParams.has('cursor'))).toBe(false);
+                        await act(async () => { await harness.sync.fetchMoreSessions(); });
+                        expect(listUrls().filter(url => url.searchParams.get('cursor') === 'bootstrap-tail')).toHaveLength(1);
+                        expect(harness.sync.getSessionListPagingState('current')).toEqual({
+                            status: 'exhausted', retry: null, hasUnmaterializedRows: false,
+                        });
+                        expect(harness.observe()).toMatchObject({ deskReady: true, waitingCount: 1, connecting: false });
+                    }
                 }
                 // List receipt is not followed by a second metadata fetch or a desk-only retry.
                 if (mode !== 'unreadable') {

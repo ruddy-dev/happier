@@ -65,12 +65,30 @@ type HydratedSession = Omit<Session, 'presence'> & {
 };
 export type SessionListFetchResult = Readonly<{
     sessionIds: string[];
+    // Allowed fetched versions, including rows still unreadable or awaiting hydration.
+    sessionMetadataVersions: ReadonlyMap<string, number>;
     nextCursor: string | null;
     hasNext: boolean;
     source: 'v2' | 'v1';
+    // Evidence about this fetch only. A caller joining pages still owns chain continuity.
+    serverReportedListEnd: boolean;
+    cancelled: boolean;
+    hasUnmaterializedRows: boolean;
+    // Aggregate only: policy-blocked rows supply no identity or hydration evidence.
+    hasPolicyFilteredRows: boolean;
 }>;
 type HydrationApplyFlushReason = 'size' | 'timer' | 'required' | 'final' | 'manual';
 type CurrentSessionListRenderableLookup = (sessionId: string) => SessionListRenderableSession | null | undefined;
+export function hasUnmaterializedSessionListMetadata(
+    versions: ReadonlyMap<string, number>,
+    lookup: CurrentSessionListRenderableLookup,
+): boolean {
+    for (const [sessionId, version] of versions) {
+        const current = lookup(sessionId);
+        if (!current?.metadata || current.metadataUnavailable === true || current.metadataVersion < version) return true;
+    }
+    return false;
+}
 type HydratedSessionApplyBatcherStats = Readonly<{
     appliedRows: number;
     staleSkippedRows: number;
@@ -104,7 +122,7 @@ const DEFAULT_SESSION_LIST_PATH = '/v2/sessions';
 const NO_SERVER_ID_ABORT_KEY = '__default__';
 const DEFAULT_BACKGROUND_HYDRATION_APPLY_BATCH_SIZE = 4;
 const DEFAULT_BACKGROUND_HYDRATION_APPLY_FLUSH_DELAY_MS = 64;
-const activeSessionListDataKeyHydrationControllers = new WeakMap<SessionDataKeyHydrationEncryption, Map<string, AbortController>>();
+const activeSessionListDataKeyHydrationControllers = new WeakMap<SessionDataKeyHydrationEncryption, Map<string, Map<string | null, AbortController>>>();
 
 function normalizeSessionListAbortKey(params: Readonly<{
     serverId?: string | null;
@@ -123,6 +141,7 @@ function createSessionListDataKeyHydrationAbortController(params: Readonly<{
     encryption: SessionDataKeyHydrationEncryption;
     serverId?: string | null;
     sessionListPath?: string;
+    sessionListCursor?: string | null;
 }>): AbortController {
     let controllers = activeSessionListDataKeyHydrationControllers.get(params.encryption);
     if (!controllers) {
@@ -131,9 +150,22 @@ function createSessionListDataKeyHydrationAbortController(params: Readonly<{
     }
 
     const key = normalizeSessionListAbortKey(params);
-    controllers.get(key)?.abort();
+    let pages = controllers.get(key);
+    if (!pages) {
+        pages = new Map();
+        controllers.set(key, pages);
+    }
+    const cursor = params.sessionListCursor ?? null;
+    // A new head replaces the chain. An append joins it, preserving accepted
+    // earlier pages while still cancelling an independently superseded cursor.
+    if (cursor === null) {
+        for (const controller of pages.values()) controller.abort();
+        pages.clear();
+    } else {
+        pages.get(cursor)?.abort();
+    }
     const controller = new AbortController();
-    controllers.set(key, controller);
+    pages.set(cursor, controller);
     return controller;
 }
 
@@ -361,6 +393,7 @@ function buildRenderableFromRowAndCache(
 
     return {
         id: row.id,
+        encryptionMode: row.encryptionMode === 'plain' ? 'plain' : 'e2ee',
         seq: row.seq,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
@@ -1275,6 +1308,7 @@ export async function fetchAndApplySessions(params: {
     request?: (path: string, init: RequestInit) => Promise<Response>;
     applySessions: (sessions: HydratedSession[]) => void;
     onSnapshotFetched?: (sessionIds: string[]) => void;
+    onSessionListHydrationComplete?: (evidence: Pick<SessionListFetchResult, 'hasUnmaterializedRows'>) => void;
     applySessionListRenderables?: (
         sessions: SessionListRenderableSession[],
         options?: { replace?: boolean; coversWholeList?: boolean },
@@ -1331,6 +1365,7 @@ export async function fetchAndApplySessions(params: {
         encryption,
         serverId: params.serverId,
         sessionListPath: params.sessionListPath,
+        sessionListCursor: params.sessionListCursor,
     });
     const rawShouldContinue = params.shouldContinue ?? (() => true);
     const shouldContinue = () => {
@@ -1353,13 +1388,30 @@ export async function fetchAndApplySessions(params: {
     // head and a v2 source: the `/v1/sessions` fallback is capped server-side yet reports no
     // further page. Anything unproven fails closed and retains omitted rows.
     let serverReportedListEnd = false;
+    let validPageChain = true;
     let source: 'v2' | 'v1' = 'v2';
-    const buildFetchResult = (): SessionListFetchResult => ({
-        sessionIds: sessions.map((session) => session.id),
-        nextCursor: nextCursorForMore,
-        hasNext: hasNextForMore,
-        source,
-    });
+    let hasUnmaterializedRows = false;
+    let hasPolicyFilteredRows = false;
+    const buildFetchResult = (): SessionListFetchResult => {
+        const cancelled = !shouldContinue();
+        const sessionMetadataVersions = new Map(sessions.map(row => [row.id, row.metadataVersion]));
+        // Renderable hydration may still be running. Only count metadata already
+        // published at the fetched version; old readable cache entries prove no absence.
+        const unreadableRenderables = params.applySessionListRenderables && params.getCurrentSessionListRenderable
+            ? hasUnmaterializedSessionListMetadata(sessionMetadataVersions, params.getCurrentSessionListRenderable)
+            : hasUnmaterializedRows;
+        return {
+            sessionIds: sessions.map((session) => session.id),
+            sessionMetadataVersions,
+            nextCursor: nextCursorForMore,
+            hasNext: hasNextForMore,
+            source,
+            serverReportedListEnd: !cancelled && validPageChain && source === 'v2' && serverReportedListEnd,
+            cancelled,
+            hasUnmaterializedRows: cancelled || hasPolicyFilteredRows || unreadableRenderables,
+            hasPolicyFilteredRows,
+        };
+    };
     const appendRows = (rows: V2SessionListResponse['sessions']): void => {
         for (const row of rows) {
             if (seenSessionIds.has(row.id)) continue;
@@ -1424,6 +1476,7 @@ export async function fetchAndApplySessions(params: {
                 nextCursor = page.nextCursor;
                 nextCursorForMore = page.nextCursor;
                 hasNextForMore = page.hasNext === true && typeof page.nextCursor === 'string' && page.source === 'v2';
+                if (page.nextCursor && (page.nextCursor === cursor || seenCursors.has(page.nextCursor))) validPageChain = false;
                 serverReportedListEnd = page.hasNext === false;
             },
         );
@@ -1472,12 +1525,14 @@ export async function fetchAndApplySessions(params: {
                 params.clientEncryptionRequirement,
                 session.encryptionMode === 'plain' ? 'plain' : 'e2ee',
             )) {
+                hasPolicyFilteredRows = true;
                 sessions.splice(index, 1);
             }
         }
     }
 
     const sessionsNeedingEncryption = sessions.filter((session) => session.encryptionMode !== 'plain');
+    hasUnmaterializedRows = sessions.length > 0;
     const sessionDataKeyEnvelopes = params.sessionDataKeyEnvelopes;
     if (!shouldContinue()) {
         return buildFetchResult();
@@ -1533,6 +1588,8 @@ export async function fetchAndApplySessions(params: {
             )),
         );
         appliedRenderableCount = renderables.length;
+        hasUnmaterializedRows = renderables.some((row, index) => row.metadata == null
+            || row.metadataUnavailable === true || row.metadataVersion < sessions[index].metadataVersion);
         const staleMetadataPreservedRows = countStaleMetadataPreservedRows(
             renderables,
             params.getCurrentSessionListRenderable,
@@ -1935,7 +1992,14 @@ export async function fetchAndApplySessions(params: {
                     });
                     return results;
                 },
-            );
+            ).then(results => {
+                // The existing hydration owner has flushed its final batch. Re-read the
+                // published metadata versions; successful work need not make every row readable.
+                if (shouldContinue()) {
+                    params.onSessionListHydrationComplete?.({ hasUnmaterializedRows: buildFetchResult().hasUnmaterializedRows });
+                }
+                return results;
+            });
             const logBackgroundHydrationError = (error: unknown): void => {
                 console.error('[sessionsSnapshot] Background hydration failed', error);
             };
@@ -1991,6 +2055,8 @@ export async function fetchAndApplySessions(params: {
     );
     const decryptedSessions = decryptedResults.filter((session): session is NonNullable<typeof session> => Boolean(session));
 
+    if (!shouldContinue()) return buildFetchResult();
+
     const appliedSessions = applyHydratedSessions({
         sessions: decryptedSessions,
         applySessions,
@@ -2003,6 +2069,9 @@ export async function fetchAndApplySessions(params: {
         sessions: appliedSessions,
         repairInvalidReadStateV1,
     });
+
+    hasUnmaterializedRows = appliedSessions.length !== sessions.length
+        || appliedSessions.some(session => session.metadata == null);
 
     return buildFetchResult();
 }
