@@ -3048,6 +3048,43 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         </>
     );
 
+    const renderActionControls = () => (
+        <>
+            {actionBarShouldScroll ? (
+                <AgentInputScrollableChipRow
+                    revealFocusedControl={deskLayout.phone}
+                    containerStyle={styles.actionButtonsLeftScroll}
+                    contentStyle={styles.actionButtonsLeftScrollContent}
+                    fadeColor={actionBarFadeColor}
+                    indicatorColor={theme.colors.composer.chipTint}
+                    fadeLeftStyle={styles.actionButtonsFadeLeft}
+                    fadeRightStyle={styles.actionButtonsFadeRight}
+                >
+                    {renderedActionControlNodes as any}
+                </AgentInputScrollableChipRow>
+            ) : (
+                <View style={[styles.actionButtonsLeft, screenWidth < 420 ? styles.actionButtonsLeftNarrow : null]}>
+                    {renderedActionControlNodes as any}
+                </View>
+            )}
+            <AgentInputSubmitButton
+                testID={props.sessionId ? AGENT_INPUT_TEST_IDS.sessionSend : AGENT_INPUT_TEST_IDS.newSessionSend}
+                sessionId={props.sessionId}
+                submitAccessibilityLabel={props.submitAccessibilityLabel}
+                disabled={stopHoldsSubmit ? Boolean(props.disabled || isAborting) : Boolean(props.disabled || props.isSendDisabled || props.isSending || (!hasSendableContent && !micPressHandler && !canStopFromComposer))}
+                isSending={stopHoldsSubmit ? false : props.isSending}
+                isStopping={isAborting}
+                hasSendableContent={stopHoldsSubmit ? false : hasSendableContent}
+                canStop={canStopFromComposer}
+                micPressHandler={stopHoldsSubmit ? undefined : micPressHandler}
+                micActive={micActive}
+                armedContinuationTarget={props.armedContinuationTarget ?? null}
+                onSend={handleSend}
+                onStop={handleAbortPress}
+            />
+        </>
+    );
+
     const renderActionRows = (leadingActions: React.ReactNode) => (
         <View style={styles.actionButtonsContainer}>
             <View
@@ -3058,40 +3095,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             >{[
                 <View
                     key="row1"
-                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.phone ? { flexWrap: 'wrap' } : null]}
+                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.phone ? { flexDirection: 'column', alignItems: 'stretch' } : null]}
                 >
                     {deskLayout.desk ? <View style={deskLayout.phone ? { width: '100%' } : { flexShrink: 1 }}>{leadingActions}</View> : leadingActions}
-                    {actionBarShouldScroll ? (
-                        <AgentInputScrollableChipRow
-                            containerStyle={styles.actionButtonsLeftScroll}
-                            contentStyle={styles.actionButtonsLeftScrollContent}
-                            fadeColor={actionBarFadeColor}
-                            indicatorColor={theme.colors.composer.chipTint}
-                            fadeLeftStyle={styles.actionButtonsFadeLeft}
-                            fadeRightStyle={styles.actionButtonsFadeRight}
+                    {deskLayout.desk ? (
+                        <View
+                            testID="agent-input-desk-controls-row"
+                            style={[styles.actionButtonsRow, deskLayout.phone ? { width: '100%' } : { flex: 1, minWidth: 0 }]}
                         >
-                            {renderedActionControlNodes as any}
-                        </AgentInputScrollableChipRow>
-                    ) : (
-                        <View style={[styles.actionButtonsLeft, screenWidth < 420 ? styles.actionButtonsLeftNarrow : null]}>
-                            {renderedActionControlNodes as any}
+                            {renderActionControls()}
                         </View>
-                    )}
-                    <AgentInputSubmitButton
-                        testID={props.sessionId ? AGENT_INPUT_TEST_IDS.sessionSend : AGENT_INPUT_TEST_IDS.newSessionSend}
-                        sessionId={props.sessionId}
-                        submitAccessibilityLabel={props.submitAccessibilityLabel}
-                        disabled={stopHoldsSubmit ? Boolean(props.disabled || isAborting) : Boolean(props.disabled || props.isSendDisabled || props.isSending || (!hasSendableContent && !micPressHandler && !canStopFromComposer))}
-                        isSending={stopHoldsSubmit ? false : props.isSending}
-                        isStopping={isAborting}
-                        hasSendableContent={stopHoldsSubmit ? false : hasSendableContent}
-                        canStop={canStopFromComposer}
-                        micPressHandler={stopHoldsSubmit ? undefined : micPressHandler}
-                        micActive={micActive}
-                        armedContinuationTarget={props.armedContinuationTarget ?? null}
-                        onSend={handleSend}
-                        onStop={handleAbortPress}
-                    />
+                    ) : renderActionControls()}
                 </View>,
                 showSecondaryControlsRow ? (
                     actionBarShouldScroll ? (
