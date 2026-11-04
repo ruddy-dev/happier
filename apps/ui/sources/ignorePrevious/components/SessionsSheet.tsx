@@ -97,9 +97,10 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
         for (const session of desk.lookup.values()) {
             if (session.archivedAt && !renderables[session.id]) rows.set(session.id, buildSessionListRenderableFromSession(session));
         }
-        return [...rows.values()].filter(row => belongsToScope(row.id))
+        return [...rows.values()].filter(row => belongsToScope(row.id)
+            && (fixture || sync.isArchivedSessionListRowCurrent(row.id, row.metadataVersion)))
             .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0) || b.updatedAt - a.updatedAt);
-    }, [ready, renderables, desk.lookup, belongsToScope]);
+    }, [ready, renderables, desk.lookup, belongsToScope, fixture, archivePaging]);
     const readableArchives = React.useMemo(() => archives.filter(row => row.metadata !== null && isUserFacingSession(row)), [archives]);
     const all = React.useMemo(() => ({ ...current, list: [...current.list, ...readableArchives] }), [current, readableArchives]);
     const issueKeys = useIssueKeys(all);
@@ -194,7 +195,7 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
         else if (archiveState === 'more') void loadArchives(false);
     }, [ready, fixture, query, settledQuery, hasMatches, pending, currentState, archiveState, loadCurrent, loadArchives]);
     const unreadable = ready && (unresolvedIssueRows.length > 0 || currentPaging.hasUnmaterializedRows || archivePaging.hasUnmaterializedRows
-        || [...Object.values(renderables), ...archives].some(row => belongsToScope(row.id)
+        || [...Object.values(renderables).filter(row => !row.archivedAt), ...archives].some(row => belongsToScope(row.id)
             && (row.metadataUnavailable === true || row.metadata === null) && isUserFacingSession({ ...row, metadataUnavailable: false })));
     const complete = currentState === 'exhausted' && archiveState === 'exhausted' && !unreadable;
     const textStyle = { color: paint.ink, fontSize: terminal ? 13 : 13.5 };

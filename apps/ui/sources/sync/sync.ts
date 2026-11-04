@@ -1018,6 +1018,10 @@ class Sync {
     private readonly sessionListRequestIds: Record<SessionListKind, number> = { current: 0, archived: 0 };
     private readonly sessionListCoverageContiguous: Record<SessionListKind, boolean> = { current: false, archived: false };
     private readonly sessionListMetadataVersions = new Map<string, number>();
+    // A request owns page acceptance; accepted pages share hydration until a new head
+    // replaces their chain. Appending must not cancel useful work from prior pages.
+    private sessionListHeadRequestId = 0;
+    private readonly archivedSessionListMetadataVersions = new Map<string, number>();
 
     private messagesSync = new Map<string, InvalidateSync>();
     private activeServerSessionIds = new Set<string>();
@@ -2141,6 +2145,7 @@ class Sync {
         this.sessionListCoverageContiguous.current = false;
         this.sessionListCoverageContiguous.archived = false;
         this.sessionListMetadataVersions.clear();
+        this.archivedSessionListMetadataVersions.clear();
         this.publishSessionListPagingState('current', 'not-loaded', null, false);
         this.publishSessionListPagingState('archived', 'not-loaded', null, false);
         this.sessionDataKeys.clear();
@@ -4189,13 +4194,20 @@ class Sync {
         return this.credentials ? this.sessionListPagingStates[kind] : unavailableSessionListPagingState;
     };
 
+    // Boolean read evidence only: cached records/projections do not establish archive
+    // membership, nor does metadata older than the accepted archive page.
+    public isArchivedSessionListRowCurrent = (sessionId: string, metadataVersion: number): boolean => {
+        const fetchedVersion = this.archivedSessionListMetadataVersions.get(sessionId);
+        return Boolean(this.credentials && fetchedVersion !== undefined && metadataVersion >= fetchedVersion);
+    };
+
     public subscribeSessionListPagingState = (listener: () => void): (() => void) => {
         this.sessionListPagingListeners.add(listener);
         return () => { this.sessionListPagingListeners.delete(listener); };
     };
 
-    private publishSessionListPagingState(kind: SessionListKind, status: SessionListPagingState['status'], retry: SessionListPagingState['retry'] = null, hasUnmaterializedRows = this.sessionListPagingStates[kind].hasUnmaterializedRows): void {
-        if (this.sessionListPagingStates[kind].status === status && this.sessionListPagingStates[kind].retry === retry
+    private publishSessionListPagingState(kind: SessionListKind, status: SessionListPagingState['status'], retry: SessionListPagingState['retry'] = null, hasUnmaterializedRows = this.sessionListPagingStates[kind].hasUnmaterializedRows, membershipChanged = false): void {
+        if (!membershipChanged && this.sessionListPagingStates[kind].status === status && this.sessionListPagingStates[kind].retry === retry
             && this.sessionListPagingStates[kind].hasUnmaterializedRows === hasUnmaterializedRows) return;
         this.sessionListPagingStates[kind] = { status, retry, hasUnmaterializedRows };
         for (const listener of this.sessionListPagingListeners) listener();
@@ -4215,10 +4227,9 @@ class Sync {
             if (consumed.has(requestedCursor)) this.sessionListCoverageContiguous[kind] = false;
             consumed.add(requestedCursor);
         }
-        if (kind === 'current') {
-            for (const [sessionId, version] of result.sessionMetadataVersions) {
-                this.sessionListMetadataVersions.set(sessionId, Math.max(version, this.sessionListMetadataVersions.get(sessionId) ?? version));
-            }
+        const versions = kind === 'current' ? this.sessionListMetadataVersions : this.archivedSessionListMetadataVersions;
+        for (const [sessionId, version] of result.sessionMetadataVersions) {
+            versions.set(sessionId, Math.max(version, versions.get(sessionId) ?? version));
         }
         const hasUnmaterializedRows = kind === 'current' ? this.hasUnmaterializedCurrentSessionListRows()
             : result.hasUnmaterializedRows || (requestedCursor !== null && this.sessionListPagingStates[kind].hasUnmaterializedRows);
@@ -4247,6 +4258,7 @@ class Sync {
         const requestId = ++this.sessionListRequestIds.current;
         this.sessionListFetchesInFlight += 1;
         if (options?.mode !== 'append') {
+            this.sessionListHeadRequestId = requestId;
             this.sessionListCoverageContiguous.current = false;
             this.sessionListMetadataVersions.clear();
             this.sessionListNextCursor = null;
@@ -4275,7 +4287,11 @@ class Sync {
     }
 
     private fetchSessionsOnce = async (options: FetchSessionsOptions | undefined, generation: number, requestId: number) => {
-        const shouldContinue = () => this.serverScopeGeneration === generation && this.sessionListRequestIds.current === requestId;
+        const headRequestId = this.sessionListHeadRequestId;
+        let pagePublished = false;
+        const shouldContinue = () => this.serverScopeGeneration === generation
+            && this.sessionListHeadRequestId === headRequestId
+            && (pagePublished || this.sessionListRequestIds.current === requestId);
         const initialState = storage.getState();
         const activeServerSnapshot = getActiveServerSnapshot();
         const activeServerId = String(activeServerSnapshot.serverId ?? '').trim() || null;
@@ -4396,7 +4412,6 @@ class Sync {
             );
         }
         if (!shouldContinue()) return;
-        let pagePublished = false;
         const result = await fetchAndApplySessions({
             clientEncryptionRequirement: resolveUiClientEncryptionRequirement({
                 syncedSettings: storage.getState().settings,
@@ -4421,10 +4436,14 @@ class Sync {
                 // Initial page publication also rechecks the fetched versions below.
                 if (!pagePublished) return;
                 const hasUnmaterializedRows = this.hasUnmaterializedCurrentSessionListRows();
-                const exhausted = this.sessionListCoverageContiguous.current && result.serverReportedListEnd && !hasUnmaterializedRows;
-                this.publishSessionListPagingState('current',
-                    this.sessionListPagingStates.current.status === 'more' ? 'more' : exhausted ? 'exhausted' : 'unavailable',
-                    null, hasUnmaterializedRows);
+                const state = this.sessionListPagingStates.current;
+                // The latest accepted page owns terminal/cursor evidence. A prior page's
+                // completion may update readability, but cannot overwrite a pending or
+                // failed append, or substitute its own earlier non-terminal result.
+                const exhausted = this.sessionListCoverageContiguous.current && !this.sessionListHasMore && !hasUnmaterializedRows;
+                const status = state.status === 'unavailable' || state.status === 'exhausted'
+                    ? exhausted ? 'exhausted' : 'unavailable' : state.status;
+                this.publishSessionListPagingState('current', status, state.retry, hasUnmaterializedRows);
             },
             applySessionListRenderables: (sessions, options) => {
                 if (!shouldContinue()) return;
@@ -4493,8 +4512,8 @@ class Sync {
         if (!shouldContinue()) return;
         this.sessionListNextCursor = result.hasNext ? result.nextCursor : null;
         this.sessionListHasMore = result.hasNext;
-        this.publishSessionListPage('current', requestedCursor, result);
         pagePublished = true;
+        this.publishSessionListPage('current', requestedCursor, result);
     }
 
     public fetchMoreSessions = async (): Promise<void> => {
@@ -4516,13 +4535,15 @@ class Sync {
         const shouldContinue = () => this.serverScopeGeneration === generation && this.sessionListRequestIds.archived === requestId;
         const isAppend = options?.mode === 'append';
         const requestedCursor = isAppend ? this.archivedSessionListNextCursor : null;
+        const membershipChanged = !isAppend && this.archivedSessionListMetadataVersions.size > 0;
         if (!isAppend) {
+            this.archivedSessionListMetadataVersions.clear();
             this.sessionListCoverageContiguous.archived = false;
             this.archivedSessionListNextCursor = null;
             this.archivedSessionListHasMore = false;
             this.fetchMoreArchivedSessionsInFlight = null;
         }
-        this.publishSessionListPagingState('archived', 'loading');
+        this.publishSessionListPagingState('archived', 'loading', null, undefined, membershipChanged);
         if (!shouldContinue()) return;
         const result = await fetchAndApplySessions({
             clientEncryptionRequirement: resolveUiClientEncryptionRequirement({

@@ -120,7 +120,7 @@ const DEFAULT_SESSION_LIST_PATH = '/v2/sessions';
 const NO_SERVER_ID_ABORT_KEY = '__default__';
 const DEFAULT_BACKGROUND_HYDRATION_APPLY_BATCH_SIZE = 4;
 const DEFAULT_BACKGROUND_HYDRATION_APPLY_FLUSH_DELAY_MS = 64;
-const activeSessionListDataKeyHydrationControllers = new WeakMap<SessionDataKeyHydrationEncryption, Map<string, AbortController>>();
+const activeSessionListDataKeyHydrationControllers = new WeakMap<SessionDataKeyHydrationEncryption, Map<string, Map<string | null, AbortController>>>();
 
 function normalizeSessionListAbortKey(params: Readonly<{
     serverId?: string | null;
@@ -139,6 +139,7 @@ function createSessionListDataKeyHydrationAbortController(params: Readonly<{
     encryption: SessionDataKeyHydrationEncryption;
     serverId?: string | null;
     sessionListPath?: string;
+    sessionListCursor?: string | null;
 }>): AbortController {
     let controllers = activeSessionListDataKeyHydrationControllers.get(params.encryption);
     if (!controllers) {
@@ -147,9 +148,22 @@ function createSessionListDataKeyHydrationAbortController(params: Readonly<{
     }
 
     const key = normalizeSessionListAbortKey(params);
-    controllers.get(key)?.abort();
+    let pages = controllers.get(key);
+    if (!pages) {
+        pages = new Map();
+        controllers.set(key, pages);
+    }
+    const cursor = params.sessionListCursor ?? null;
+    // A new head replaces the chain. An append joins it, preserving accepted
+    // earlier pages while still cancelling an independently superseded cursor.
+    if (cursor === null) {
+        for (const controller of pages.values()) controller.abort();
+        pages.clear();
+    } else {
+        pages.get(cursor)?.abort();
+    }
     const controller = new AbortController();
-    controllers.set(key, controller);
+    pages.set(cursor, controller);
     return controller;
 }
 
@@ -1347,6 +1361,7 @@ export async function fetchAndApplySessions(params: {
         encryption,
         serverId: params.serverId,
         sessionListPath: params.sessionListPath,
+        sessionListCursor: params.sessionListCursor,
     });
     const rawShouldContinue = params.shouldContinue ?? (() => true);
     const shouldContinue = () => {
