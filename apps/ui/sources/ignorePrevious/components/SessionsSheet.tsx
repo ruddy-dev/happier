@@ -206,8 +206,8 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
                 </View>}
                 {unreadable && <DeskText testID="ip-sessions-unreadable" accessibilityLiveRegion="polite" style={note}>{t('ignorePrevious.sessions.unreadable')}</DeskText>}
                 {pending && <DeskText testID="ip-sessions-archive-loading" accessibilityLiveRegion="polite" style={note}>{t('ignorePrevious.sessions.loading')}</DeskText>}
-                {archiveState === 'error' && <View testID="ip-sessions-archive-error" style={{ gap: 8 }}>
-                    <DeskText accessibilityLiveRegion="polite" style={note}>{t('ignorePrevious.sessions.archiveError')}</DeskText>
+                {(archiveState === 'error' || archiveState === 'unavailable') && <View testID="ip-sessions-archive-error" style={{ gap: 8 }}>
+                    {archiveState === 'error' && <DeskText accessibilityLiveRegion="polite" style={note}>{t('ignorePrevious.sessions.archiveError')}</DeskText>}
                     <SheetButton id="ip-sessions-retry-archived" onPress={() => void loadArchives(archivePaging.retry !== 'append')}><DeskText style={textStyle}>{t('common.retry')}</DeskText></SheetButton>
                 </View>}
                 {currentState === 'error' && <DeskText testID="ip-sessions-current-error" accessibilityLiveRegion="polite" style={note}>{t('ignorePrevious.sessions.currentError')}</DeskText>}
@@ -219,7 +219,7 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
                     {!fixture && <>
                         <DeskText testID="ip-sessions-scope-note" style={note}>{t('ignorePrevious.sessions.scopeNote')}</DeskText>
                         {archiveState === 'more' && <SheetButton id="ip-sessions-load-archived" disabled={pending} onPress={() => { setShowArchived(true); void loadArchives(false); }}><DeskText style={textStyle}>{t('ignorePrevious.sessions.loadArchived')}</DeskText></SheetButton>}
-                        {(currentState === 'more' || currentState === 'error') && <SheetButton id="ip-sessions-load-current" disabled={pending} onPress={() => void loadCurrent(currentPaging.retry === 'replace')}><DeskText style={textStyle}>{t(currentState === 'error' ? 'common.retry' : 'ignorePrevious.sessions.loadCurrent')}</DeskText></SheetButton>}
+                        {(currentState === 'more' || currentState === 'error' || currentState === 'unavailable') && <SheetButton id="ip-sessions-load-current" disabled={pending} onPress={() => void loadCurrent(currentState === 'unavailable' || currentPaging.retry === 'replace')}><DeskText style={textStyle}>{t(currentState === 'more' ? 'ignorePrevious.sessions.loadCurrent' : 'common.retry')}</DeskText></SheetButton>}
                     </>}
                 </View>
             </>}

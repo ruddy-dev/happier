@@ -1000,7 +1000,7 @@ class Sync {
     private recordConsumerAttemptsKey = '';
     private recordConsumerAttemptedIds = new Set<string>();
     private sessionListFetchesInFlight = 0;
-    private fetchSessionsInFlight: { generation: number; promise: Promise<void> } | null = null;
+    private fetchSessionsInFlight: { generation: number; requestId: number; promise: Promise<void> } | null = null;
     private fetchMoreSessionsInFlight: Promise<void> | null = null;
     private sessionListNextCursor: string | null = null;
     private sessionListHasMore = false;
@@ -1014,6 +1014,7 @@ class Sync {
     private readonly sessionListPagingStates: Record<SessionListKind, SessionListPagingState> = { current: { status: 'not-loaded', retry: null, hasUnmaterializedRows: false }, archived: { status: 'not-loaded', retry: null, hasUnmaterializedRows: false } };
     private readonly sessionListPagingListeners = new Set<() => void>();
     private readonly sessionListConsumedCursors: Record<SessionListKind, Set<string>> = { current: new Set(), archived: new Set() };
+    private readonly sessionListRequestIds: Record<SessionListKind, number> = { current: 0, archived: 0 };
     private readonly sessionListCoverageContiguous: Record<SessionListKind, boolean> = { current: false, archived: false };
 
     private messagesSync = new Map<string, InvalidateSync>();
@@ -4217,15 +4218,22 @@ class Sync {
         const generation = this.serverScopeGeneration;
         if (canShareFetchSessionsInFlight(options)) {
             const existing = this.fetchSessionsInFlight;
-            if (existing && existing.generation === generation) {
+            if (existing && existing.generation === generation && existing.requestId === this.sessionListRequestIds.current) {
                 return existing.promise;
             }
         }
+        const requestId = ++this.sessionListRequestIds.current;
         this.sessionListFetchesInFlight += 1;
-        if (options?.mode !== 'append') this.sessionListCoverageContiguous.current = false;
+        if (options?.mode !== 'append') {
+            this.sessionListCoverageContiguous.current = false;
+            this.sessionListNextCursor = null;
+            this.sessionListHasMore = false;
+            // A new head cannot share an append from the previous chain.
+            this.fetchMoreSessionsInFlight = null;
+        }
         this.publishSessionListPagingState('current', 'loading');
-        const runFetch = this.fetchSessionsOnce(options, generation).catch(error => {
-            if (this.serverScopeGeneration === generation) this.publishSessionListPagingState('current', 'error', options?.mode === 'append' ? 'append' : 'replace');
+        const runFetch = this.fetchSessionsOnce(options, generation, requestId).catch(error => {
+            if (this.serverScopeGeneration === generation && this.sessionListRequestIds.current === requestId) this.publishSessionListPagingState('current', 'error', options?.mode === 'append' ? 'append' : 'replace');
             throw error;
         }).finally(() => {
             this.sessionListFetchesInFlight -= 1;
@@ -4237,14 +4245,14 @@ class Sync {
                     this.fetchSessionsInFlight = null;
                 }
             });
-            this.fetchSessionsInFlight = { generation, promise: sharedFetch };
+            this.fetchSessionsInFlight = { generation, requestId, promise: sharedFetch };
             return sharedFetch;
         }
         return runFetch;
     }
 
-    private fetchSessionsOnce = async (options: FetchSessionsOptions | undefined, generation: number) => {
-        const shouldContinue = () => this.serverScopeGeneration === generation;
+    private fetchSessionsOnce = async (options: FetchSessionsOptions | undefined, generation: number, requestId: number) => {
+        const shouldContinue = () => this.serverScopeGeneration === generation && this.sessionListRequestIds.current === requestId;
         const initialState = storage.getState();
         const activeServerSnapshot = getActiveServerSnapshot();
         const activeServerId = String(activeServerSnapshot.serverId ?? '').trim() || null;
@@ -4364,6 +4372,10 @@ class Sync {
                 }),
             );
         }
+        if (!shouldContinue()) return;
+        const earlierPagesHaveUnmaterializedRows = isAppend && this.sessionListPagingStates.current.hasUnmaterializedRows;
+        let hydrationHasUnmaterializedRows: boolean | undefined;
+        let pagePublished = false;
         const result = await fetchAndApplySessions({
             clientEncryptionRequirement: resolveUiClientEncryptionRequirement({
                 syncedSettings: storage.getState().settings,
@@ -4382,6 +4394,18 @@ class Sync {
             getCurrentSessionListRenderable: (sessionId) => storage.getState().sessionListRenderables[sessionId] ?? null,
             cachedSessionListEntries,
             shouldContinue,
+            onSessionListHydrationComplete: evidence => {
+                if (!shouldContinue()) return;
+                hydrationHasUnmaterializedRows = evidence.hasUnmaterializedRows;
+                // Hydration can finish before the fetch/required-record gate returns.
+                // In that order, use its evidence in the initial page publication below.
+                if (!pagePublished) return;
+                const hasUnmaterializedRows = earlierPagesHaveUnmaterializedRows || evidence.hasUnmaterializedRows;
+                const exhausted = this.sessionListCoverageContiguous.current && result.serverReportedListEnd && !hasUnmaterializedRows;
+                this.publishSessionListPagingState('current',
+                    this.sessionListPagingStates.current.status === 'more' ? 'more' : exhausted ? 'exhausted' : 'unavailable',
+                    null, hasUnmaterializedRows);
+            },
             applySessionListRenderables: (sessions) => {
                 if (!shouldContinue()) return;
                 if (isAppend) {
@@ -4449,7 +4473,9 @@ class Sync {
         if (!shouldContinue()) return;
         this.sessionListNextCursor = result.hasNext ? result.nextCursor : null;
         this.sessionListHasMore = result.hasNext;
-        this.publishSessionListPage('current', requestedCursor, result);
+        this.publishSessionListPage('current', requestedCursor, hydrationHasUnmaterializedRows === undefined
+            ? result : { ...result, hasUnmaterializedRows: hydrationHasUnmaterializedRows });
+        pagePublished = true;
     }
 
     public fetchMoreSessions = async (): Promise<void> => {
@@ -4467,11 +4493,18 @@ class Sync {
     private fetchArchivedSessionsPage = async (options?: FetchArchivedSessionsOptions): Promise<void> => {
         if (!this.credentials) return;
         const generation = this.serverScopeGeneration;
-        const shouldContinue = () => this.serverScopeGeneration === generation;
+        const requestId = ++this.sessionListRequestIds.archived;
+        const shouldContinue = () => this.serverScopeGeneration === generation && this.sessionListRequestIds.archived === requestId;
         const isAppend = options?.mode === 'append';
         const requestedCursor = isAppend ? this.archivedSessionListNextCursor : null;
-        if (!isAppend) this.sessionListCoverageContiguous.archived = false;
+        if (!isAppend) {
+            this.sessionListCoverageContiguous.archived = false;
+            this.archivedSessionListNextCursor = null;
+            this.archivedSessionListHasMore = false;
+            this.fetchMoreArchivedSessionsInFlight = null;
+        }
         this.publishSessionListPagingState('archived', 'loading');
+        if (!shouldContinue()) return;
         const result = await fetchAndApplySessions({
             clientEncryptionRequirement: resolveUiClientEncryptionRequirement({
                 syncedSettings: storage.getState().settings,

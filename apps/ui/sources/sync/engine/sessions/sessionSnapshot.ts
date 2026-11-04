@@ -1279,6 +1279,7 @@ export async function fetchAndApplySessions(params: {
     request?: (path: string, init: RequestInit) => Promise<Response>;
     applySessions: (sessions: HydratedSession[]) => void;
     onSnapshotFetched?: (sessionIds: string[]) => void;
+    onSessionListHydrationComplete?: (evidence: Pick<SessionListFetchResult, 'hasUnmaterializedRows'>) => void;
     applySessionListRenderables?: (
         sessions: SessionListRenderableSession[],
         options?: { replace?: boolean; coversWholeList?: boolean },
@@ -1956,7 +1957,14 @@ export async function fetchAndApplySessions(params: {
                     });
                     return results;
                 },
-            );
+            ).then(results => {
+                // The existing hydration owner has flushed its final batch. Re-read the
+                // published metadata versions; successful work need not make every row readable.
+                if (shouldContinue()) {
+                    params.onSessionListHydrationComplete?.({ hasUnmaterializedRows: buildFetchResult().hasUnmaterializedRows });
+                }
+                return results;
+            });
             const logBackgroundHydrationError = (error: unknown): void => {
                 console.error('[sessionsSnapshot] Background hydration failed', error);
             };
