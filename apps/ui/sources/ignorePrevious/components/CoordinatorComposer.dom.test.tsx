@@ -181,18 +181,41 @@ function Paint({ children, name }: React.PropsWithChildren<{ name: 'night' | 'pa
     return <DeskPaintContext.Provider value={{ ...paint, paint: deskThemes[name] }}>{children}</DeskPaintContext.Provider>;
 }
 
-it('paints the real Slip composer with the selected desk background, isolated from ordinary Happier', async () => {
-    deskPrefs.set('chatStyle', 'mask');
-    await act(async () => root.render(<Paint name="night"><RealComposer /></Paint>));
-    const box = find('agent-input-drop-zone')!;
-    const expected = document.createElement('span');
-    expected.style.backgroundColor = deskThemes.night.bg;
-    expect(getComputedStyle(box).backgroundColor).toBe(expected.style.backgroundColor);
-    await act(async () => root.render(<Paint name="paper"><RealComposer /></Paint>));
-    const paper = document.createElement('span'); paper.style.backgroundColor = deskThemes.paper.panel2;
-    expect(getComputedStyle(find('agent-input-drop-zone')!).backgroundColor).toBe(paper.style.backgroundColor);
+it.each(['night', 'paper'] as const)('keeps the real %s Slip textarea mono and palette-aware, isolated from ordinary Happier', async (name) => {
     await act(async () => root.render(<RealComposer desk={false} />));
-    expect(getComputedStyle(find('agent-input-drop-zone')!).backgroundColor).not.toBe(expected.style.backgroundColor);
+    const textarea = () => container.querySelector<HTMLTextAreaElement>('[data-testid="session-composer-input"]')!;
+    const ordinaryFont = textarea().style.fontFamily;
+    const ordinaryInk = textarea().style.color;
+    expect(ordinaryFont).not.toContain('JetBrains Mono');
+    const css = document.createElement('span').style;
+
+    deskPrefs.set('chatStyle', 'mask');
+    await act(async () => root.render(<Paint name={name}><RealComposer /></Paint>));
+    const box = find('agent-input-drop-zone')!;
+    css.backgroundColor = name === 'paper' ? deskThemes.paper.panel2 : deskThemes.night.bg;
+    expect(getComputedStyle(box).backgroundColor).toBe(css.backgroundColor);
+    expect(getComputedStyle(box).borderTopLeftRadius).toBe('18px');
+    expect(getComputedStyle(box).borderBottomLeftRadius).toBe('8px');
+    // Inspect the real textarea's inline binding; jsdom's computed font shorthand is unreliable.
+    expect(textarea().style.fontFamily).toContain('JetBrains Mono');
+    css.color = deskThemes[name].ink;
+    expect(textarea().style.color).toBe(css.color);
+    expect(find('ip-composer-status-strip')).toBeNull();
+
+    const terminalPaint = name === 'paper' ? deskThemes.terminalPaper : deskThemes.tokyo;
+    await act(async () => {
+        deskPrefs.set('terminalPalette', name === 'paper' ? 'terminalPaper' : 'tokyo');
+        deskPrefs.set('chatStyle', 'terminal');
+    });
+    expect(textarea().style.fontFamily).toContain('JetBrains Mono');
+    css.color = terminalPaint.ink;
+    expect(textarea().style.color).toBe(css.color);
+    expect(find('ip-composer-status-strip')).not.toBeNull();
+
+    await act(async () => root.render(<RealComposer desk={false} />));
+    expect(textarea().style.fontFamily).toBe(ordinaryFont);
+    expect(textarea().style.color).toBe(ordinaryInk);
+    expect(find('ip-composer-status-strip')).toBeNull();
 });
 
 it('renders real Terminal mode captions in the desk mono bracket language', async () => {

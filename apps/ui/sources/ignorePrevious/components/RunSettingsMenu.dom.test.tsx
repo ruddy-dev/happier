@@ -124,3 +124,30 @@ it.each(['terminalPaper', 'tokyo'] as const)('paints the portaled Terminal menu 
         expect(getComputedStyle(disabled.firstElementChild!).color).toBe(rgb(terminalPalettes[palette].mute));
     } finally { await act(async () => deskPrefs.set('terminalPalette', previous)); }
 });
+
+it.each([1440, 390])('sizes the portaled menu independently of the compact trigger within a %ipx viewport', async (viewportWidth) => {
+    // jsdom has no layout engine. Supply only the OS measurement boundary; the real
+    // Popover must calculate its own positioned width and viewport clamp.
+    const width = vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(viewportWidth);
+    const height = vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(1000);
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        return this.getAttribute('data-testid') === 'ip-run-settings'
+            ? new DOMRect(viewportWidth === 390 ? 25 : 438, 922, 216, 44)
+            : new DOMRect(0, 0, 1, 400);
+    });
+    try {
+        await act(async () => window.dispatchEvent(new Event('resize')));
+        await render(); await click('ip-run-settings');
+        const host = element('ip-run-menu').closest<HTMLElement>('[data-happy-popover-content]')!;
+        expect(host).not.toBeNull();
+        const style = getComputedStyle(host);
+        const menuWidth = Number.parseFloat(style.width);
+        expect(menuWidth).toBe(viewportWidth === 1440 ? 560 : 358);
+        expect(Number.parseFloat(style.left)).toBeGreaterThanOrEqual(8);
+        expect(Number.parseFloat(style.left) + menuWidth).toBeLessThanOrEqual(viewportWidth - 8);
+        await click('ip-run-effort-medium');
+        expect(element('ip-run-effort-medium').getAttribute('aria-checked')).toBe('true');
+        await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+        expect(document.activeElement).toBe(element('ip-run-settings'));
+    } finally { width.mockRestore(); height.mockRestore(); bounds.mockRestore(); }
+});

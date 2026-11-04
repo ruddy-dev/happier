@@ -61,7 +61,7 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
             </Pressable>
             {midTurn && changedDuringTurn ? <DeskText testID="ip-run-next-turn" accessibilityLiveRegion="polite" style={noteStyle}>{t('ignorePrevious.runSettings.nextTurn')}</DeskText> : null}
         </View>
-        <Popover open={open} anchorRef={openerRef} placement="top" portal={{ web: true }}
+            <Popover open={open} anchorRef={openerRef} placement="top" portal={{ web: true, matchAnchorWidth: false }}
             {...(Platform.OS === 'web' ? { backdrop: false as const } : { backdrop: true as const, onRequestClose: close })} maxWidthCap={560} edgePadding={8}>
             {({ maxHeight }) => <FloatingOverlay maxHeight={maxHeight} surfaceColor={desk ? paint.bg : undefined} containerStyle={{ width: 560, maxWidth: '100%' }}>
                 <View ref={contentRef} testID="ip-run-menu" accessibilityRole="menu" accessibilityLabel={t('ignorePrevious.runSettings.title')}

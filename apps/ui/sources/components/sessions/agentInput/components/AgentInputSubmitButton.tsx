@@ -129,8 +129,11 @@ export const AgentInputSubmitButton = React.memo(function AgentInputSubmitButton
     onStop?: () => void;
 }>) {
     const { theme } = useUnistyles();
-    const { desk } = useCoordinatorComposerLayout();
+    const { desk, submitColors } = useCoordinatorComposerLayout();
     const showStopWhenEmpty = !props.hasSendableContent && !props.micPressHandler && props.canStop === true;
+    const active = props.hasSendableContent || props.isSending || Boolean(props.micPressHandler) || showStopWhenEmpty;
+    const activeColors = props.disabled ? undefined : submitColors;
+    const submitTint = (active ? activeColors?.tint : undefined) ?? theme.colors.button.primary.tint;
     /*
      * With nothing to send, a composer that has Voice hands this button to the
      * microphone — `submitPress` routes there before it ever reaches Stop, whether
@@ -215,7 +218,8 @@ export const AgentInputSubmitButton = React.memo(function AgentInputSubmitButton
             <PrimaryCircleIconButton
                 testID={props.testID}
                 style={desk ? { width: 44, height: 44 } : undefined}
-                active={props.hasSendableContent || props.isSending || Boolean(props.micPressHandler) || showStopWhenEmpty}
+                active={active}
+                activeColors={activeColors}
                 loading={props.isSending || (showStopWhenEmpty && props.isStopping)}
                 disabled={props.disabled}
                 accessibilityLabel={
@@ -244,26 +248,26 @@ export const AgentInputSubmitButton = React.memo(function AgentInputSubmitButton
                     <Icon
                         name="arrow-up"
                         size={16}
-                        color={theme.colors.button.primary.tint}
+                        color={submitTint}
                         style={{ marginTop: Platform.OS === 'web' ? 2 : 0 }}
                     />
                 ) : props.micPressHandler ? (
                     props.micActive ? (
-                        <Icon name="stop-circle" size={20} color={theme.colors.button.primary.tint} />
+                        <Icon name="stop-circle" size={20} color={submitTint} />
                     ) : (
                         <Image
                             source={require('@/assets/images/icon-voice-white.png')}
                             style={{ width: 24, height: 24 }}
-                            tintColor={theme.colors.button.primary.tint}
+                            tintColor={submitTint}
                         />
                     )
                 ) : showStopWhenEmpty ? (
-                    <Icon name="stop" size={16} weight="fill" color={theme.colors.button.primary.tint} />
+                    <Icon name="stop" size={16} weight="fill" color={submitTint} />
                 ) : (
                     <Icon
                         name="arrow-up"
                         size={16}
-                        color={theme.colors.button.primary.tint}
+                        color={submitTint}
                         style={{ marginTop: Platform.OS === 'web' ? 2 : 0 }}
                     />
                 )}

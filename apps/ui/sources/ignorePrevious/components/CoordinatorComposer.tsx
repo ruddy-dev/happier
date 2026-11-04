@@ -3,7 +3,7 @@ import { Platform, View } from 'react-native';
 import { t } from '@/text';
 import { useDeskPref } from '../deskPrefs';
 import { deskThemes, terminalPalettes, useDeskPaint, type SpriteTheme } from '../palette';
-import { DESK_FONT_STACK, deskMonoFontFamily } from '../fonts/deskFont';
+import { deskMonoFontFamily } from '../fonts/deskFont';
 import { CoordinatorComposerInputContext, createCoordinatorComposerObserver } from '../model/coordinatorComposerInput';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
@@ -24,6 +24,7 @@ function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.Pro
     const panelStyle = React.useMemo(() => style === 'mask' ? slipPanelStyle(paint, borderWidth) :
         { backgroundColor: activePaint.bg, borderColor: activePaint.edge, borderWidth: 1, borderRadius: 0 }, [style, paint, borderWidth, activePaint]);
     const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null, phone, terminal: style === 'terminal', panelStyle, controlInk: activePaint.ink,
+        submitColors: { background: activePaint.yel, tint: activePaint.yelink },
         textStyle: { fontFamily: deskMonoFontFamily(), color: activePaint.ink }, placeholderColor: activePaint.mute,
         panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null }), [observer, coordinatorId, phone, panelStyle, style, activePaint]);
     return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
@@ -42,13 +43,14 @@ function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsW
         phone,
         terminal,
         controlInk: terminal ? paint.ink : slipPaint.ink,
+        submitColors: { background: terminal ? paint.yel : slipPaint.yel, tint: terminal ? paint.yelink : slipPaint.yelink },
         panelStyle: terminal ? undefined : slipPanelStyle(slipPaint, slipBorderWidth),
         prompt: terminal ? <DeskText testID="ip-composer-prompt" aria-hidden style={{ color: paint.user, fontSize: 13, fontWeight: '700' }}>
             {t('ignorePrevious.composer.prompt')}<DeskText style={{ color: paint.mute }}>{' ~ '}</DeskText>{'> '}
         </DeskText> : null,
         panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null,
         panelFooter: terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null,
-        textStyle: terminal ? { fontFamily: DESK_FONT_STACK, color: paint.ink } : undefined,
+        textStyle: { fontFamily: deskMonoFontFamily(), color: terminal ? paint.ink : slipPaint.ink },
     }), [observer, terminal, paint, slipPaint, slipBorderWidth, phone, coordinatorId]);
     // CSS changes only this instance's existing web composer hosts. It neither discovers inputs
     // nor changes controls, focus, permission labels, context data or native layout.
@@ -60,8 +62,6 @@ function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsW
         ${selector} [data-testid="agent-input-action-footer"] { border-radius: 0 !important; }
         ${selector} [data-testid="ip-run-settings"], ${selector} [data-testid="agent-input-permission-chip"] { border: 1px solid ${paint.edge} !important; border-radius: 2px !important; }
         ${selector} [data-testid="session-composer-send"] { border-radius: 2px !important; }
-        ${selector} [data-testid="session-composer-send"]:not([aria-disabled="true"]) { background: ${paint.yel} !important; color: ${paint.yelink} !important; }
-        ${selector} [data-testid="session-composer-send"]:not([aria-disabled="true"]) * { color: ${paint.yelink} !important; }
         ${selector} [data-testid="session-composer-input"] { caret-color: ${paint.yel} !important; }
         ${selector} [data-testid="session-composer-input"]::placeholder { color: ${paint.mute}; opacity: 1; }
     ` : '';
