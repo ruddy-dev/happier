@@ -36,6 +36,7 @@ import { useDeskSessions } from '../useDeskSessions';
 import { isIssueArchiveTarget, useIssueArchiveTargets } from '../model/issueArchiveOperation';
 import { DeskBrowserNotifier } from '../model/useDeskBrowserNotifier';
 import { usePhoneControlPaint } from '../components/usePhoneControlPaint';
+import { useWebTabSpace } from '../components/useWebTabSpace';
 
 function CoordinatorPicker({
     sessions,
@@ -126,8 +127,9 @@ function PhoneTabBarContent({ children, bottom }: React.PropsWithChildren<{ bott
 function PhoneTab({ id, label, selected, onPress }: { id: string; label: string; selected: boolean; onPress: () => void }) {
     const { terminal, paint } = usePhoneControlPaint();
     const [focused, setFocused] = React.useState(false);
+    const { webProps, cancel } = useWebTabSpace(onPress);
     return <Pressable testID={id} accessibilityRole="tab" aria-selected={selected} accessibilityState={{ selected }}
-        onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        {...webProps} onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => { cancel(); setFocused(false); }}
         style={{ flex: 1, minWidth: 0, minHeight: 48, alignItems: 'center', justifyContent: 'center',
             borderWidth: focused ? 2 : 1, borderColor: focused ? (selected ? paint.bg : paint.ink) : paint.rule, borderRadius: terminal ? 0 : 8,
             backgroundColor: selected ? paint.ink : paint.panel }}>
