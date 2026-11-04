@@ -19,9 +19,45 @@ vi.mock('react-native-unistyles', async () => {
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const { PressableSurface } = await import('./PressableSurface');
+const { Popover } = await import('../popover/Popover');
 await import('../overlays/AnchoredTooltip');
 
 describe('PressableSurface web tooltip', () => {
+    it('keeps ordinary interactive popover content targetable by default', async () => {
+        vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1024);
+        vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(768);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0));
+        vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id));
+        // jsdom has no layout engine; provide geometry at the browser boundary.
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(20, 20, 200, 28));
+        const anchor = document.createElement('button');
+        const container = document.createElement('div');
+        document.body.append(anchor, container);
+        const root = createRoot(container);
+        try {
+            await act(async () => root.render(
+                <Popover open anchorRef={{ current: anchor }} backdrop={false} portal={{ web: true, native: true }}>
+                    {() => <button>Update</button>}
+                </Popover>,
+            ));
+            await vi.waitFor(() => {
+                const popover = document.querySelector<HTMLElement>('[data-happy-popover-content]');
+                const button = popover?.querySelector('button');
+                expect(button).toBeInstanceOf(HTMLElement);
+                for (let node: HTMLElement | null = button ?? null; node; node = node === popover ? null : node.parentElement) {
+                    expect(window.getComputedStyle(node).pointerEvents).toBe('auto');
+                    expect(window.getComputedStyle(node).opacity).not.toBe('0');
+                }
+            });
+        } finally {
+            await act(async () => root.unmount());
+            anchor.remove();
+            container.remove();
+            vi.restoreAllMocks();
+            vi.unstubAllGlobals();
+        }
+    });
+
     it.each(['switch', 'checkbox'] as const)('exposes checked state and Space activation for a %s', async (role) => {
         const container = document.createElement('div');
         document.body.appendChild(container);
@@ -86,6 +122,13 @@ describe('PressableSurface web tooltip', () => {
                     expect(style.visibility).not.toBe('hidden');
                 }
             }, { timeout: 10000 });
+            // The passive tooltip must not capture a click aimed at a control
+            // beneath either its positioned container or animation frame.
+            const popover = document.querySelector<HTMLElement>('[data-happy-popover-content]');
+            expect(popover).not.toBeNull();
+            for (const node of [popover!, ...popover!.querySelectorAll<HTMLElement>('*')]) {
+                expect(window.getComputedStyle(node).pointerEvents, node.outerHTML.slice(0, 220)).toBe('none');
+            }
             expect(richContentMounted).toBe(role === 'button');
             expect(document.activeElement).not.toBe(trigger);
             await act(async () => { trigger.dispatchEvent(new MouseEvent(window.PointerEvent != null ? 'pointerleave' : 'mouseleave', { bubbles: true })); });

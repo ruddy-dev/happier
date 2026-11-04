@@ -8,14 +8,18 @@ import type { SocketCollector } from '../socketClient';
 import { createDeskSeeder } from './deskSeed';
 import { encrypt, encodeBase64 } from '@/api/encryption';
 
-const boundary = vi.hoisted(() => ({ sockets: [] as unknown[], sessionBody: null as Record<string, unknown> | null }));
+const boundary = vi.hoisted(() => ({ sockets: [] as unknown[], bodies: [] as string[], sessionBody: null as Record<string, unknown> | null }));
 // HTTP and socket collectors are network boundaries; session parsing and SyntheticAgent run real.
 vi.mock('../socketClient', async (original) => ({
     ...await original<typeof import('../socketClient')>(),
     createSessionScopedSocketCollector: () => boundary.sockets.shift(),
 }));
 vi.mock('../http', () => ({ fetchJson: async (url: string, init?: RequestInit) => {
-    if (url.endsWith('/v1/sessions')) boundary.sessionBody = JSON.parse(String(init?.body));
+    if (url.endsWith('/v1/sessions')) {
+        const body = String(init?.body);
+        boundary.bodies.push(body);
+        boundary.sessionBody = JSON.parse(body);
+    }
     return ({
     status: 200,
     data: url.includes('/v2/sessions/') ? { session: {
@@ -35,7 +39,7 @@ function socket(fail: boolean) {
     boundary.sockets.push(value as unknown as SocketCollector);
     return value;
 }
-afterEach(() => { boundary.sockets.length = 0; boundary.sessionBody = null; });
+afterEach(() => { boundary.sockets.length = 0; boundary.bodies.length = 0; boundary.sessionBody = null; });
 
 test.each(['coordinator', 'worker'] as const)('%s presence failure still closes its created socket', async (kind) => {
     const presence = socket(true);
@@ -62,6 +66,18 @@ test('agent startup failure closes both its agent socket and the online presence
     expect(agent.close).toHaveBeenCalledOnce();
 });
 
+test('coordinator metadata carries its machine only when supplied', async () => {
+    socket(false); socket(false);
+    const seed = createDeskSeeder(desk);
+    try {
+        await seed.startCoordinator('/tmp/desk', 'machine-id');
+        await seed.startCoordinator('/tmp/desk');
+        const metadata = boundary.bodies.map(body => JSON.parse(JSON.parse(body).metadata));
+        expect(metadata[0].machineId).toBe('machine-id');
+        expect(metadata[1]).not.toHaveProperty('machineId');
+    } finally { await seed.stopAll(); }
+});
+
 // This is the same key derivation the real browser uses in Encryption.create.
 // Secrets and encrypted bytes remain local variables, never assertion operands.
 test('encrypted desk seeds wrap a distinct data key for the disposable browser and encrypt metadata', async () => {
@@ -70,7 +86,7 @@ test('encrypted desk seeds wrap a distinct data key for the disposable browser a
     const recipient = tweetnacl.box.keyPair.fromSecretKey(machineKey);
     const seed = createDeskSeeder({ ...desk, encryption: { contentPublicKey: recipient.publicKey } });
     try {
-        await seed.startCoordinator('/tmp/desk-coordinator');
+        await seed.startCoordinator('/tmp/desk-coordinator', 'machine-id');
         const body = boundary.sessionBody!;
         expect(body.encryptionMode, 'the seed must not silently use its plain default').toBe('e2ee');
         const key = openEncryptedDataKeyEnvelopeV1({
@@ -79,10 +95,13 @@ test('encrypted desk seeds wrap a distinct data key for the disposable browser a
         expect(key?.length, 'the browser can open the wrapped session key').toBe(32);
         const metadata = decryptDataKeyBase64(String(body.metadata), key!);
         expect(metadata?.path === '/tmp/desk-coordinator', 'browser key decrypts the seeded metadata').toBe(true);
+        expect(metadata?.machineId === 'machine-id', 'encrypted metadata retains the coordinator machine').toBe(true);
         socket(false);
         await seed.startCoordinator('/tmp/desk-second-coordinator');
         const secondKey = openEncryptedDataKeyEnvelopeV1({ envelope: Buffer.from(String(boundary.sessionBody!.dataEncryptionKey), 'base64'), recipientSecretKeyOrSeed: machineKey });
         expect(secondKey?.length).toBe(32);
+        const secondMetadata = decryptDataKeyBase64(String(boundary.sessionBody!.metadata), secondKey!);
+        expect(secondMetadata !== null && !Object.hasOwn(secondMetadata, 'machineId'), 'absent machine stays omitted in encrypted metadata').toBe(true);
         expect(Buffer.from(key!).equals(Buffer.from(secondKey!)), 'each session gets a distinct data key').toBe(false);
         const stranger = deriveAccountMachineKeyFromRecoverySecret(randomBytes(32));
         expect(openEncryptedDataKeyEnvelopeV1({ envelope: Buffer.from(String(body.dataEncryptionKey), 'base64'), recipientSecretKeyOrSeed: stranger }) === null).toBe(true);

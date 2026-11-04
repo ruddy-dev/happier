@@ -1,6 +1,6 @@
 import * as childProcess from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { captureProcessTreeOwnership, observeOwnedProcessTree, terminateProcessTreeByPid } from './processTree';
+import { captureProcessTreeOwnership, collectDescendantPids, observeOwnedProcessTree, terminateProcessTreeByPid } from './processTree';
 import { inspectOwnedProcess } from './processIdentity';
 
 vi.mock('node:child_process', () => ({ spawnSync: vi.fn() }));
@@ -51,6 +51,79 @@ async function rejects(result: Promise<void>) {
   const assertion = expect(result).rejects.toThrow(/identity|inspection|terminat/i);
   await Promise.all([assertion, vi.runAllTimersAsync()]);
 }
+
+describe.each(['linux', 'darwin', 'win32'] as const)('%s process inspection failure diagnostics', platform => {
+  const prefix = `Owned process termination was not confirmed: ${platform === 'win32' ? 'CIM' : 'process'} inspection failed`;
+
+  it.each([
+    { scenario: 'spawn error', code: 'ENOBUFS', status: null, signal: null, stdout: 'private-output-\u00e9',
+      expected: { errorCode: 'ENOBUFS', status: null, signal: null, stdoutType: 'string', stdoutBytes: 17 } },
+    { scenario: 'timeout error', code: 'ETIMEDOUT', status: null, signal: 'SIGTERM', stdout: '',
+      expected: { errorCode: 'ETIMEDOUT', status: null, signal: 'SIGTERM', stdoutType: 'string', stdoutBytes: 0 } },
+    { scenario: 'nonzero exit', status: 2, signal: null, stdout: '',
+      expected: { errorCode: null, status: 2, signal: null, stdoutType: 'string', stdoutBytes: 0 } },
+    { scenario: 'signal exit', status: null, signal: 'SIGKILL', stdout: null,
+      expected: { errorCode: null, status: null, signal: 'SIGKILL', stdoutType: 'null', stdoutBytes: null } },
+    { scenario: 'buffer output', status: 1, signal: null, stdout: Buffer.from('private-buffer'),
+      expected: { errorCode: null, status: 1, signal: null, stdoutType: 'buffer', stdoutBytes: 14 } },
+    { scenario: 'untrusted fields', code: 'private-code'.repeat(1000), status: Number.NaN, signal: 'private-signal',
+      stdout: { toString: () => { throw new Error('must not stringify private output'); } },
+      expected: { errorCode: 'unknown', status: null, signal: 'unknown', stdoutType: 'object', stdoutBytes: null } },
+  ])('retains bounded metadata for $scenario without private error or process details', ({ code, status, signal, stdout, expected }) => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue(platform);
+    const ownership = captureProcessTreeOwnership(8123, { command: 'worker-8123', startTime: start });
+    const error = code ? Object.assign(new Error('private-message'), {
+      code, name: 'private-name', stack: 'private-stack', cause: new Error('private-cause'),
+      path: 'private-path', syscall: 'private-syscall', spawnargs: ['private-argument'],
+    }) : undefined;
+    // Deliberately malformed results exercise the untyped OS boundary, including stdout and signal.
+    vi.mocked(childProcess.spawnSync).mockReturnValue({
+      pid: 0, output: [null, stdout, 'private-stderr'], stdout, stderr: 'private-stderr', status, signal, error,
+    } as ReturnType<typeof childProcess.spawnSync>);
+
+    observeOwnedProcessTree(ownership);
+
+    expect(ownership.inspectionError?.message).toBe(`${prefix} ${JSON.stringify(expected)}`);
+    expect(String(ownership.inspectionError)).not.toContain('private-');
+    expect(ownership.inspectionError?.cause).toBeUndefined();
+    expect(ownership.inspectionError!.message.length).toBeLessThan(500);
+    expect([...ownership.processes.keys()]).toEqual([8123]);
+    expect(ownership.groups.size).toBe(0);
+    expect(process.kill).not.toHaveBeenCalled();
+    expect(signals).toEqual([]);
+    expect(() => collectDescendantPids(8123)).toThrow(`${prefix} ${JSON.stringify(expected)}`);
+  });
+});
+
+describe('Unix process inspection output diagnostics', () => {
+  it.each([
+    { stdout: null, stdoutType: 'null', stdoutBytes: null },
+    { stdout: Buffer.from('private-buffer'), stdoutType: 'buffer', stdoutBytes: 14 },
+    { stdout: undefined, stdoutType: 'undefined', stdoutBytes: null },
+  ])('retains the original refusal for successful status with $stdoutType stdout', ({ stdout, stdoutType, stdoutBytes }) => {
+    const ownership = captureProcessTreeOwnership(8123, { command: 'worker-8123', startTime: start });
+    // Null/undefined stdout can occur at the OS boundary despite the encoded-output signature.
+    vi.mocked(childProcess.spawnSync).mockReturnValue({
+      pid: 0, output: [null, stdout, null], stdout, stderr: '', status: 0, signal: null,
+    } as ReturnType<typeof childProcess.spawnSync>);
+    observeOwnedProcessTree(ownership);
+    expect(ownership.inspectionError?.message).toBe('Owned process termination was not confirmed: process inspection failed '
+      + JSON.stringify({ errorCode: null, status: 0, signal: null, stdoutType, stdoutBytes }));
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it('keeps successful observation silent', () => {
+    const log = vi.spyOn(console, 'log');
+    const warn = vi.spyOn(console, 'warn');
+    const error = vi.spyOn(console, 'error');
+    const ownership = capture();
+    expect(ownership.inspectionError).toBeUndefined();
+    expect([...ownership.processes.keys()]).toEqual([8123, 8124]);
+    expect(log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+});
 
 describe('owned process termination', () => {
   it.each(['initial-inspection-failed', 'root-mismatch'] as const)('refuses %s without valid captured root authority', async scenario => {

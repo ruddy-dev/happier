@@ -105,8 +105,8 @@ export function createDeskSeeder(desk: DeskAccount) {
                 if (!state || typeof state !== 'object') throw new Error('Persisted agent state did not decrypt');
             }
         },
-        async startCoordinator(path: string): Promise<string> {
-            const { sessionId } = await create({ name: 'Coordinator chat', path });
+        async startCoordinator(path: string, machineId?: string): Promise<string> {
+            const { sessionId } = await create({ name: 'Coordinator chat', path, ...(machineId ? { machineId } : {}) });
             await goOnline(desk, sessionId, register);
             return sessionId;
         },

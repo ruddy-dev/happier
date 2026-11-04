@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 
@@ -36,6 +36,7 @@ function RobotRow({ robot }: { robot: typeof robots[number] }) {
             {(Object.keys(robotPresets) as RobotPreset[]).map(preset => <Pressable
                 key={preset} testID={`ip-robot-${robot.id}-${preset}`} accessibilityRole="radio"
                 accessibilityLabel={t(`ignorePrevious.robots.${preset}`)} accessibilityState={{ checked: selected === preset }}
+                {...(Platform.OS === 'web' ? { 'aria-checked': selected === preset } : {})}
                 onPress={() => setSelected(preset)}
                 style={{ width: 48, height: 48, padding: 8, borderWidth: selected === preset ? 3 : 1, borderColor: selected === preset ? theme.colors.text.primary : theme.colors.border.default }}>
                 <View style={{ flex: 1, backgroundColor: robotPresets[preset].body }} />
@@ -78,6 +79,7 @@ export function DeskSettingsScreen() {
                             {(['mask', 'terminal'] as const).map(style => (
                                 <Pressable key={style} testID={`ip-chat-style-${style}`} accessibilityRole="radio"
                                     accessibilityState={{ checked: chatStyle === style }}
+                                    {...(Platform.OS === 'web' ? { 'aria-checked': chatStyle === style } : {})}
                                     onPress={() => setChatStyle(style)}
                                     style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: chatStyle === style ? theme.colors.text.primary : theme.colors.border.default }}>
                                     <DeskText style={{ color: theme.colors.text.primary }}>{t(`ignorePrevious.chatStyle.${style}`)}</DeskText>
@@ -90,6 +92,7 @@ export function DeskSettingsScreen() {
                                 {(Object.keys(terminalPalettes) as TerminalPalette[]).map(palette => (
                                     <Pressable key={palette} testID={`ip-chat-palette-${palette}`} accessibilityRole="radio"
                                         accessibilityState={{ checked: terminalPalette === palette }}
+                                        {...(Platform.OS === 'web' ? { 'aria-checked': terminalPalette === palette } : {})}
                                         onPress={() => setTerminalPalette(palette)}
                                         style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: terminalPalette === palette ? theme.colors.text.primary : theme.colors.border.default }}>
                                         <DeskText style={{ color: theme.colors.text.primary }}>{t(`ignorePrevious.chatStyle.${palette}`)}</DeskText>
@@ -103,6 +106,7 @@ export function DeskSettingsScreen() {
                         <View accessibilityRole="radiogroup" accessibilityLabel={t('ignorePrevious.robots.faces')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                             {(['A', 'B'] as const).map(choice => <Pressable key={choice} testID={`ip-faces-${choice}`} accessibilityRole="radio"
                                 accessibilityState={{ checked: faces === choice }} onPress={() => setFaces(choice)}
+                                {...(Platform.OS === 'web' ? { 'aria-checked': faces === choice } : {})}
                                 style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: faces === choice ? theme.colors.text.primary : theme.colors.border.default }}>
                                 <DeskText style={{ color: theme.colors.text.primary }}>{t(choice === 'A' ? 'ignorePrevious.robots.pixel' : 'ignorePrevious.robots.ascii')}</DeskText>
                             </Pressable>)}
@@ -118,6 +122,7 @@ export function DeskSettingsScreen() {
                         accessibilityRole="switch"
                         accessibilityLabel={t('ignorePrevious.settings.creature')}
                         accessibilityState={{ checked: creatureEnabled }}
+                        {...(Platform.OS === 'web' ? { 'aria-checked': creatureEnabled } : {})}
                         onPress={() => setCreatureEnabled(!creatureEnabled)}
                         style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, minHeight: 48 }}
                     >

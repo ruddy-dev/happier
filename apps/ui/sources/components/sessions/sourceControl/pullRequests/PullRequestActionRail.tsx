@@ -18,6 +18,8 @@ export function PullRequestActionRail(props: Readonly<{
     disabled?: boolean;
     writeDisabled?: boolean;
     busy?: boolean;
+    findDisabled?: boolean;
+    onFindPullRequest?: (model: ReadyPullRequestModel) => void;
     onViewPullRequest: (model: ExistingPullRequestModel) => void;
     onOpenOrReusePullRequest: (model: ReadyPullRequestModel) => void;
     onCreateFeatureBranch: (model: ReadyPullRequestModel) => void;
@@ -41,10 +43,21 @@ export function PullRequestActionRail(props: Readonly<{
         );
     }
 
+    const findAction = props.onFindPullRequest ? (
+        <SourceControlUpdateButton
+            theme={props.theme}
+            testID="scm-pull-request-find"
+            label={t('ignorePrevious.pullRequest.find')}
+            disabled={disabled || props.findDisabled === true}
+            onPress={() => props.onFindPullRequest?.(props.model as ReadyPullRequestModel)}
+        />
+    ) : null;
+
     const defaultBranchAction = props.model.defaultBranchAction;
     if (defaultBranchAction?.kind === 'create_feature_branch_and_open_pr') {
         return (
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {findAction}
                 <SourceControlUpdateButton
                     theme={props.theme}
                     testID="scm-pull-request-create-feature-branch-and-open-pr"
@@ -59,7 +72,8 @@ export function PullRequestActionRail(props: Readonly<{
 
     if (defaultBranchAction?.kind === 'create_feature_branch') {
         return (
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {findAction}
                 <SourceControlUpdateButton
                     theme={props.theme}
                     testID="scm-pull-request-create-feature-branch"
@@ -76,7 +90,8 @@ export function PullRequestActionRail(props: Readonly<{
         ? 'files.sourceControlOperations.update.pullRequests.pushAndOpen'
         : 'files.sourceControlOperations.update.pullRequests.openOrReuse';
     return (
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {findAction}
             <SourceControlUpdateButton
                 theme={props.theme}
                 testID="scm-pull-request-open-or-reuse"

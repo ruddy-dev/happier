@@ -167,6 +167,8 @@ type PopoverCommonProps = Readonly<{
     edgePadding?: number | Readonly<{ horizontal?: number; vertical?: number }>;
     /** Extra styles applied to the positioned popover container. */
     containerStyle?: StyleProp<ViewStyle>;
+    /** Passive content, such as tooltips, must not intercept controls beneath its container or motion frame. */
+    pointerEvents?: 'auto' | 'none';
     /**
      * When true (web only), clicking the anchor while the popover is open will also close it.
      * Useful for trigger chips that behave like toggles, especially when global pointerdown-capture
@@ -1414,7 +1416,7 @@ export function Popover(props: PopoverWithBackdrop | PopoverWithoutBackdrop) {
                     (shouldPortalWeb || shouldPortalNative) ? { opacity: portalOpacity } : null,
                     shouldPortal ? { zIndex: portalZ + 1 } : null,
                 ]}
-                pointerEvents={overlayPresence.exiting || ((shouldPortalWeb || shouldPortalNative) && portalOpacity === 0) ? 'none' : 'auto'}
+                pointerEvents={overlayPresence.exiting || ((shouldPortalWeb || shouldPortalNative) && portalOpacity === 0) ? 'none' : (props.pointerEvents ?? 'auto')}
                 onLayout={(e) => {
                     // Used to improve portal alignment (especially left/right centering)
                     const layout = e?.nativeEvent?.layout;
@@ -1467,6 +1469,7 @@ export function Popover(props: PopoverWithBackdrop | PopoverWithoutBackdrop) {
                                 visible={motionVisible}
                                 kind="popover"
                                 direction={popoverMotionDirection}
+                                pointerEvents={props.pointerEvents}
                             >
                                 {children(computed)}
                             </OverlayMotionFrame>
@@ -1477,6 +1480,7 @@ export function Popover(props: PopoverWithBackdrop | PopoverWithoutBackdrop) {
                         visible={motionVisible}
                         kind="popover"
                         direction={popoverMotionDirection}
+                        pointerEvents={props.pointerEvents}
                     >
                         {children(computed)}
                     </OverlayMotionFrame>

@@ -239,8 +239,9 @@ export function createGitPullRequestBackend(deps: GitPullRequestOperationDeps = 
         }
 
         return {
-            success: true,
-            pullRequests: [],
+            success: false,
+            errorCode: SCM_OPERATION_ERROR_CODES.COMMAND_FAILED,
+            error: 'No authenticated SCM hosting provider is available to list pull requests.',
         };
     }
 

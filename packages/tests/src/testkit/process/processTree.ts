@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { processInstanceFingerprintMatches, readProcessInstanceFingerprintSync } from '@happier-dev/cli-common/processInstance';
 import { inspectOwnedProcess, type ProcessInspectionResult } from './processIdentity';
@@ -26,12 +26,35 @@ export function isProcessAlive(pid: number): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
 }
 
+// Only fixed diagnostic vocabulary may escape the process-list boundary. Error
+// messages, causes, commands, arguments and output contents can contain secrets.
+const inspectionErrorCodes = new Set([
+  'E2BIG', 'EACCES', 'EAGAIN', 'EBADF', 'EFAULT', 'EINTR', 'EINVAL', 'EIO',
+  'EMFILE', 'ENFILE', 'ENOBUFS', 'ENOENT', 'ENOMEM', 'ENOSYS', 'ENOTDIR', 'EPERM', 'ETIMEDOUT',
+]);
+const inspectionSignals = new Set([
+  'SIGABRT', 'SIGALRM', 'SIGBREAK', 'SIGBUS', 'SIGFPE', 'SIGHUP', 'SIGILL', 'SIGINT',
+  'SIGKILL', 'SIGPIPE', 'SIGQUIT', 'SIGSEGV', 'SIGTERM', 'SIGTRAP', 'SIGXCPU', 'SIGXFSZ',
+]);
+
+function inspectionFailureMetadata(result: Pick<SpawnSyncReturns<unknown>, 'error' | 'status' | 'signal' | 'stdout'>): string {
+  const code = result.error && 'code' in result.error ? result.error.code : undefined;
+  return JSON.stringify({
+    errorCode: result.error ? (typeof code === 'string' && inspectionErrorCodes.has(code) ? code : 'unknown') : null,
+    status: typeof result.status === 'number' && Number.isFinite(result.status) ? result.status : null,
+    signal: result.signal == null ? null : inspectionSignals.has(result.signal) ? result.signal : 'unknown',
+    stdoutType: result.stdout === null ? 'null' : Buffer.isBuffer(result.stdout) ? 'buffer' : typeof result.stdout,
+    stdoutBytes: typeof result.stdout === 'string' ? Buffer.byteLength(result.stdout, 'utf8')
+      : Buffer.isBuffer(result.stdout) ? result.stdout.byteLength : null,
+  });
+}
+
 function listUnixProcesses(): ProcessEntry[] {
   const result = spawnSync('ps', ['-axo', 'pid=,ppid=,pgid=,lstart=,args=', '-ww'], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
   });
   if (result.error || result.status !== 0 || typeof result.stdout !== 'string') {
-    throw new Error('Owned process termination was not confirmed: process inspection failed');
+    throw new Error(`Owned process termination was not confirmed: process inspection failed ${inspectionFailureMetadata(result)}`);
   }
   return result.stdout.split('\n').filter(line => line.trim()).map(line => {
     const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.+)$/);
@@ -54,7 +77,7 @@ function listProcesses(): ProcessEntry[] {
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
   });
-  if (result.error || result.status !== 0) throw new Error('Owned process termination was not confirmed: CIM inspection failed');
+  if (result.error || result.status !== 0) throw new Error(`Owned process termination was not confirmed: CIM inspection failed ${inspectionFailureMetadata(result)}`);
   const rows: unknown = JSON.parse(String(result.stdout));
   if (!Array.isArray(rows)) throw new Error('Owned process termination was not confirmed: malformed CIM inspection');
   return rows.map((value: unknown) => {

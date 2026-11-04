@@ -3,12 +3,17 @@ import { invokeTauri, isTauriDesktop } from '@/utils/platform/tauri';
 
 const SAFE_EXTERNAL_URL_SCHEME_PATTERN = /^(https?:\/\/|mailto:)/i;
 
+export function normalizeExternalUrl(url: string): string | null {
+  const normalized = String(url ?? '').trim();
+  return SAFE_EXTERNAL_URL_SCHEME_PATTERN.test(normalized) ? normalized : null;
+}
+
 export async function openExternalUrl(
   url: string,
   opts?: Readonly<{ platformOS?: string }>,
 ): Promise<boolean> {
-  const normalized = String(url ?? '').trim();
-  if (!SAFE_EXTERNAL_URL_SCHEME_PATTERN.test(normalized)) return false;
+  const normalized = normalizeExternalUrl(url);
+  if (normalized === null) return false;
 
   const platformOS = String(opts?.platformOS ?? Platform.OS ?? '').toLowerCase();
   if (platformOS === 'web' && isTauriDesktop()) {
