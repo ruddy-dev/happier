@@ -164,15 +164,33 @@ it('R45 keeps draft, cursor and global waits subscriptions out of the transcript
 const safeArea = { top: 0, right: 0, bottom: 0, left: 0 };
 const noSend = () => {};
 const noSuggestions = async () => [];
-function RealComposer({ visible = true, draft = '', desk = true }: { visible?: boolean; draft?: string; desk?: boolean }) {
+function RealComposer({ visible = true, draft = '', desk = true, phone = false }: { visible?: boolean; draft?: string; desk?: boolean; phone?: boolean }) {
     const input = visible ? <AgentInput sessionId="coordinator" value={draft} onChangeText={() => {}} onSend={noSend}
         placeholder={t('ignorePrevious.composer.placeholder')} autocompleteKinds={[]} autocompleteSuggestions={noSuggestions}
         footerLeadingActions={<RunSettingsMenu />} statusTrailingActions={<span data-testid="fixture-context">Context</span>} />
         : <div data-testid="session-unavailable" />;
     return <SafeAreaInsetsContext.Provider value={safeArea}>
-        {desk ? <CoordinatorComposer>{input}</CoordinatorComposer> : input}
+        {desk ? <CoordinatorComposer phone={phone}>{input}</CoordinatorComposer> : input}
     </SafeAreaInsetsContext.Provider>;
 }
+
+it('gives phone mode controls a wider row and retains the run control across the breakpoint', async () => {
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll' });
+    await act(async () => root.render(<RealComposer phone />));
+    const run = find('ip-run-settings')!;
+    const send = find('session-composer-send')!;
+    const scroller = Array.from(container.querySelectorAll<HTMLElement>('div')).find((node) =>
+        getComputedStyle(node).overflowX === 'auto' && node.closest('[data-testid="agent-input-action-footer"]'));
+    expect(scroller).toBeDefined();
+    expect(scroller!.contains(run)).toBe(false);
+    expect(scroller!.contains(send)).toBe(false);
+    let wrapper = run.parentElement;
+    while (wrapper && wrapper !== find('agent-input-action-footer') && getComputedStyle(wrapper).width !== '100%') wrapper = wrapper.parentElement;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper).not.toBe(find('agent-input-action-footer'));
+    await act(async () => root.render(<RealComposer phone={false} />));
+    expect(find('ip-run-settings')).toBe(run);
+});
 
 it('R45 removes status with the real composer, then re-observes empty and restored drafts in the same pane', async () => {
     const show = (visible: boolean, draft = '') => act(async () => root.render(<RealComposer visible={visible} draft={draft} />));
