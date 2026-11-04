@@ -1,18 +1,52 @@
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
 import { RPC_METHODS } from '@happier-dev/protocol/rpc';
 import type { ScmPullRequestListResponse, ScmStatusSnapshotResponse } from '@happier-dev/protocol';
 import { createJ4FileResponder, registerJ4Machine } from '../../src/testkit/deskTest/j4Machine';
 import { createDeskSeeder } from '../../src/testkit/deskTest/deskSeed';
-import { deskTest as test, openDesk } from '../../src/testkit/deskTest/deskTest';
+import { deskTest as base, openDesk } from '../../src/testkit/deskTest/deskTest';
 import { DESK_COORDINATOR_PATH } from '../../src/testkit/deskTest/deskUiEnv';
 import { createMachineBoundSessionScopedSocketCollector } from '../../src/testkit/sessionSocketBinding';
 import { waitFor } from '../../src/testkit/timing';
 
-const reviewUrl = 'https://example.invalid/example/project/pull/42';
-const provider = { kind: 'github', name: 'GitHub', baseUrl: 'https://example.invalid', nameWithOwner: 'example/project', remoteName: 'origin' } as const;
-const pullRequest = { provider, number: 42, title: 'Synthetic review', url: reviewUrl, baseBranch: 'main', headBranch: 'work', state: 'open' } as const;
+const reviewPath = '/example/project/pull/42';
+const reviewBody = 'Synthetic review';
+type ReviewServer = { origin: string; url: string; hits: () => number };
+
+const test = base.extend<{ reviewServer: ReviewServer }>({
+    reviewServer: async ({}, use) => {
+        let hits = 0;
+        const server = createServer((request, response) => {
+            const isReview = request.method === 'GET' && request.url === reviewPath;
+            if (isReview) hits++;
+            response.writeHead(isReview ? 200 : 404, {
+                'content-type': 'text/plain; charset=utf-8',
+                'cache-control': 'no-store',
+            });
+            response.end(isReview ? reviewBody : 'Not found');
+        });
+        try {
+            await new Promise<void>((resolve, reject) => {
+                server.once('error', reject);
+                server.listen(0, '127.0.0.1', resolve);
+            });
+            const address = server.address();
+            if (!address || typeof address === 'string') throw new Error('No synthetic review port');
+            const origin = `http://127.0.0.1:${address.port}`;
+            await use({ origin, url: `${origin}${reviewPath}`, hits: () => hits });
+        } finally {
+            if (server.listening) await new Promise<void>((resolve, reject) => {
+                server.close(error => error ? reject(error) : resolve());
+                server.closeAllConnections();
+            });
+        }
+    },
+    deskAllowedOrigins: async ({ deskStack, reviewServer }, use) => {
+        await use([deskStack.serverBaseUrl, deskStack.proxyBaseUrl, reviewServer.origin]);
+    },
+});
 
 // Model only the two read-only synthetic files; no host filesystem is exposed.
 async function registerFiles(desk: { serverBaseUrl: string; token: string }, sessionId: string, machineId: string) {
@@ -29,7 +63,9 @@ async function registerFiles(desk: { serverBaseUrl: string; token: string }, ses
 }
 
 // Model the normal cold Git status owner: it reads its PR cache, which is populated by list.
-async function registerScm(desk: { serverBaseUrl: string; token: string }, sessionId: string) {
+async function registerScm(desk: { serverBaseUrl: string; token: string }, sessionId: string, reviewUrl: string) {
+    const provider = { kind: 'github', name: 'GitHub', baseUrl: new URL(reviewUrl).origin, nameWithOwner: 'example/project', remoteName: 'origin' } as const;
+    const pullRequest = { provider, number: 42, title: 'Synthetic review', url: reviewUrl, baseBranch: 'main', headBranch: 'work', state: 'open' } as const;
     const { socket } = await createMachineBoundSessionScopedSocketCollector({ baseUrl: desk.serverBaseUrl, token: desk.token, sessionId });
     socket.connect();
     try { await waitFor(() => socket.isConnected(), { timeoutMs: 20_000 }); }
@@ -78,6 +114,7 @@ async function registerScm(desk: { serverBaseUrl: string; token: string }, sessi
         close: () => { respond?.({ success: false, error: 'Synthetic fixture closed' }); socket.close(); },
         statusCalls: () => statusCalls,
         listRequests,
+        pullRequest,
         reply: (response: ScmPullRequestListResponse) => {
             if (!respond) throw new Error('No pending Find PR request');
             respond(response);
@@ -86,14 +123,10 @@ async function registerScm(desk: { serverBaseUrl: string; token: string }, sessi
 }
 
 for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as const) {
-    test(`M4 Work to PR, ${style} ${width}`, async ({ page, context, desk }) => {
+    test(`M4 Work to PR, ${style} ${width}`, async ({ page, context, desk, reviewServer }) => {
         await page.setViewportSize({ width, height: 900 });
-        const opened: string[] = [];
-        // Context routes cover the initial request of popups as well as this page.
-        await context.route(reviewUrl, async (route) => {
-            opened.push(route.request().url());
-            await route.fulfill({ status: 200, contentType: 'text/plain', body: 'Synthetic review' });
-        });
+        const reviewUrl = reviewServer.url;
+        // Count at the real destination: native modified links can bypass context routing.
         const seed = createDeskSeeder(desk);
         let files: Awaited<ReturnType<typeof registerFiles>> | undefined;
         let scm: Awaited<ReturnType<typeof registerScm>> | undefined;
@@ -110,7 +143,7 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
             const coordinator = await seed.startCoordinator(DESK_COORDINATOR_PATH, machineId);
             const worker = await seed.startWorker({ issueTag: 'ATR-301-build', title: 'Synthetic worker' });
             files = await registerFiles(desk, coordinator, machineId);
-            scm = await registerScm(desk, worker.sessionId);
+            scm = await registerScm(desk, worker.sessionId, reviewUrl);
             await openDesk(page, desk);
             await page.getByTestId('ip-settings-open').and(page.getByRole('button', { name: 'Settings', exact: true })).click();
             const styleRadio = page.getByRole('radio', { name: style === 'mask' ? 'The mask slips' : 'Terminal', exact: true });
@@ -149,6 +182,8 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                 : page.getByTestId('session-action-rail:git').and(page.getByRole('button', { name: /^Git\b/ }));
             await expect(workerControl).toBeVisible();
             const workerUrl = page.url();
+            const workerGitUrl = new URL(workerUrl);
+            workerGitUrl.searchParams.set('right', 'git');
             await workerControl.click();
             if (width === 390) {
                 // The mobile cockpit switches surfaces inside the session route.
@@ -183,7 +218,7 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                 scm!.reply({ success: true, pullRequests: [] });
                 await expect(operationStatus).toHaveText('No open PR found for this branch.');
                 await expect(find).toBeEnabled();
-                expect(opened).toEqual([]);
+                expect(reviewServer.hits()).toBe(0);
 
                 await find.click();
                 await expect.poll(() => scm!.listRequests.length).toBe(2);
@@ -193,24 +228,26 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                 await page.getByTestId('web-modal-button-0').and(page.getByRole('button', { name: 'OK', exact: true })).click();
                 await expect(find).toBeEnabled();
                 await expect(operationStatus).toHaveCount(0);
-                expect(opened).toEqual([]);
+                expect(reviewServer.hits()).toBe(0);
             });
             await find.click();
             await expect.poll(() => scm!.listRequests.length).toBe(3);
             await expect(operationStatus).toHaveText('Finding PR…');
-            scm.reply({ success: true, pullRequests: [pullRequest] });
+            scm.reply({ success: true, pullRequests: [scm.pullRequest] });
             await expect(section.getByRole('button', { name: 'View PR', exact: true })).toBeVisible();
-            expect(opened).toEqual([]);
+            expect(reviewServer.hits()).toBe(0);
             checkpoint('verified-find');
             if (width === 390) {
                 const chatTab = page.getByTestId('session-cockpit-tab-chat').and(page.getByRole('tab'));
                 await chatTab.click();
                 await expect(chatTab).toHaveAttribute('aria-selected', 'true');
                 await expect(workerControl).toHaveAttribute('aria-selected', 'false');
-            } else {
-                // Undo the desktop Git pane URL entry before leaving the worker.
-                await page.goBack();
+                await expect(page.getByTestId('session-composer-input')).toBeVisible();
+                // Chat selects the nested surface; it does not traverse browser history.
+                await expect(page).toHaveURL(workerGitUrl.href);
             }
+            // Undo the Git pane URL entry before leaving the worker on either layout.
+            await page.goBack();
             await expect(page).toHaveURL(workerUrl);
             await expect(workerControl).toBeVisible();
             // The next ordinary Back leaves the opened worker for the original desk.
@@ -228,13 +265,13 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                     await badge.focus();
                     if (process.env.WORKPR_SHOTS) await page.screenshot({ path: join(process.env.WORKPR_SHOTS, `${style}-${width}-badge.png`), mask: [page.locator('input, textarea')] });
                     await badge.press('Enter');
-                    await expect.poll(() => opened).toEqual([reviewUrl]);
+                    await expect.poll(() => reviewServer.hits()).toBe(1);
                     await test.step('Original Enter navigation settles before pointer probes', async () => {
                         await expect.poll(() => context.pages().length, { message: 'Enter opens one review page beside Work' }).toBe(2);
                         const reviewPage = context.pages().find(candidate => candidate !== page)!;
                         await expect(reviewPage).toHaveURL(reviewUrl);
-                        await expect(reviewPage.locator('body')).toHaveText('Synthetic review');
-                        expect(opened).toEqual([reviewUrl]);
+                        await expect(reviewPage.locator('body')).toHaveText(reviewBody);
+                        expect(reviewServer.hits()).toBe(1);
                         await expect(page).toHaveURL(workUrl);
                     });
                     await test.step('Verified PR anchor exposes the normalized safe URL and external-link protections', async () => {
@@ -251,9 +288,9 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                             { name: 'Desktop middle-click', button: 'middle', modifiers: [], ctrlKey: false, shiftKey: false, defaultPrevented: false },
                         ] as const : []),
                     ] as const;
-                    const expectedOpened = [reviewUrl];
+                    let expectedHits = 1;
                     for (const activation of activations) {
-                        await test.step(`${activation.name} opens the intercepted PR exactly once with its expected browser default`, async () => {
+                        await test.step(`${activation.name} opens the loopback PR exactly once with its expected browser default`, async () => {
                             // Capture passively, retain the real event, then read its final
                             // cancellation state after RN Web's handlers and dispatch return.
                             const observer = await badge.evaluateHandle(element => {
@@ -267,7 +304,7 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                                 } };
                             });
                             try {
-                                expectedOpened.push(reviewUrl);
+                                expectedHits++;
                                 const pageCount = context.pages().length;
                                 const [reviewPage] = await Promise.all([
                                     context.waitForEvent('page'),
@@ -282,8 +319,8 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                                     isTrusted: true, defaultPrevented: activation.defaultPrevented,
                                 }]);
                                 await expect(reviewPage).toHaveURL(reviewUrl);
-                                await expect(reviewPage.locator('body')).toHaveText('Synthetic review');
-                                await expect.poll(() => opened).toEqual(expectedOpened);
+                                await expect(reviewPage.locator('body')).toHaveText(reviewBody);
+                                await expect.poll(() => reviewServer.hits()).toBe(expectedHits);
                                 expect(context.pages(), 'one new review page per activation').toHaveLength(pageCount + 1);
                                 await expect(page).toHaveURL(workUrl);
                             } finally {
