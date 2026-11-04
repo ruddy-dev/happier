@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred } from '@/dev/testkit';
+import type { SessionListEncryption } from '@/sync/engine/sessions/sessionSnapshot';
 import { storage } from '@/sync/domains/state/storage';
 import { installSessionRecordHarness, jsonResponse, plainWorkerRecord } from '@/ignorePrevious/testkit/sessionRecordHarness';
 
@@ -127,19 +128,264 @@ describe('canonical session list paging read API', () => {
         expect(harness.sync.getSessionListPagingState('archived').status).toBe('exhausted');
     });
 
-    it('does not certify an aborted replacement and its later append as an intact chain', async () => {
-        const pending = createDeferred<Response>();
-        harness.http.mockImplementationOnce(() => pending.promise);
-        const aborted = harness.sync.fetchArchivedSessions();
-        harness.http.mockImplementation(async () => jsonResponse({ sessions: [], hasNext: true, nextCursor: 'next' }));
-        await harness.sync.fetchArchivedSessions();
-        pending.resolve(jsonResponse({ sessions: [], hasNext: true, nextCursor: 'old' }));
-        await aborted;
-        expect(harness.sync.getSessionListPagingState('archived').status).toBe('unavailable');
-        harness.http.mockImplementation(async () => jsonResponse({ sessions: [], hasNext: false, nextCursor: null }));
-        await harness.sync.fetchMoreArchivedSessions();
-        expect(harness.sync.getSessionListPagingState('archived').status).toBe('unavailable');
-        await harness.sync.fetchArchivedSessions();
-        expect(harness.sync.getSessionListPagingState('archived').status).toBe('exhausted');
+    describe('owned background metadata hydration', () => {
+        function deferMetadata() {
+            const metadata = createDeferred<{ path: string; host: string; name: string } | null>();
+            const entered = createDeferred<void>();
+            const owner = harness.sync as unknown as { encryption: SessionListEncryption };
+            const decrypt = vi.fn(() => { entered.resolve(); return metadata.promise; });
+            vi.spyOn(owner.encryption, 'getSessionEncryption').mockReturnValue({
+                decryptMetadata: decrypt, decryptAgentState: async () => ({}),
+            });
+            return { metadata, entered, decrypt };
+        }
+        const encryptedRow = () => ({ ...plainWorkerRecord('pending-metadata'), encryptionMode: 'e2ee' as const,
+            metadata: 'opaque-metadata', agentState: null, metadataVersion: 2 });
+
+        it.each([false, true])('recomputes terminal coverage after actual decrypt, preserving earlier unreadable=%s', async earlierUnreadable => {
+            const pending = deferMetadata();
+            const original = harness.http.getMockImplementation()!;
+            harness.http.mockImplementation(async path => {
+                const url = new URL(path, 'http://localhost');
+                if (url.pathname !== '/v2/sessions') return original(path);
+                const append = url.searchParams.has('cursor');
+                return jsonResponse({ sessions: append ? [encryptedRow()] : [{ ...plainWorkerRecord('earlier'),
+                    metadata: earlierUnreadable ? 'invalid' : JSON.stringify({ path: '/repo', host: 'host', name: 'Earlier' }),
+                }], includedActive: true, hasNext: !append, nextCursor: append ? null : 'tail' });
+            });
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            const tail = harness.sync.fetchMoreSessions();
+            await pending.entered.promise;
+            await tail;
+            expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'unavailable', hasUnmaterializedRows: true });
+            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Hydrated' });
+            await expect.poll(() => storage.getState().sessionListRenderables['pending-metadata']?.metadata?.name).toBe('Hydrated');
+            await expect.poll(() => harness.sync.getSessionListPagingState('current')).toEqual({
+                status: earlierUnreadable ? 'unavailable' : 'exhausted', retry: null, hasUnmaterializedRows: earlierUnreadable,
+            });
+            expect(pending.decrypt).toHaveBeenCalledTimes(1);
+            expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname === '/v2/sessions')).toHaveLength(2);
+        });
+
+        it.each(['replace', 'scope'] as const)('ignores hydration completing after %s', async obsolete => {
+            const pending = deferMetadata();
+            const original = harness.http.getMockImplementation()!;
+            let rows = [encryptedRow()];
+            harness.http.mockImplementation(async path => new URL(path, 'http://localhost').pathname === '/v2/sessions'
+                ? jsonResponse({ sessions: rows, includedActive: true, hasNext: false, nextCursor: null }) : original(path));
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            await pending.entered.promise;
+            if (obsolete === 'scope') harness.sync.disconnectServer();
+            else {
+                rows = [];
+                await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            }
+            const state = harness.sync.getSessionListPagingState('current');
+            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Obsolete' });
+            // Cross the producer's final batch flush without issuing another request.
+            await new Promise(resolve => setTimeout(resolve, 100));
+            expect(harness.sync.getSessionListPagingState('current')).toBe(state);
+            expect(storage.getState().sessions['pending-metadata']).toBeUndefined();
+        });
+
+        it('keeps interrupted earlier-page hydration partial until a canonical head reload', async () => {
+            const pending = deferMetadata();
+            const original = harness.http.getMockImplementation()!;
+            let recover = false;
+            harness.http.mockImplementation(async path => {
+                const url = new URL(path, 'http://localhost');
+                if (url.pathname !== '/v2/sessions') return original(path);
+                if (recover) return jsonResponse({ sessions: [plainWorkerRecord('recovered')], includedActive: true, hasNext: false, nextCursor: null });
+                const append = url.searchParams.has('cursor');
+                return jsonResponse({ sessions: append ? [] : [encryptedRow()], includedActive: true,
+                    hasNext: !append, nextCursor: append ? null : 'tail' });
+            });
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            await pending.entered.promise;
+            await harness.sync.fetchMoreSessions();
+            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Interrupted' });
+            await new Promise(resolve => setTimeout(resolve, 100));
+            expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
+            expect(storage.getState().sessions['pending-metadata']).toBeUndefined();
+            recover = true;
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
+        });
+
+        it('keeps older readable metadata partial when current hydration fails, then recovers through the canonical reload', async () => {
+            const original = harness.http.getMockImplementation()!;
+            let row = plainWorkerRecord('pending-metadata');
+            harness.http.mockImplementation(async path => new URL(path, 'http://localhost').pathname === '/v2/sessions'
+                ? jsonResponse({ sessions: [row], includedActive: true, hasNext: false, nextCursor: null }) : original(path));
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            row = encryptedRow();
+            const pending = deferMetadata();
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            await pending.entered.promise;
+            expect(storage.getState().sessionListRenderables[row.id].metadataVersion).toBe(1);
+            pending.metadata.resolve(null);
+            await expect.poll(() => storage.getState().sessions[row.id]?.metadataVersion).toBe(2);
+            // The snapshot preserves the older readable label, but it cannot prove coverage.
+            expect(storage.getState().sessionListRenderables[row.id].metadataVersion).toBe(1);
+            expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'unavailable', hasUnmaterializedRows: true });
+            row = { ...plainWorkerRecord(row.id), metadataVersion: 2 };
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            expect(harness.sync.getSessionListPagingState('current')).toMatchObject({ status: 'exhausted', hasUnmaterializedRows: false });
+        });
+
+        it.each(['fallback', 'cycle'] as const)('does not certify %s coverage when metadata becomes readable', async invalid => {
+            const pending = deferMetadata();
+            const original = harness.http.getMockImplementation()!;
+            harness.http.mockImplementation(async path => {
+                const url = new URL(path, 'http://localhost');
+                if (invalid === 'fallback' && url.pathname === '/v2/sessions') return jsonResponse({}, 404);
+                if (url.pathname === '/v1/sessions') return jsonResponse({ sessions: [encryptedRow()] });
+                if (url.pathname !== '/v2/sessions') return original(path);
+                return jsonResponse({ sessions: url.searchParams.has('cursor') ? [encryptedRow()] : [],
+                    includedActive: true, hasNext: true, nextCursor: 'cycle' });
+            });
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            if (invalid === 'cycle') await harness.sync.fetchMoreSessions();
+            await pending.entered.promise;
+            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Readable' });
+            await expect.poll(() => storage.getState().sessionListRenderables['pending-metadata']?.metadata?.name).toBe('Readable');
+            await expect.poll(() => harness.sync.getSessionListPagingState('current').hasUnmaterializedRows).toBe(false);
+            expect(harness.sync.getSessionListPagingState('current').status).toBe('unavailable');
+        });
+    });
+
+    it('shares ordinary current requests only while they still own the pager', async () => {
+        const owner = harness.sync as unknown as { fetchSessions: () => Promise<void> };
+        const original = harness.http.getMockImplementation()!;
+        const stalePage = createDeferred<Response>();
+        const entered = createDeferred<void>();
+        let respond = () => { entered.resolve(); return stalePage.promise; };
+        harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === '/v2/session-organization'
+            ? original(path) : respond());
+        const first = owner.fetchSessions();
+        await entered.promise;
+        const shared = owner.fetchSessions();
+        respond = async () => jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'new-page' });
+        await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        respond = async () => jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null });
+        // Must issue a fresh head, rather than joining the obsolete ordinary request.
+        await owner.fetchSessions();
+        stalePage.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'obsolete-page' }));
+        await Promise.all([first, shared]);
+        expect(harness.sync.getSessionListPagingState('current').status).toBe('exhausted');
+        expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname === '/v2/sessions')).toHaveLength(3);
+    });
+
+    describe.each(['current', 'archived'] as const)('%s request ownership', kind => {
+        const replace = (harness: ReturnType<typeof installSessionRecordHarness>) => kind === 'current'
+            ? harness.sync.refreshSessions({ awaitSessionListHydration: true }) : harness.sync.fetchArchivedSessions();
+        const append = (harness: ReturnType<typeof installSessionRecordHarness>) => kind === 'current'
+            ? harness.sync.fetchMoreSessions() : harness.sync.fetchMoreArchivedSessions();
+
+        it('does not append the previous cursor while a replacement head is pending', async () => {
+            const original = harness.http.getMockImplementation()!;
+            let respond: () => Promise<Response> = async () => jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'old-page' });
+            harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === '/v2/session-organization'
+                ? original(path) : respond());
+            await replace(harness);
+            const head = createDeferred<Response>();
+            const entered = createDeferred<void>();
+            respond = () => { entered.resolve(); return head.promise.then(response => response.clone()); };
+            const replacement = replace(harness);
+            await entered.promise;
+            const callsBeforeAppend = harness.http.mock.calls.length;
+            const prematureAppend = append(harness);
+            head.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'new-page' }));
+            await Promise.all([replacement, prematureAppend]);
+            expect(harness.http.mock.calls).toHaveLength(callsBeforeAppend);
+            expect(harness.sync.getSessionListPagingState(kind).status).toBe('more');
+            const cursors: Array<string | null> = [];
+            harness.http.mockImplementation(async path => {
+                cursors.push(new URL(path, 'http://localhost').searchParams.get('cursor'));
+                return jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null });
+            });
+            await append(harness);
+            expect(cursors).toEqual(['new-page']);
+            expect(harness.sync.getSessionListPagingState(kind).status).toBe('exhausted');
+        });
+
+        it('pages the replacement chain while an obsolete append is still pending', async () => {
+            const original = harness.http.getMockImplementation()!;
+            let respond: (path: string) => Promise<Response> = async () => jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'old-page' });
+            harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === '/v2/session-organization'
+                ? original(path) : respond(path));
+            await replace(harness);
+            const stalePage = createDeferred<Response>();
+            const entered = createDeferred<void>();
+            respond = () => { entered.resolve(); return stalePage.promise; };
+            const stale = append(harness);
+            await entered.promise;
+            respond = async () => jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'new-page' });
+            await replace(harness);
+            const cursors: Array<string | null> = [];
+            respond = async path => {
+                cursors.push(new URL(path, 'http://localhost').searchParams.get('cursor'));
+                return jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null });
+            };
+            await append(harness);
+            expect(cursors).toEqual(['new-page']);
+            stalePage.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null }));
+            await stale;
+            expect(harness.sync.getSessionListPagingState(kind).status).toBe('exhausted');
+        });
+
+        it.each([
+            ['replace', 'terminal', 'older-first'], ['replace', 'terminal', 'newer-first'],
+            ['replace', 'error', 'older-first'], ['replace', 'error', 'newer-first'],
+            ['append', 'terminal', 'older-first'], ['append', 'terminal', 'newer-first'],
+            ['append', 'error', 'older-first'], ['append', 'error', 'newer-first'],
+        ] as const)('preserves the new chain after stale %s %s, %s', async (operation, outcome, order) => {
+            const original = harness.http.getMockImplementation()!;
+            let respond: (path: string) => Promise<Response> = async () => jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'old-page' });
+            harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === '/v2/session-organization'
+                ? original(path) : respond(path));
+            await replace(harness);
+            const oldPage = createDeferred<Response>();
+            const oldEntered = createDeferred<void>();
+            respond = () => { oldEntered.resolve(); return oldPage.promise; };
+            // Attach the rejection handler immediately so the error ordering is itself observed.
+            const oldRequest = (operation === 'append' ? append(harness) : replace(harness))
+                .then(() => null, error => error);
+            await oldEntered.promise;
+            const newPage = createDeferred<Response>();
+            const newEntered = createDeferred<void>();
+            respond = () => { newEntered.resolve(); return newPage.promise; };
+            const newRequest = replace(harness);
+            await newEntered.promise;
+            const settleOld = async () => {
+                oldPage.resolve(outcome === 'error' ? jsonResponse({ error: 'failed' }, 503)
+                    : jsonResponse({ sessions: [plainWorkerRecord('obsolete')], includedActive: true, hasNext: false, nextCursor: null }));
+                const error = await oldRequest;
+                if (outcome === 'error') expect(error).toBeInstanceOf(Error);
+                else expect(error).toBeNull();
+            };
+            const settleNew = async () => {
+                newPage.resolve(jsonResponse({ sessions: [], includedActive: true, hasNext: true, nextCursor: 'new-page' }));
+                await newRequest;
+            };
+            if (order === 'older-first') {
+                await settleOld();
+                expect(harness.sync.getSessionListPagingState(kind).status).toBe('loading');
+                await settleNew();
+            } else {
+                await settleNew();
+                await settleOld();
+            }
+            expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'more', retry: null, hasUnmaterializedRows: false });
+            expect(storage.getState().sessions.obsolete).toBeUndefined();
+            const cursors: Array<string | null> = [];
+            respond = async path => {
+                cursors.push(new URL(path, 'http://localhost').searchParams.get('cursor'));
+                return jsonResponse({ sessions: [], includedActive: true, hasNext: false, nextCursor: null });
+            };
+            await append(harness);
+            expect(cursors).toEqual(['new-page']);
+            expect(harness.sync.getSessionListPagingState(kind).status).toBe('exhausted');
+        });
     });
 });

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
+import type { SessionListEncryption } from '@/sync/engine/sessions/sessionSnapshot';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { buildScopedSessionRouteHref } from '@/hooks/session/sessionRouteServerScope';
@@ -111,6 +112,39 @@ afterEach(async () => {
 });
 
 describe('Sessions sheet, real scoped store and archive paging', () => {
+    it('restores no-match evidence when the owned background metadata decrypt finishes', async () => {
+        const metadata = createDeferred<{ path: string; host: string; name: string }>();
+        const entered = createDeferred<void>();
+        const owner = harness.sync as unknown as { encryption: SessionListEncryption };
+        const decrypt = vi.fn(() => { entered.resolve(); return metadata.promise; });
+        vi.spyOn(owner.encryption, 'getSessionEncryption').mockReturnValue({
+            decryptMetadata: decrypt, decryptAgentState: async () => ({}),
+        });
+        const original = harness.http.getMockImplementation()!;
+        harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === '/v2/sessions'
+            ? Promise.resolve(jsonResponse({ sessions: [{ ...plainWorkerRecord('hydrating'),
+                encryptionMode: 'e2ee', metadata: 'opaque', agentState: null,
+            }], includedActive: true, hasNext: false, nextCursor: null })) : original(path));
+        await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        await entered.promise;
+        await open();
+        await archivesLoaded();
+        await search('unfindable');
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+        expect(node('ip-sessions-no-matches')).toBeNull();
+        expect(node('ip-sessions-search-partial')).not.toBeNull();
+        const requests = harness.http.mock.calls.length;
+        await act(async () => metadata.resolve({ path: '/repo', host: 'host', name: 'Hydrated' }));
+        await vi.waitFor(async () => {
+            await act(async () => {});
+            expect(node('ip-sessions-no-matches')).not.toBeNull();
+        });
+        expect(node('ip-sessions-search-partial')).toBeNull();
+        expect(node('ip-sessions-unreadable')).toBeNull();
+        expect(harness.http.mock.calls).toHaveLength(requests);
+        expect(decrypt).toHaveBeenCalledTimes(1);
+    });
+
     it.each(['current', 'archived'] as const)('keeps %s unreadable encrypted input incomplete even when no readable row was applied, then recovers on replacement', async kind => {
         const opaque = { ...record('encrypted-row', 'Unused'), encryptionMode: 'e2ee' as const,
             metadata: 'opaque-metadata', agentState: 'opaque-state', archivedAt: kind === 'archived' ? 10 : null };
@@ -135,10 +169,7 @@ describe('Sessions sheet, real scoped store and archive paging', () => {
         expect(node('ip-sessions-unreadable')).not.toBeNull();
         expect(node('ip-sessions-search-partial')).not.toBeNull();
         recover = true;
-        await act(async () => {
-            if (kind === 'archived') await harness.sync.fetchArchivedSessions();
-            else await harness.sync.refreshSessions({ awaitSessionListHydration: true });
-        });
+        await click(kind === 'archived' ? 'ip-sessions-retry-archived' : 'ip-sessions-load-current');
         await vi.waitFor(() => expect(node('ip-sessions-no-matches')).not.toBeNull());
         expect(node('ip-sessions-unreadable')).toBeNull();
     });
