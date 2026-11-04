@@ -138,6 +138,7 @@ export function CockpitTabBar<TSurface extends string>(props: CockpitTabBarProps
                             accessibilityRole="tab"
                             accessibilityLabel={tab.label}
                             accessibilityState={{ selected: active }}
+                            aria-selected={active}
                             accessibilityActions={props.bandAccessibilityActions}
                             onAccessibilityAction={props.onBandAccessibilityAction
                                 ? (event) => props.onBandAccessibilityAction?.(event.nativeEvent.actionName)

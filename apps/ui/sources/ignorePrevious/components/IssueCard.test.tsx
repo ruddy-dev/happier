@@ -18,7 +18,10 @@ import { deskThemes } from '../palette';
 const state = vi.hoisted(() => ({ navigate: vi.fn(), openUrl: vi.fn(async () => true) }));
 
 // External navigation is the system boundary; snapshot selection and PR classification stay real.
-vi.mock('@/utils/url/openExternalUrl', () => ({ openExternalUrl: state.openUrl }));
+vi.mock('@/utils/url/openExternalUrl', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/utils/url/openExternalUrl')>(),
+    openExternalUrl: state.openUrl,
+}));
 
 vi.mock('@expo/vector-icons', async () => {
     const { createExpoVectorIconsMock } = await import('@/dev/testkit/mocks/icons');

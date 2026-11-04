@@ -191,6 +191,94 @@ describe('useSessionPaneUrlSync', () => {
         });
     });
 
+    it('pushes a browser history entry when URL sync is re-enabled after pane state changes while disabled', async () => {
+        const setParams = vi.fn();
+        const pane = {
+            openRight: vi.fn(),
+            closeRight: vi.fn(),
+            setRightTab: vi.fn(),
+            openBottom: vi.fn(),
+            closeBottom: vi.fn(),
+            setBottomTab: vi.fn(),
+            openDetailsTab: vi.fn(),
+            closeDetails: vi.fn(),
+        };
+        const windowStub = ensurePaneUrlSyncWindow();
+        // Drain the previous test's deferred marker before establishing this history entry.
+        await flushDeferredSessionPaneHistoryStateWrite();
+        windowStub.location.href = 'http://localhost:19364/session/test-session?server=http%3A%2F%2Flocalhost%3A53288';
+        windowStub.history.replaceState(null, '', windowStub.location.href);
+        const pushStateMock = vi.spyOn(windowStub.history, 'pushState');
+
+        const closedScopeState = {
+            right: { isOpen: false, activeTabId: null, tabState: {} },
+            bottom: { isOpen: false, activeTabId: null, tabState: {} },
+            details: { isOpen: false, tabs: [], activeTabKey: null },
+        };
+        const openGitScopeState = {
+            right: { isOpen: true, activeTabId: 'git', tabState: {} },
+            bottom: { isOpen: false, activeTabId: null, tabState: {} },
+            details: { isOpen: false, tabs: [], activeTabKey: null },
+        };
+
+        let tree!: renderer.ReactTestRenderer;
+        tree = (await renderScreen(<Harness
+                    enabled={true}
+                    scopeKey="session:test-session"
+                    scopeState={closedScopeState}
+                    urlState={null}
+                    pane={pane}
+                    setParams={setParams}
+                />)).tree;
+
+        expect(pushStateMock).toHaveBeenCalledTimes(0);
+        expect(setParams).toHaveBeenCalledTimes(0);
+
+        // Change pane state while URL sync is disabled.
+        await act(async () => {
+            tree.update(
+                <Harness
+                    enabled={false}
+                    scopeKey="session:test-session"
+                    scopeState={openGitScopeState}
+                    urlState={null}
+                    pane={pane}
+                    setParams={setParams}
+                />
+            );
+        });
+        expect(pushStateMock).toHaveBeenCalledTimes(0);
+        expect(setParams).toHaveBeenCalledTimes(0);
+
+        // Re-enable the same mounted hook with the changed pane state.
+        await act(async () => {
+            tree.update(
+                <Harness
+                    enabled={true}
+                    scopeKey="session:test-session"
+                    scopeState={openGitScopeState}
+                    urlState={null}
+                    pane={pane}
+                    setParams={setParams}
+                />
+            );
+        });
+
+        expect(pushStateMock).toHaveBeenCalledTimes(1);
+        expect(pushStateMock).toHaveBeenCalledWith(
+            null,
+            '',
+            'http://localhost:19364/session/test-session?server=http%3A%2F%2Flocalhost%3A53288&right=git'
+        );
+        expect(setParams).toHaveBeenCalledWith({
+            right: 'git',
+            bottom: undefined,
+            details: undefined,
+            path: undefined,
+            sha: undefined,
+        });
+    });
+
     it('does not push browser history for the first pane-url sync on mount', async () => {
         const setParams = vi.fn();
         const pane = {

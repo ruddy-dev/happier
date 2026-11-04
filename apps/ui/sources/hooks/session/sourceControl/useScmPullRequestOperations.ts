@@ -1,5 +1,10 @@
 import * as React from 'react';
 
+import { storage } from '@/sync/domains/state/storage';
+import { useSession } from '@/sync/store/hooks';
+import { deriveTranscriptInteractionFromSession } from '@/utils/sessions/deriveTranscriptInteraction';
+import { readSessionScmPullRequestScope, sessionScmPullRequestList } from '@/sync/ops/sessionScm';
+import type { ScmWorkingSnapshot } from '@/sync/domains/state/storageTypes';
 import { Modal } from '@/modal';
 import { scmStatusSync } from '@/scm/scmStatusSync';
 import {
@@ -18,10 +23,56 @@ type ReadyPullRequestModel = Extract<PullRequestUiModel, { kind: 'ready_to_creat
 
 export function useScmPullRequestOperations(input: Readonly<{
     sessionId: string;
+    snapshot?: ScmWorkingSnapshot | null;
 }>) {
     const mountedRef = useMountedRef();
     const [busy, setBusy] = React.useState(false);
     const [status, setStatus] = React.useState<string | null>(null);
+
+    const session = useSession(input.sessionId);
+    const accountScope = storage(state => state.profileScope);
+    const scope = React.useMemo(
+        () => readSessionScmPullRequestScope(input.sessionId),
+        [accountScope, input.sessionId, input.snapshot, session],
+    );
+    // A return to the same branch must not revive an earlier request or empty status.
+    const currentScope = React.useRef({ key: scope });
+    if (currentScope.current.key !== scope) currentScope.current = { key: scope };
+    const operationScope = currentScope.current;
+    const findInFlight = React.useRef<typeof operationScope | null>(null);
+    const [findState, setFindState] = React.useState<{ scope: typeof operationScope; busy: boolean; status: string | null } | null>(null);
+    const canFindPullRequest = !!session
+        && deriveTranscriptInteractionFromSession({
+            accessLevel: session.accessLevel,
+            canApprovePermissions: session.canApprovePermissions,
+            active: session.active,
+        }).canOpenFiles === true
+        && input.snapshot?.capabilities?.readPullRequests === true;
+    const findPullRequest = React.useCallback(async (model: ReadyPullRequestModel) => {
+        if (!canFindPullRequest || busy || findInFlight.current === operationScope) return;
+        findInFlight.current = operationScope;
+        const isCurrent = () => mountedRef.current && currentScope.current === operationScope
+            && readSessionScmPullRequestScope(input.sessionId) === scope;
+        setFindState({ scope: operationScope, busy: true, status: t('ignorePrevious.pullRequest.finding') });
+        try {
+            const response = await sessionScmPullRequestList(input.sessionId, { head: model.headBranch, state: 'open' }, { isCurrent });
+            if (!isCurrent()) return;
+            if (!response.success) {
+                setFindState({ scope: operationScope, busy: false, status: null });
+                Modal.alert(t('common.error'), response.error || t('ignorePrevious.pullRequest.findFailed'));
+                return;
+            }
+            const found = storage.getState().getSessionProjectScmSnapshot(input.sessionId)?.pullRequest;
+            setFindState({ scope: operationScope, busy: false, status: found ? null : t('ignorePrevious.pullRequest.notFound') });
+        } catch {
+            if (isCurrent()) {
+                setFindState({ scope: operationScope, busy: false, status: null });
+                Modal.alert(t('common.error'), t('ignorePrevious.pullRequest.findFailed'));
+            }
+        } finally {
+            if (findInFlight.current === operationScope) findInFlight.current = null;
+        }
+    }, [busy, canFindPullRequest, input.sessionId, mountedRef, operationScope, scope]);
 
     const setBusySafe = React.useCallback((value: boolean) => {
         if (mountedRef.current) {
@@ -238,8 +289,10 @@ export function useScmPullRequestOperations(input: Readonly<{
     }, [input.sessionId, openStackedPullRequestResult, promptForFeatureBranchName, setBusySafe, setStatusSafe]);
 
     return {
-        busy,
-        status,
+        busy: busy || (findState?.scope === operationScope && findState.busy),
+        status: status ?? (findState?.scope === operationScope && !input.snapshot?.pullRequest ? findState.status : null),
+        canFindPullRequest,
+        findPullRequest,
         viewPullRequest,
         openOrReusePullRequest,
         createFeatureBranch,

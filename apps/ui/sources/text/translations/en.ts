@@ -11123,6 +11123,10 @@ settingsSession: {
             railLabel: ({ key, state, count }: { key: string; state: string; count: string }) => `${key}: ${state}. ${count}`,
         },
         pullRequest: {
+            find: 'Find PR',
+            finding: 'Finding PR…',
+            notFound: 'No open PR found for this branch.',
+            findFailed: 'Could not find the PR. Try again.',
             open: 'open',
             merged: 'merged',
             closed: 'closed',

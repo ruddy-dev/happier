@@ -283,6 +283,29 @@ describe('/desk/settings', () => {
         expect(screen.findByTestId('ip-no-worker-ipb')!.props.accessibilityState).toEqual({ checked: true });
     });
 
+    it.each(['ios', 'android'] as const)('preserves native checked states without web props on %s', async os => {
+        const previousPlatform = Platform.OS;
+        Platform.OS = os;
+        try {
+            const screen = await renderScreen(await settingsPage());
+            for (const [id, before, after] of [
+                ['ip-chat-style-terminal', false, true],
+                ['ip-chat-palette-gruvbox', false, true],
+                ['ip-faces-B', false, true],
+                ['ip-robot-droid-steel', false, true],
+                ['ip-settings-creature', true, false],
+            ] as const) {
+                expect(screen.findByTestId(id)!.props.accessibilityState).toEqual({ checked: before });
+                expect(screen.findByTestId(id)!.props['aria-checked']).toBeUndefined();
+                await screen.pressByTestIdAsync(id);
+                expect(screen.findByTestId(id)!.props.accessibilityState).toEqual({ checked: after });
+                expect(screen.findByTestId(id)!.props['aria-checked']).toBeUndefined();
+            }
+        } finally {
+            Platform.OS = previousPlatform;
+        }
+    });
+
     it('J12: a settings choice survives desk layout/theme changes and a settings remount', async () => {
         const screen = await renderScreen(await settingsPage(), { wrapper: Panes });
         expect(screen.findByTestId('ip-settings-creature')?.props.accessibilityState).toEqual({ checked: true });
