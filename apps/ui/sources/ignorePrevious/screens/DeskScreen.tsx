@@ -289,7 +289,7 @@ export function DeskScreen() {
 
     const main = (
         <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
-            <View style={[wide ? undefined : { minWidth: 0 }, phone ? { flex: 1, display: phonePane === 'work' ? 'flex' : 'none' } : undefined]}>{work}</View>
+            <View style={[workSurface, wide ? undefined : { minWidth: 0 }, phone ? { flex: 1, display: phonePane === 'work' ? 'flex' : 'none' } : undefined]}>{work}</View>
             <View testID="ip-coordinator-pane-wrapper" style={{ flex: 1, minWidth: 0, display: phone && phonePane !== 'shog' ? 'none' : 'flex' }}>{coordinator}</View>
         </View>
     );

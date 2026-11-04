@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { useRouter } from 'expo-router';
 import { ActivitySpinner, iconMatchedSpinnerSize } from '@/components/ui/feedback/ActivitySpinner';
 
@@ -68,6 +69,9 @@ export const ToolTimelineRow = React.memo((props: {
     interaction?: TranscriptInteraction;
 }) => {
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const primary = appearance?.shellColors?.primary ?? theme.colors.text.primary;
+    const secondary = appearance?.shellColors?.secondary ?? theme.colors.text.secondary;
     const router = useRouter();
     // The canonical transcript row sequence. It already reaches this component
     // for jump targeting; historical Agent attribution is its second reader, and
@@ -89,11 +93,11 @@ export const ToolTimelineRow = React.memo((props: {
             tool: toolForSession,
             metadata: props.metadata,
             iconSize: 18,
-            iconColorPrimary: theme.colors.text.primary,
-            iconColorSecondary: theme.colors.text.secondary,
+            iconColorPrimary: primary,
+            iconColorSecondary: secondary,
             historicalAgentId,
         });
-    }, [historicalAgentId, props.metadata, theme.colors.text.primary, theme.colors.text.secondary, toolForSession]);
+    }, [historicalAgentId, props.metadata, primary, secondary, toolForSession]);
     const toolForRendering = headerModel.toolForRendering;
     const permissionRequest = React.useMemo(() => pendingRequestFromTool(props.tool), [props.tool]);
 
@@ -224,11 +228,11 @@ export const ToolTimelineRow = React.memo((props: {
             tool: toolForSession,
             metadata: props.metadata,
             iconSize,
-            iconColorPrimary: theme.colors.text.primary,
-            iconColorSecondary: theme.colors.text.secondary,
+            iconColorPrimary: primary,
+            iconColorSecondary: secondary,
             historicalAgentId,
         }).icon;
-    }, [headerModel.icon, historicalAgentId, iconSize, props.metadata, theme.colors.text.primary, theme.colors.text.secondary, toolForSession]);
+    }, [headerModel.icon, historicalAgentId, iconSize, props.metadata, primary, secondary, toolForSession]);
 
     const [headerActions, setHeaderActions] = React.useState<React.ReactNode | null>(null);
     const showTaskRunningIndicator = isSubAgentTranscriptToolName(normalizedToolName);

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 
 import { Text } from '@/components/ui/text/Text';
 import { t } from '@/text';
@@ -51,6 +52,11 @@ export const ToolTimelineRowHeader = React.memo(function ToolTimelineRowHeader(p
     disclosure?: ToolTimelineRowHeaderDisclosure | null;
 }) {
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const secondary = appearance?.shellColors?.secondary ?? theme.colors.text.secondary;
+    const fontStyle = appearance?.fontFamily ? { fontFamily: appearance.fontFamily } : null;
+    const primaryStyle = appearance?.shellColors ? { color: appearance.shellColors.primary } : null;
+    const secondaryStyle = appearance?.shellColors ? { color: secondary } : null;
 
     const showSubtitleInline = Boolean(props.subtitle && String(props.subtitle).trim().length > 0);
     const showStatusInline = Boolean(props.statusText && String(props.statusText).trim().length > 0);
@@ -106,7 +112,7 @@ export const ToolTimelineRowHeader = React.memo(function ToolTimelineRowHeader(p
             >
                 <View style={styles.icon}>
                     {disclosure?.behavior === 'persistent' && disclosureChevronName ? (
-                        <Icon name={disclosureChevronName} size={chevronSize} color={theme.colors.text.secondary} />
+                        <Icon name={disclosureChevronName} size={chevronSize} color={secondary} />
                     ) : hoverEnabled && disclosureChevronName ? (
                         <View style={styles.iconStack}>
                             <View
@@ -127,7 +133,7 @@ export const ToolTimelineRowHeader = React.memo(function ToolTimelineRowHeader(p
                                 <Icon
                                     name={disclosureChevronName}
                                     size={chevronSize}
-                                    color={theme.colors.text.secondary}
+                                    color={secondary}
                                 />
                             </View>
                         </View>
@@ -137,18 +143,18 @@ export const ToolTimelineRowHeader = React.memo(function ToolTimelineRowHeader(p
                 </View>
                 <View style={styles.text}>
                     <Text
-                        style={[styles.title, props.density === 'compact' ? styles.titleCompact : null]}
+                        style={[styles.title, props.density === 'compact' ? styles.titleCompact : null, fontStyle, primaryStyle]}
                         numberOfLines={1}
                     >
                         {props.title}
                     </Text>
                     {showSubtitleInline ? (
-                        <Text style={styles.subtitleInline} numberOfLines={1}>
+                        <Text style={[styles.subtitleInline, fontStyle, secondaryStyle]} numberOfLines={1}>
                             {`${props.subtitle}`}
                         </Text>
                     ) : null}
                     {showStatusInline ? (
-                        <Text style={styles.statusInline} numberOfLines={1}>
+                        <Text style={[styles.statusInline, fontStyle, secondaryStyle]} numberOfLines={1}>
                             {` · ${props.statusText}`}
                         </Text>
                     ) : null}
@@ -185,7 +191,7 @@ export const ToolTimelineRowHeader = React.memo(function ToolTimelineRowHeader(p
                                 accessibilityLabel={t('toolView.open')}
                                 style={({ pressed }) => [styles.open, pressed && styles.openPressed]}
                             >
-                                <Icon name="arrow-square-out" size={ICON_SIZE.xs} color={theme.colors.text.secondary} />
+                                <Icon name="arrow-square-out" size={ICON_SIZE.xs} color={secondary} />
                             </Pressable>
                         </RowActionRevealSlot>
                     ) : null}
