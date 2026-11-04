@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildConnectedServiceCredentialRecord,
@@ -12,6 +12,9 @@ import type { ScmBackendContext, ScmPullRequestBackend } from '../../../types';
 import type { PrStatusCache } from '../../../hostingProviders/prStatusCache';
 import { createPrStatusCache } from '../../../hostingProviders/prStatusCache';
 import type { ScmHostingProviderAdapter } from '../../../hostingProviders/types';
+import { detectGithubCliAuth, type GithubCliCommandRunner } from '../../../hostingProviders/providers/githubCliDetection';
+import { detectGitlabCliAuth } from '../../../hostingProviders/providers/gitlabCliDetection';
+import { createGitPullRequestBackend } from './pullRequestOperations';
 
 const provider = {
   kind: 'github',
@@ -102,6 +105,146 @@ const gitlabMergeRequest: ScmPullRequestSummary = {
   headBranch: 'feature/gitlab',
   state: 'open',
 };
+
+describe('git pull request list availability', () => {
+  function setup(hostingProvider: ScmHostingProvider, connectedAccount = false, canList = true) {
+    // Provider queries and CLI auth commands are external boundaries. Keep the
+    // list owner, credential resolution, auth detection and cache real.
+    const restList = vi.fn<NonNullable<ScmHostingProviderAdapter['listOpenPullRequests']>>()
+      .mockResolvedValue([]);
+    const cliList = vi.fn<NonNullable<ScmHostingProviderAdapter['listOpenPullRequests']>>()
+      .mockResolvedValue([]);
+    const authCommand = vi.fn<GithubCliCommandRunner>().mockResolvedValue({
+      success: true, stdout: '', stderr: '', exitCode: 0,
+    });
+    const restAdapter: ScmHostingProviderAdapter = {
+      kind: 'github', name: 'GitHub REST', detectRemote: () => null,
+      buildCompareUrl: () => null, listOpenPullRequests: restList,
+    };
+    const cliAdapter: ScmHostingProviderAdapter = {
+      kind: hostingProvider.kind, name: 'Provider CLI', detectRemote: () => null,
+      buildCompareUrl: () => null, ...(canList ? { listOpenPullRequests: cliList } : {}),
+    };
+    let now = 1_000;
+    const backend = createGitPullRequestBackend({
+      readSnapshot: async () => createSnapshot({ hostingProvider }),
+      prStatusCache: createPrStatusCache({ now: () => now }),
+      githubRestAdapter: restAdapter,
+      githubCliAdapter: cliAdapter,
+      gitlabCliAdapter: cliAdapter,
+      detectGithubCliAuth: input => detectGithubCliAuth({ ...input, runCommand: authCommand }),
+      detectGitlabCliAuth: input => detectGitlabCliAuth({ ...input, runCommand: authCommand }),
+    });
+    const context: ScmBackendContext = {
+      cwd: '/repo', projectKey: 'test:/repo',
+      detection: { isRepo: true, rootPath: '/repo', mode: '.git' },
+      ...(connectedAccount ? {
+        connectedAccounts: {
+          resolveCredential: async () => buildConnectedServiceCredentialRecord({
+            now: 1_000, serviceId: 'github', profileId: 'primary', kind: 'token',
+            token: { token: 'test-token', providerAccountId: '42', providerEmail: 'octo@example.com' },
+          }),
+        },
+      } : {}),
+    };
+    const input = { context, request: { cwd: '.', head: 'feature/connected-rest' } };
+    return {
+      backend, input, restList, cliList, authCommand,
+      expireCache: () => { now = 100_000; },
+    };
+  }
+
+  const unavailableCases = [
+    { provider, command: 'gh', exitCode: null },
+    { provider, command: 'gh', exitCode: 1 },
+    { provider: gitlabProvider, command: 'glab', exitCode: null },
+    { provider: gitlabProvider, command: 'glab', exitCode: 1 },
+  ];
+  it.each(unavailableCases)(
+    'fails without querying $command when auth status exits $exitCode', async ({ provider, command, exitCode }) => {
+      const h = setup(provider);
+      h.authCommand.mockResolvedValue({ success: false, stdout: '', stderr: 'unavailable', exitCode });
+
+      await expect(h.backend.list(h.input)).resolves.toMatchObject({
+        success: false, errorCode: 'COMMAND_FAILED', error: expect.any(String),
+      });
+      expect(h.authCommand).toHaveBeenCalledWith(expect.objectContaining({
+        args: ['auth', 'status', '--hostname', new URL(provider.baseUrl).hostname],
+      }));
+      expect(h.restList).not.toHaveBeenCalled();
+      expect(h.cliList).not.toHaveBeenCalled();
+      // The get-by-head reader must propagate failure rather than claim no PR.
+      await expect(h.backend.get({
+        context: h.input.context, request: { cwd: '.', prReference: { headBranch: h.input.request.head } },
+      })).resolves.toMatchObject({ success: false, errorCode: 'COMMAND_FAILED' });
+    },
+  );
+
+  it.each([provider, gitlabProvider])('fails when the authenticated $kind adapter cannot list', async provider => {
+    const h = setup(provider, false, false);
+    await expect(h.backend.list(h.input)).resolves.toMatchObject({
+      success: false, errorCode: 'COMMAND_FAILED', error: expect.any(String),
+    });
+    expect(h.restList).not.toHaveBeenCalled();
+    expect(h.cliList).not.toHaveBeenCalled();
+  });
+
+  it('preserves a genuine empty connected-account REST response', async () => {
+    const h = setup(provider, true);
+    await expect(h.backend.list(h.input)).resolves.toEqual({ success: true, pullRequests: [] });
+    expect(h.restList).toHaveBeenCalledOnce();
+    expect(h.cliList).not.toHaveBeenCalled();
+    expect(h.authCommand).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { provider, pullRequests: [] },
+    { provider, pullRequests: [pullRequest] },
+    { provider: gitlabProvider, pullRequests: [] },
+    { provider: gitlabProvider, pullRequests: [gitlabMergeRequest] },
+  ])('preserves verified $provider.kind CLI results and fresh cache: $pullRequests', async ({ provider, pullRequests }) => {
+    const h = setup(provider);
+    h.cliList.mockResolvedValue(pullRequests);
+    const expected = { success: true, pullRequests };
+    await expect(h.backend.list(h.input)).resolves.toEqual(expected);
+    expect(h.cliList).toHaveBeenCalledOnce();
+    h.authCommand.mockClear().mockResolvedValue({ success: false, stdout: '', stderr: '', exitCode: 1 });
+    await expect(h.backend.list(h.input)).resolves.toEqual(expected);
+    expect(h.authCommand).not.toHaveBeenCalled();
+    expect(h.cliList).toHaveBeenCalledOnce();
+    h.expireCache();
+    await expect(h.backend.list(h.input)).resolves.toMatchObject({ success: false, errorCode: 'COMMAND_FAILED' });
+    expect(h.cliList).toHaveBeenCalledOnce();
+    expect(h.restList).not.toHaveBeenCalled();
+  });
+
+  it('preserves REST-to-CLI fallback with a genuine empty response', async () => {
+    const h = setup(provider, true);
+    h.restList.mockRejectedValue(new Error('expired token'));
+    await expect(h.backend.list(h.input)).resolves.toEqual({ success: true, pullRequests: [] });
+    expect(h.restList).toHaveBeenCalledOnce();
+    expect(h.cliList).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a REST error when CLI authentication is unavailable', async () => {
+    const h = setup(provider, true);
+    h.restList.mockRejectedValue(new Error('expired token'));
+    h.authCommand.mockResolvedValue({ success: false, stdout: '', stderr: '', exitCode: 1 });
+    await expect(h.backend.list(h.input)).resolves.toEqual({
+      success: false, errorCode: 'COMMAND_FAILED', error: 'expired token',
+    });
+    expect(h.cliList).not.toHaveBeenCalled();
+  });
+
+  it.each([provider, gitlabProvider])('preserves an authenticated $kind CLI error', async provider => {
+    const h = setup(provider);
+    h.cliList.mockRejectedValue(new Error('provider list failed'));
+    await expect(h.backend.list(h.input)).resolves.toEqual({
+      success: false, errorCode: 'COMMAND_FAILED', error: 'provider list failed',
+    });
+    expect(h.restList).not.toHaveBeenCalled();
+  });
+});
 
 describe('git pull request operations', () => {
   it('creates pull requests through connected account REST before local gh fallback', async () => {
