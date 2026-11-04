@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Animated, Easing, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useLayoutMaxWidth } from '@/components/ui/layout/layout';
+import { TranscriptAppearanceContext } from './TranscriptAppearanceContext';
 
 const PLACEHOLDER_TOP_PADDING_PX = 18;
 const PLACEHOLDER_HORIZONTAL_PADDING_PX = 16;
@@ -78,6 +79,7 @@ export function TranscriptFirstPaintPlaceholder(
 ): React.ReactElement {
     const styles = stylesheet;
     useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
     const contentMaxWidth = useLayoutMaxWidth();
     const opacity = React.useRef(new Animated.Value(PLACEHOLDER_MIN_OPACITY)).current;
     React.useEffect(() => {
@@ -122,6 +124,7 @@ export function TranscriptFirstPaintPlaceholder(
                     key={rowIndex}
                     style={[
                         styles.bubble,
+                        appearance?.markdownColors ? { backgroundColor: appearance.markdownColors.surface.elevated } : null,
                         row.align === 'left' ? styles.bubbleLeft : styles.bubbleRight,
                         { width: row.bubbleWidth },
                     ]}
@@ -129,7 +132,7 @@ export function TranscriptFirstPaintPlaceholder(
                     {row.lineWidths.map((width, lineIndex) => (
                         <View
                             key={lineIndex}
-                            style={[styles.line, { width }]}
+                            style={[styles.line, { width }, appearance?.markdownColors ? { backgroundColor: appearance.markdownColors.border.default } : null]}
                         />
                     ))}
                 </View>
@@ -141,7 +144,7 @@ export function TranscriptFirstPaintPlaceholder(
         <View
             testID="transcript-first-paint-placeholder"
             pointerEvents="none"
-            style={styles.overlay}
+            style={[styles.overlay, appearance?.shellColors ? { backgroundColor: appearance.shellColors.background } : null]}
             aria-hidden={true}
             accessibilityElementsHidden={true}
             importantForAccessibility="no-hide-descendants"

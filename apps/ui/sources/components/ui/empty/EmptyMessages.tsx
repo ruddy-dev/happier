@@ -1,5 +1,6 @@
 import React from 'react';
 import { View } from 'react-native';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { Typography } from '@/constants/Typography';
 import { Session } from '@/sync/domains/state/storageTypes';
 import { useSessionStatus, formatPathRelativeToHome } from '@/utils/sessions/sessionUtils';
@@ -88,6 +89,10 @@ function formatRelativeTime(timestamp: number): string {
 export function EmptyMessages({ session }: EmptyMessagesProps) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const fontStyle = appearance?.fontFamily ? { fontFamily: appearance.fontFamily } : undefined;
+    const primaryStyle = appearance?.shellColors ? { color: appearance.shellColors.primary } : undefined;
+    const secondaryStyle = appearance?.shellColors ? { color: appearance.shellColors.secondary } : undefined;
     const osIcon = getOSIcon(session.metadata?.os);
     const sessionStatus = useSessionStatus(session);
     const startedTime = formatRelativeTime(session.createdAt);
@@ -97,27 +102,27 @@ export function EmptyMessages({ session }: EmptyMessagesProps) {
             <Icon
                 name={osIcon}
                 size={72} 
-                color={theme.colors.text.secondary}
+                color={appearance?.shellColors?.secondary ?? theme.colors.text.secondary}
                 style={styles.iconContainer}
             />
             
             {session.metadata?.host && (
-                <Text style={styles.hostText}>
+                <Text style={[styles.hostText, primaryStyle, fontStyle]}>
                     {session.metadata.host}
                 </Text>
             )}
             
             {session.metadata?.path && (
-                <Text style={styles.pathText}>
+                <Text style={[styles.pathText, secondaryStyle, fontStyle]}>
                     {formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir)}
                 </Text>
             )}
             
-            <Text style={styles.noMessagesText}>
+            <Text style={[styles.noMessagesText, secondaryStyle, fontStyle]}>
                 {t('components.emptyMessages.noMessagesYet')}
             </Text>
             
-            <Text style={styles.createdText}>
+            <Text style={[styles.createdText, secondaryStyle, fontStyle]}>
                 {t('components.emptyMessages.created', { time: startedTime })}
             </Text>
         </View>

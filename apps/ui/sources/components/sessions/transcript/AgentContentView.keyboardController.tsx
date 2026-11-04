@@ -6,6 +6,7 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { useKeyboardDismissOnTap } from './useKeyboardDismissOnTap';
+import { TranscriptAppearanceContext } from './TranscriptAppearanceContext';
 
 interface AgentContentViewProps {
     input?: React.ReactNode | null;
@@ -25,6 +26,8 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     const bottomChromeHeight = useSessionCockpitBottomChromeHeight();
     const keyboardDismissOnTapHandlers = useKeyboardDismissOnTap();
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const backgroundColor = appearance?.shellColors?.background ?? theme.colors.surface.base;
 
     // Reserve the floating bar's height *inside the session screen* (not the global
     // chrome host) so the composer/transcript sit above the overlay bar AND this
@@ -33,10 +36,11 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     // is 0 when the bar is hidden (e.g. keyboard open), collapsing the reservation
     // so the scaffold geometry is identical to having no bar.
     return (
-        <View style={{ flex: 1, minHeight: 0, paddingBottom: bottomChromeHeight, backgroundColor: theme.colors.surface.base }}>
+        <View style={{ flex: 1, minHeight: 0, paddingBottom: bottomChromeHeight, backgroundColor }}>
             <ComposerKeyboardScaffold
                 testID="agent-content-keyboard-host"
                 mode="session"
+                surfaceColor={appearance?.shellColors?.background}
                 contentTestID="agent-content-scroll-region"
                 composerTestID="agent-content-input-footer"
                 layoutBottomInset={bottomChromeHeight}

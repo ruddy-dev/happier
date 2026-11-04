@@ -19,6 +19,8 @@ export type TranscriptAppearance = Readonly<{
     agentContainerStyle?: StyleProp<ViewStyle>;
     toolContainerStyle?: StyleProp<ViewStyle>;
     fontFamily?: string;
+    // Conversation shell and native empty/loading states do not inherit markdown paint.
+    shellColors?: Readonly<{ background: string; primary: string; secondary: string }>;
     questionColors?: TranscriptQuestionColors;
     agentLeading?: React.ReactNode;
     userLeading?: React.ReactNode;

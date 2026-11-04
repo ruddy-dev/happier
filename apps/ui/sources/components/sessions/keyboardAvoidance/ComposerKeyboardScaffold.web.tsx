@@ -37,6 +37,7 @@ function readScrollingHostGrowthRoom(element: unknown): number {
 
 export function ComposerKeyboardScaffold(props: ComposerKeyboardScaffoldProps): React.ReactElement {
     const { theme } = useUnistyles();
+    const surfaceBackgroundColor = props.surfaceColor ?? theme.colors.surface.base;
     const [availablePanelMaxHeight, setAvailablePanelMaxHeight] = React.useState<number | undefined>(undefined);
     const modal = useOptionalModal();
     const isInsideModalBoundary = useIsInsideModalBoundary();
@@ -86,7 +87,7 @@ export function ComposerKeyboardScaffold(props: ComposerKeyboardScaffoldProps): 
                 testID={props.testID}
                 onLayout={handleScaffoldLayout}
                 style={[
-                    { flexBasis: 0, flexGrow: 1, minHeight: 0, backgroundColor: theme.colors.surface.base },
+                    { flexBasis: 0, flexGrow: 1, minHeight: 0, backgroundColor: surfaceBackgroundColor },
                     liftPaddingStyle,
                     props.style,
                 ]}
@@ -101,7 +102,7 @@ export function ComposerKeyboardScaffold(props: ComposerKeyboardScaffoldProps): 
                 <View
                     testID={props.composerTestID}
                     onLayout={handleComposerLayout}
-                    style={{ backgroundColor: theme.colors.surface.base }}
+                    style={{ backgroundColor: surfaceBackgroundColor }}
                 >
                     {props.composer}
                 </View>

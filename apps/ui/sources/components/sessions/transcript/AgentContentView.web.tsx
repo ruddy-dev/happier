@@ -7,6 +7,7 @@ import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { useKeyboardDismissOnTap } from './useKeyboardDismissOnTap';
+import { TranscriptAppearanceContext } from './TranscriptAppearanceContext';
 
 interface AgentContentViewProps {
     input?: React.ReactNode | null;
@@ -26,14 +27,17 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     const bottomChromeHeight = useSessionCockpitBottomChromeHeight();
     const keyboardDismissOnTapHandlers = useKeyboardDismissOnTap();
     const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    const backgroundColor = appearance?.shellColors?.background ?? theme.colors.surface.base;
     // Reserve the floating bar's height inside the session screen (see the native
     // controller for the rationale): the bar overlays content, so the composer is
     // lifted above it here rather than by an in-flow chrome-host reservation.
     return (
-        <View style={{ flex: 1, minHeight: 0, paddingBottom: bottomChromeHeight, backgroundColor: theme.colors.surface.base }}>
+        <View style={{ flex: 1, minHeight: 0, paddingBottom: bottomChromeHeight, backgroundColor }}>
             <ComposerKeyboardScaffold
                 testID="agent-content-keyboard-host"
                 mode="session"
+                surfaceColor={appearance?.shellColors?.background}
                 contentTestID="agent-content-scroll-region"
                 composerTestID="agent-content-input-footer"
                 layoutBottomInset={bottomChromeHeight}

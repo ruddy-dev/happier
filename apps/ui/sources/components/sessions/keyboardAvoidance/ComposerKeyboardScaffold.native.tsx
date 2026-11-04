@@ -26,7 +26,7 @@ export function ComposerKeyboardScaffold(props: ComposerKeyboardScaffoldProps): 
     // A transparent scaffold is presented over the screen behind it, so it paints no ground of
     // its own; whatever it is presented over stays visible.
     const isTransparentSurface = props.surface === 'transparent';
-    const surfaceBackgroundColor = isTransparentSurface ? undefined : theme.colors.surface.base;
+    const surfaceBackgroundColor = isTransparentSurface ? undefined : props.surfaceColor ?? theme.colors.surface.base;
     const newSessionScaffoldMaxHeight = React.useMemo(() => {
         if (props.mode !== 'newSession') return undefined;
         if (Platform.OS !== 'ios') return undefined;
