@@ -11,6 +11,8 @@ import { isUserFacingSession } from '@/sync/domains/session/listing/isUserFacing
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import { sync, type SessionListPagingState } from '@/sync/sync';
+import { registerSessionRealtimeRecordConsumer } from '@/sync/runtime/sessionRealtimeRecordConsumers';
+import { getPermissionModeLabelForAgentType } from '@/sync/domains/permissions/permissionModeOptions';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
 import { t } from '@/text';
 
@@ -20,12 +22,15 @@ import { useDeskSessionNavigation } from '../useDeskSessionNavigation';
 import { useDeskSessions } from '../useDeskSessions';
 import { useCoordinatorId } from '../model/useCoordinatorId';
 import { useIssueKeys } from '../model/useIssueKeys';
+import { hasSessionIssueMetadata } from '../model/resolveIssue';
+import { workerPermissionMode } from '../model/workerPermissionMode';
 import { groupWorkersByIssue } from '../model/groupWorkers';
 import { useDeskNow } from '../model/useDeskNow';
 import { isDeskPhoneWidth } from '../model/drawerPlacement';
 import { useDeskPopup } from '../popups/useDeskPopup';
 import { DeskText } from '../typography/DeskText';
 import { toWorkerRows } from './WorkColumn';
+import { bulbWord } from './BulbLabel';
 import { useTopBarAppearance } from './topBarAppearance';
 
 const fixturePagingState: SessionListPagingState = { status: 'exhausted', retry: null, hasUnmaterializedRows: false };
@@ -98,9 +103,33 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
     const readableArchives = React.useMemo(() => archives.filter(row => row.metadata !== null && isUserFacingSession(row)), [archives]);
     const all = React.useMemo(() => ({ ...current, list: [...current.list, ...readableArchives] }), [current, readableArchives]);
     const issueKeys = useIssueKeys(all);
+    const unresolvedIssueRows = React.useMemo(() => all.list.filter(row => row.metadata !== null
+        && !hasSessionIssueMetadata(row, all.lookup.get(row.id))), [all]);
+    React.useEffect(() => {
+        if (fixture || !scope) return;
+        // The open sheet needs authoritative identity even for archive/list-only rows.
+        // The existing record owner shares and schedules the exact hydration.
+        const releases = unresolvedIssueRows.map(row => registerSessionRealtimeRecordConsumer(row.id, scope.serverId));
+        return () => { releases.forEach(release => release()); };
+    }, [fixture, scope, unresolvedIssueRows]);
     const coordinatorId = useCoordinatorId(current.list);
     const now = useDeskNow();
-    const groups = React.useMemo(() => groupWorkersByIssue(toWorkerRows(current.list.filter(row => row.id !== coordinatorId), current.lookup, issueKeys, now)), [current, coordinatorId, issueKeys, now]);
+    const workers = React.useMemo(() => toWorkerRows(all.list, all.lookup, issueKeys, now), [all, issueKeys, now]);
+    const groups = React.useMemo(() => {
+        const ids = new Set(current.list.map(row => row.id));
+        return groupWorkersByIssue(workers.filter(worker => worker.sessionId !== coordinatorId && ids.has(worker.sessionId)));
+    }, [current.list, workers, coordinatorId]);
+    const rowContexts = React.useMemo(() => {
+        const rows = new Map(all.list.map(row => [row.id, row]));
+        return new Map(workers.map(worker => {
+            const row = rows.get(worker.sessionId)!;
+            const loaded = all.lookup.get(row.id);
+            const mode = loaded && hasSessionIssueMetadata(row, loaded) ? workerPermissionMode(loaded).current : null;
+            const modeLabel = mode && worker.agentId ? getPermissionModeLabelForAgentType(worker.agentId, mode)
+                : t('ignorePrevious.workerControl.modeUnknown');
+            return [row.id, t('ignorePrevious.sessions.rowContext', { state: bulbWord(worker.bulb), mode: modeLabel })];
+        }));
+    }, [all, workers]);
     useDeskPopup({ open: true, onClose, openerRef, contentRef, returnFocusOnClose: true });
 
     const isCurrentScope = React.useCallback(() => fixture || areServerAccountScopesEqual(scope, getActiveServerAccountScope()), [fixture, scope]);
@@ -164,16 +193,17 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
         if (currentState === 'more') void loadCurrent();
         else if (archiveState === 'more') void loadArchives(false);
     }, [ready, fixture, query, settledQuery, hasMatches, pending, currentState, archiveState, loadCurrent, loadArchives]);
-    const unreadable = ready && (currentPaging.hasUnmaterializedRows || archivePaging.hasUnmaterializedRows
+    const unreadable = ready && (unresolvedIssueRows.length > 0 || currentPaging.hasUnmaterializedRows || archivePaging.hasUnmaterializedRows
         || [...Object.values(renderables), ...archives].some(row => belongsToScope(row.id)
             && (row.metadataUnavailable === true || row.metadata === null) && isUserFacingSession({ ...row, metadataUnavailable: false })));
     const complete = currentState === 'exhausted' && archiveState === 'exhausted' && !unreadable;
     const textStyle = { color: paint.ink, fontSize: terminal ? 13 : 13.5 };
     const note = { color: paint.mute, fontSize: terminal ? 12 : 12.5 };
     const rowView = (row: { id: string; title: string }) => <SheetButton key={row.id} id={`ip-sessions-row-${row.id}`}
-        label={t('ignorePrevious.sessions.openSession', { title: row.title })} onPress={() => openSession(row.id)}>
+        label={t('ignorePrevious.sessions.openSession', { title: `${row.title}, ${rowContexts.get(row.id)}` })} onPress={() => openSession(row.id)}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <DeskText style={{ ...textStyle, flex: 1, minWidth: 0 }} numberOfLines={1}>{row.title}</DeskText>
+            <DeskText style={{ ...textStyle, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">{row.title}</DeskText>
+            <DeskText style={{ ...note, flexShrink: 1, maxWidth: '60%' }} numberOfLines={1} ellipsizeMode="tail">{rowContexts.get(row.id)}</DeskText>
             <Icon name="terminal" size={16} color={paint.bot} />
         </View>
     </SheetButton>;
@@ -219,7 +249,7 @@ function ScopedSessionsSheet({ openerRef, onClose, scope, fixture }: SheetProps 
                     {!fixture && <>
                         <DeskText testID="ip-sessions-scope-note" style={note}>{t('ignorePrevious.sessions.scopeNote')}</DeskText>
                         {archiveState === 'more' && <SheetButton id="ip-sessions-load-archived" disabled={pending} onPress={() => { setShowArchived(true); void loadArchives(false); }}><DeskText style={textStyle}>{t('ignorePrevious.sessions.loadArchived')}</DeskText></SheetButton>}
-                        {(currentState === 'more' || currentState === 'error' || currentState === 'unavailable') && <SheetButton id="ip-sessions-load-current" disabled={pending} onPress={() => void loadCurrent(currentState === 'unavailable' || currentPaging.retry === 'replace')}><DeskText style={textStyle}>{t(currentState === 'more' ? 'ignorePrevious.sessions.loadCurrent' : 'common.retry')}</DeskText></SheetButton>}
+                        {(currentState === 'more' || currentState === 'error' || currentState === 'unavailable' || unresolvedIssueRows.length > 0) && <SheetButton id="ip-sessions-load-current" disabled={pending} onPress={() => void loadCurrent(currentState !== 'more' && currentPaging.retry !== 'append')}><DeskText style={textStyle}>{t(currentState === 'more' ? 'ignorePrevious.sessions.loadCurrent' : 'common.retry')}</DeskText></SheetButton>}
                     </>}
                 </View>
             </>}

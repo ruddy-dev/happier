@@ -11475,6 +11475,7 @@ settingsSession: {
         sessions: {
             search: 'Search current and archived sessions',
             openSession: ({ title }: { title: string }) => `Open ${title}`,
+            rowContext: ({ state, mode }: { state: string; mode: string }) => `${state}, ${mode}`,
             archived: 'Archived sessions',
             hideArchived: 'Hide archived sessions',
             scopePending: 'Waiting for sessions from this account and server…',

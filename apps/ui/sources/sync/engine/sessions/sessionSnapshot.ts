@@ -65,6 +65,8 @@ type HydratedSession = Omit<Session, 'presence'> & {
 };
 export type SessionListFetchResult = Readonly<{
     sessionIds: string[];
+    // Fetched versions, including rows still unreadable or awaiting hydration.
+    sessionMetadataVersions: ReadonlyMap<string, number>;
     nextCursor: string | null;
     hasNext: boolean;
     source: 'v2' | 'v1';
@@ -75,6 +77,16 @@ export type SessionListFetchResult = Readonly<{
 }>;
 type HydrationApplyFlushReason = 'size' | 'timer' | 'required' | 'final' | 'manual';
 type CurrentSessionListRenderableLookup = (sessionId: string) => SessionListRenderableSession | null | undefined;
+export function hasUnmaterializedSessionListMetadata(
+    versions: ReadonlyMap<string, number>,
+    lookup: CurrentSessionListRenderableLookup,
+): boolean {
+    for (const [sessionId, version] of versions) {
+        const current = lookup(sessionId);
+        if (!current?.metadata || current.metadataUnavailable === true || current.metadataVersion < version) return true;
+    }
+    return false;
+}
 type HydratedSessionApplyBatcherStats = Readonly<{
     appliedRows: number;
     staleSkippedRows: number;
@@ -1362,16 +1374,15 @@ export async function fetchAndApplySessions(params: {
     let hasUnmaterializedRows = false;
     const buildFetchResult = (): SessionListFetchResult => {
         const cancelled = !shouldContinue();
+        const sessionMetadataVersions = new Map(sessions.map(row => [row.id, row.metadataVersion]));
         // Renderable hydration may still be running. Only count metadata already
         // published at the fetched version; old readable cache entries prove no absence.
         const unreadableRenderables = params.applySessionListRenderables && params.getCurrentSessionListRenderable
-            ? sessions.some(row => {
-                const current = params.getCurrentSessionListRenderable!(row.id);
-                return !current?.metadata || current.metadataUnavailable === true || current.metadataVersion < row.metadataVersion;
-            })
+            ? hasUnmaterializedSessionListMetadata(sessionMetadataVersions, params.getCurrentSessionListRenderable)
             : hasUnmaterializedRows;
         return {
             sessionIds: sessions.map((session) => session.id),
+            sessionMetadataVersions,
             nextCursor: nextCursorForMore,
             hasNext: hasNextForMore,
             source,

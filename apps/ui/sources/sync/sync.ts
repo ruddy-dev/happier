@@ -445,6 +445,7 @@ import {
 import { migrateLegacySessionDrafts } from '@/sync/domains/input/drafts/sessionDraftLegacyMigration';
 import { serverFetch } from './http/client';
 import { logNativeUpdateFetchFailure } from '@/sync/runtime/nativeUpdate/logNativeUpdateFetchFailure';
+import { hasUnmaterializedSessionListMetadata } from './engine/sessions/sessionSnapshot';
 import {
     buildUpdatedSessionFromSocketUpdate,
     fetchAndApplySessions,
@@ -1016,6 +1017,7 @@ class Sync {
     private readonly sessionListConsumedCursors: Record<SessionListKind, Set<string>> = { current: new Set(), archived: new Set() };
     private readonly sessionListRequestIds: Record<SessionListKind, number> = { current: 0, archived: 0 };
     private readonly sessionListCoverageContiguous: Record<SessionListKind, boolean> = { current: false, archived: false };
+    private readonly sessionListMetadataVersions = new Map<string, number>();
 
     private messagesSync = new Map<string, InvalidateSync>();
     private activeServerSessionIds = new Set<string>();
@@ -2138,6 +2140,7 @@ class Sync {
         this.sessionListConsumedCursors.archived.clear();
         this.sessionListCoverageContiguous.current = false;
         this.sessionListCoverageContiguous.archived = false;
+        this.sessionListMetadataVersions.clear();
         this.publishSessionListPagingState('current', 'not-loaded', null, false);
         this.publishSessionListPagingState('archived', 'not-loaded', null, false);
         this.sessionDataKeys.clear();
@@ -4095,7 +4098,7 @@ class Sync {
             const generation = this.serverScopeGeneration;
             const ids = this.readRecordConsumerHydrationDemand(serverId, generation);
             for (const sessionId of ids) {
-                if (storage.getState().sessions[sessionId] || this.recordConsumerAttemptedIds.has(sessionId)) continue;
+                if (!this.needsRecordConsumerHydration(sessionId) || this.recordConsumerAttemptedIds.has(sessionId)) continue;
                 this.recordConsumerAttemptedIds.add(sessionId);
                 // No retry loop: only a membership change or an explicit snapshot retries a failure.
                 fireAndForget(this.hydrateRequiredSessionRecord(sessionId, serverId, generation), {
@@ -4103,6 +4106,15 @@ class Sync {
                 });
             }
         });
+    }
+
+    private needsRecordConsumerHydration(sessionId: string): boolean {
+        const state = storage.getState();
+        const loaded = state.sessions[sessionId];
+        if (!loaded) return true;
+        const listed = state.sessionListRenderables[sessionId];
+        // Reuse loaded records unless current list evidence proves their metadata is behind.
+        return Boolean(listed && loaded.metadataVersion < listed.metadataVersion);
     }
 
     private hydrateRequiredSessionRecord(sessionId: string, activeServerId: string | null, generation: number): Promise<void> {
@@ -4203,14 +4215,24 @@ class Sync {
             if (consumed.has(requestedCursor)) this.sessionListCoverageContiguous[kind] = false;
             consumed.add(requestedCursor);
         }
-        const hasUnmaterializedRows = result.hasUnmaterializedRows
-            || (requestedCursor !== null && this.sessionListPagingStates[kind].hasUnmaterializedRows);
+        if (kind === 'current') {
+            for (const [sessionId, version] of result.sessionMetadataVersions) {
+                this.sessionListMetadataVersions.set(sessionId, Math.max(version, this.sessionListMetadataVersions.get(sessionId) ?? version));
+            }
+        }
+        const hasUnmaterializedRows = kind === 'current' ? this.hasUnmaterializedCurrentSessionListRows()
+            : result.hasUnmaterializedRows || (requestedCursor !== null && this.sessionListPagingStates[kind].hasUnmaterializedRows);
         const cursor = kind === 'current' ? this.sessionListNextCursor : this.archivedSessionListNextCursor;
         const hasMore = kind === 'current' ? this.sessionListHasMore : this.archivedSessionListHasMore;
         const canContinue = result.source === 'v2' && hasMore && cursor && !consumed.has(cursor);
         const exhausted = this.sessionListCoverageContiguous[kind] && result.serverReportedListEnd && !hasUnmaterializedRows;
         if (!canContinue && !result.serverReportedListEnd) this.sessionListCoverageContiguous[kind] = false;
         this.publishSessionListPagingState(kind, canContinue ? 'more' : exhausted ? 'exhausted' : 'unavailable', null, hasUnmaterializedRows);
+    }
+
+    private hasUnmaterializedCurrentSessionListRows(): boolean {
+        return hasUnmaterializedSessionListMetadata(this.sessionListMetadataVersions,
+            sessionId => storage.getState().sessionListRenderables[sessionId]);
     }
 
     private fetchSessions = async (options?: FetchSessionsOptions) => {
@@ -4226,6 +4248,7 @@ class Sync {
         this.sessionListFetchesInFlight += 1;
         if (options?.mode !== 'append') {
             this.sessionListCoverageContiguous.current = false;
+            this.sessionListMetadataVersions.clear();
             this.sessionListNextCursor = null;
             this.sessionListHasMore = false;
             // A new head cannot share an append from the previous chain.
@@ -4331,12 +4354,12 @@ class Sync {
         if (hasOrganizationSnapshot) {
             persistSessionOrganizationWarmCache(activeServerId, warmCacheAccountId, organizationProjection);
         }
-        // Ordinary snapshots reuse loaded records. Resume refreshes possibly missed updates;
+        // Ordinary snapshots reuse current loaded records. Resume refreshes possibly missed updates;
         // changes catch-up already supplies changed ids as explicit hydration requirements.
         const refreshLoadedRecordConsumers = this.resumeInFlight !== null;
         const recordConsumerSessionIds = isAppend ? []
             : this.readRecordConsumerHydrationDemand(activeServerId, generation).filter(
-                sessionId => refreshLoadedRecordConsumers || !storage.getState().sessions[sessionId],
+                sessionId => refreshLoadedRecordConsumers || this.needsRecordConsumerHydration(sessionId),
             );
         // This snapshot is already attempting these records. Its completion must not
         // silently retry failed exact reads for the same mounted set.
@@ -4373,8 +4396,6 @@ class Sync {
             );
         }
         if (!shouldContinue()) return;
-        const earlierPagesHaveUnmaterializedRows = isAppend && this.sessionListPagingStates.current.hasUnmaterializedRows;
-        let hydrationHasUnmaterializedRows: boolean | undefined;
         let pagePublished = false;
         const result = await fetchAndApplySessions({
             clientEncryptionRequirement: resolveUiClientEncryptionRequirement({
@@ -4394,25 +4415,24 @@ class Sync {
             getCurrentSessionListRenderable: (sessionId) => storage.getState().sessionListRenderables[sessionId] ?? null,
             cachedSessionListEntries,
             shouldContinue,
-            onSessionListHydrationComplete: evidence => {
+            onSessionListHydrationComplete: () => {
                 if (!shouldContinue()) return;
-                hydrationHasUnmaterializedRows = evidence.hasUnmaterializedRows;
                 // Hydration can finish before the fetch/required-record gate returns.
-                // In that order, use its evidence in the initial page publication below.
+                // Initial page publication also rechecks the fetched versions below.
                 if (!pagePublished) return;
-                const hasUnmaterializedRows = earlierPagesHaveUnmaterializedRows || evidence.hasUnmaterializedRows;
+                const hasUnmaterializedRows = this.hasUnmaterializedCurrentSessionListRows();
                 const exhausted = this.sessionListCoverageContiguous.current && result.serverReportedListEnd && !hasUnmaterializedRows;
                 this.publishSessionListPagingState('current',
                     this.sessionListPagingStates.current.status === 'more' ? 'more' : exhausted ? 'exhausted' : 'unavailable',
                     null, hasUnmaterializedRows);
             },
-            applySessionListRenderables: (sessions) => {
+            applySessionListRenderables: (sessions, options) => {
                 if (!shouldContinue()) return;
                 if (isAppend) {
                     storage.getState().mergeSessionListRenderables(sessions);
                     return;
                 }
-                storage.getState().replaceSessionListRenderables(sessions);
+                storage.getState().replaceSessionListRenderables(sessions, { coversWholeList: options?.coversWholeList });
             },
             applySessionListRenderablePatches: (patches) => {
                 if (!shouldContinue()) return;
@@ -4473,8 +4493,7 @@ class Sync {
         if (!shouldContinue()) return;
         this.sessionListNextCursor = result.hasNext ? result.nextCursor : null;
         this.sessionListHasMore = result.hasNext;
-        this.publishSessionListPage('current', requestedCursor, hydrationHasUnmaterializedRows === undefined
-            ? result : { ...result, hasUnmaterializedRows: hydrationHasUnmaterializedRows });
+        this.publishSessionListPage('current', requestedCursor, result);
         pagePublished = true;
     }
 
