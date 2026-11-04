@@ -177,9 +177,10 @@ describe('desk readiness through public cold bootstrap', () => {
     });
 
     it.each([
-        { name: 'automatic retry after a transient failure', status: 503 },
-        { name: 'explicit retry after a non-retryable failure', status: 400 },
-    ])('stays unknown until $name succeeds', async ({ status }) => {
+        { name: 'automatic retry after a transient failure', status: 503, direct: false },
+        { name: 'explicit retry after a non-retryable failure', status: 400, direct: false },
+        { name: 'direct hydrated refresh after a non-retryable failure', status: 400, direct: true },
+    ])('stays unknown until $name succeeds', async ({ status, direct }) => {
         const harness = await setupBootstrap();
         const { jsonResponse } = await import('../testkit/sessionRecordHarness');
         const retryResponse = createDeferred<void>();
@@ -200,7 +201,11 @@ describe('desk readiness through public cold bootstrap', () => {
         expect.soft(harness.observe()).toMatchObject({
             isDataReady: false, deskReady: false, waitingCount: null, connecting: true,
         });
-        const refresh = status === 400 ? harness.sync.refreshSessions() : Promise.resolve();
+        const refresh = status === 400
+            ? harness.sync.refreshSessions(direct ? { awaitSessionListHydration: true } : undefined)
+            : Promise.resolve();
+        await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+        expect(harness.observe()).toMatchObject({ isDataReady: false, waitingCount: null, connecting: true });
         await act(async () => {
             retryResponse.resolve();
             await vi.advanceTimersByTimeAsync(0);
@@ -208,6 +213,140 @@ describe('desk readiness through public cold bootstrap', () => {
             await vi.waitFor(() => expect(harness.storage.getState().isDataReady).toBe(true));
         });
         expect(harness.observe()).toMatchObject({ deskReady: true, waitingCount: 1, connecting: false });
+        expect(harness.unexpectedPaths).toEqual([]);
+    });
+
+    it.each(['bootstrap', 'late'] as const)('recovers readiness through the %s imported-pins fetch after terminal list failure', async (timing) => {
+        const harness = await setupBootstrap();
+        const { jsonResponse } = await import('../testkit/sessionRecordHarness');
+        const settingsResponse = createDeferred<void>();
+        const recoveredList = createDeferred<void>();
+        const http = harness.http.getMockImplementation()!;
+        let imported = false;
+        let failed = false;
+        let recoveryRequested = false;
+        harness.http.mockImplementation(async (path) => {
+            const pathname = new URL(path, 'http://localhost').pathname;
+            if (pathname === '/v2/account/settings') {
+                await settingsResponse.promise;
+                return jsonResponse({ content: { t: 'plain', v: { pinnedSessionKeysV1: [harness.workerId] } }, version: 1 });
+            }
+            if (pathname === '/v2/session-organization/import') {
+                imported = true;
+                return jsonResponse({ imported: { pins: 1, folders: 0, tags: 0, orderEntries: 0, labels: 0 } });
+            }
+            if (pathname === '/v2/session-organization' && imported) {
+                return jsonResponse({ snapshot: {
+                    schemaVersion: 1, version: 2,
+                    pins: [{ sessionId: harness.workerId, sortKey: '00000001', pinnedAt: 1 }],
+                    folders: [], folderAssignments: [], tags: [], tagAssignments: [], orderEntries: [], labels: [],
+                } });
+            }
+            return http(path);
+        });
+        harness.setListResponse(async (path) => {
+            if (!failed) {
+                failed = true;
+                return jsonResponse({ error: 'synthetic_failure' }, 400);
+            }
+            recoveryRequested = true;
+            await recoveredList.promise;
+            return harness.defaultListResponse(path);
+        });
+        await harness.start();
+        expect(failed).toBe(true);
+        await act(async () => {
+            if (timing === 'late') {
+                await vi.advanceTimersByTimeAsync(harness.sync.getSyncTuning().invalidateSyncAwaitTimeoutMs + 1);
+            }
+            settingsResponse.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(imported).toBe(true);
+        expect(recoveryRequested).toBe(true);
+        expect(harness.observe()).toMatchObject({ isDataReady: false, waitingCount: null, connecting: true });
+        await act(async () => {
+            recoveredList.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.waitFor(() => expect(harness.storage.getState().isDataReady).toBe(true));
+        });
+        expect(harness.storage.getState().sessions[harness.workerId]?.metadata?.tag).toBe('ATR-101-build');
+        expect(harness.observe()).toMatchObject({ deskReady: true, waitingCount: 1, connecting: false });
+        expect(harness.unexpectedPaths).toEqual([]);
+    });
+
+    it.each(['http-error', 'invalid-json'] as const)('does not certify a direct list read that fails with %s', async (failure) => {
+        const harness = await setupBootstrap();
+        const { jsonResponse } = await import('../testkit/sessionRecordHarness');
+        harness.setListResponse(async () => jsonResponse({ error: 'synthetic_failure' }, 400));
+        await harness.start();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(harness.sync.getSyncTuning().invalidateSyncAwaitTimeoutMs + 1);
+        });
+        const failedResponse = () => failure === 'http-error'
+            ? jsonResponse({ error: 'synthetic_failure' }, 400)
+            : new Response('{');
+        harness.setListResponse(async () => failedResponse());
+        const http = harness.http.getMockImplementation()!;
+        // Invalid v2 payloads try the supported v1 fallback; neither response is a list.
+        harness.http.mockImplementation(async (path) => new URL(path, 'http://localhost').pathname === '/v1/sessions'
+            ? failedResponse() : http(path));
+        await act(async () => {
+            await expect(harness.sync.refreshSessions({ awaitSessionListHydration: true })).rejects.toThrow();
+        });
+        expect(harness.observe()).toMatchObject({
+            isDataReady: false, deskReady: false, waitingCount: null, connecting: true, renderables: 0,
+        });
+        expect(harness.unexpectedPaths).toEqual([]);
+    });
+
+    it('waits for required direct hydration after the snapshot and preserves its rejection', async () => {
+        const harness = await setupBootstrap(true);
+        const { jsonResponse, plainWorkerRecord } = await import('../testkit/sessionRecordHarness');
+        harness.setListResponse(async () => jsonResponse({ error: 'synthetic_failure' }, 400));
+        const recordResponse = createDeferred<void>();
+        const http = harness.http.getMockImplementation()!;
+        let recordRequested = false;
+        let recordFails = true;
+        harness.http.mockImplementation(async (path) => {
+            const pathname = new URL(path, 'http://localhost').pathname;
+            if (pathname === '/v2/session-organization') return jsonResponse({ snapshot: {
+                schemaVersion: 1, version: 2,
+                pins: [{ sessionId: harness.workerId, sortKey: '00000001', pinnedAt: 1 }],
+                folders: [], folderAssignments: [], tags: [], tagAssignments: [], orderEntries: [], labels: [],
+            } });
+            if (pathname === `/v2/sessions/${harness.workerId}`) {
+                recordRequested = true;
+                await recordResponse.promise;
+                return recordFails ? jsonResponse({ error: 'synthetic_failure' }, 400)
+                    : jsonResponse({ session: plainWorkerRecord(harness.workerId) });
+            }
+            return http(path);
+        });
+        await harness.start();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(harness.sync.getSyncTuning().invalidateSyncAwaitTimeoutMs + 1);
+        });
+        harness.setListResponse(harness.defaultListResponse);
+        // This empty list has fetched its snapshot, but the organization-required record is still pending.
+        const refresh = harness.sync.refreshSessions({ awaitSessionListHydration: true }).then(
+            () => ({ status: 'resolved' as const }),
+            error => ({ status: 'rejected' as const, error }),
+        );
+        await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+        expect(recordRequested).toBe(true);
+        expect(harness.observe()).toMatchObject({ isDataReady: false, waitingCount: null, connecting: true });
+        await act(async () => {
+            recordResponse.resolve();
+            expect(await refresh).toMatchObject({ status: 'rejected', error: expect.any(Error) });
+        });
+        expect(harness.observe()).toMatchObject({ isDataReady: false, waitingCount: null, connecting: true });
+        await act(async () => {
+            recordFails = false;
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        });
+        expect(harness.observe()).toMatchObject({ isDataReady: true, waitingCount: 1, connecting: false });
+        expect(harness.storage.getState().sessions[harness.workerId]?.metadata?.tag).toBe('ATR-101-build');
         expect(harness.unexpectedPaths).toEqual([]);
     });
 
@@ -230,11 +369,34 @@ describe('desk readiness through public cold bootstrap', () => {
         expect(harness.unexpectedPaths).toEqual([]);
     });
 
-    it.each(['old-first', 'new-first'] as const)('isolates a replacement server bootstrap when responses finish %s', async (order) => {
+    it.each([
+        { order: 'old-first', direct: false },
+        { order: 'new-first', direct: false },
+        { order: 'old-first', direct: true },
+        { order: 'new-first', direct: true },
+    ] as const)('isolates a replacement server bootstrap when responses finish $order (direct refresh: $direct)', async ({ order, direct }) => {
         const harness = await setupBootstrap();
         const { upsertAndActivateServer } = await import('@/sync/domains/server/serverRuntime');
         const { jsonResponse } = await import('../testkit/sessionRecordHarness');
+        let oldRefresh: Promise<void> | undefined;
+        let releaseOldList = harness.releaseList;
+        if (direct) {
+            harness.setListResponse(async () => jsonResponse({ error: 'synthetic_failure' }, 400));
+        }
         await harness.start();
+        if (direct) {
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(harness.sync.getSyncTuning().invalidateSyncAwaitTimeoutMs + 1);
+            });
+            const oldList = createDeferred<void>();
+            releaseOldList = () => { oldList.resolve(); };
+            harness.setListResponse(async (path) => {
+                await oldList.promise;
+                return harness.defaultListResponse(path);
+            });
+            oldRefresh = harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+        }
         const replacementList = createDeferred<void>();
         let replacementRequested = false;
         harness.setListResponse(async () => {
@@ -250,7 +412,7 @@ describe('desk readiness through public cold bootstrap', () => {
         // The new scope must start its own list while the obsolete HTTP response is still held.
         expect.soft(replacementRequested).toBe(true);
         if (order === 'old-first') {
-            await act(async () => { harness.releaseList(); await vi.advanceTimersByTimeAsync(0); });
+            await act(async () => { releaseOldList(); await vi.advanceTimersByTimeAsync(0); });
             expect.soft(harness.observe()).toMatchObject({
                 isDataReady: false, deskReady: false, waitingCount: null, connecting: true, renderables: 0,
             });
@@ -263,11 +425,12 @@ describe('desk readiness through public cold bootstrap', () => {
             isDataReady: true, deskReady: true, waitingCount: 0, connecting: false, renderables: 0,
         });
         if (order === 'new-first') {
-            await act(async () => { harness.releaseList(); await vi.advanceTimersByTimeAsync(0); });
+            await act(async () => { releaseOldList(); await vi.advanceTimersByTimeAsync(0); });
             expect(harness.observe()).toMatchObject({
                 isDataReady: true, deskReady: true, waitingCount: 0, connecting: false, renderables: 0,
             });
         }
+        await oldRefresh;
         expect(harness.unexpectedPaths).toEqual([]);
     });
 
