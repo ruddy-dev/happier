@@ -8,7 +8,7 @@ import { Writable } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import { tsImport } from 'tsx/esm/api';
 import { decodeRequestPath, installNetworkGuard, isForbiddenRequestUrl } from './ipFixtureShots.mjs';
-import { buildShotMatrix, buildStorageSeed, captureShot, createStaticServer, renderSheetHtml, THEME_MAP, waitForAppReady } from './ipFixtureShots.mjs';
+import { buildShotMatrix, buildStorageSeed, captureShot, createStaticServer, installStorageSeed, renderSheetHtml, THEME_MAP, waitForAppReady } from './ipFixtureShots.mjs';
 
 // Load the protocol owner directly, so stale workspace dist files cannot hide schema drift.
 const { FeaturesResponseSchema } = await tsImport('../../../packages/protocol/src/features/payload/featuresResponseSchema.ts', import.meta.url);
@@ -147,6 +147,44 @@ test('storage seeds use MMKV web keys, the real profile shape and desk preferenc
         });
     }
     assert.throws(() => buildStorageSeed('unknown'), /unknown.*theme/i);
+});
+
+// Playwright's init-script boundary: run the registered callback in each document's browser globals.
+async function storageInit() {
+    let script;
+    let payload;
+    await installStorageSeed({ addInitScript: async (callback, arg) => { script = callback; payload = arg; } },
+        'gruvbox', 'http://127.0.0.1:49152');
+    return globals => runInNewContext(`(${script.toString()})(payload)`, Object.assign(globals, { payload }));
+}
+
+test('storage initialization skips opaque and other origins before accessing storage', async t => {
+    const initialize = await storageInit();
+    for (const origin of ['null', 'http://127.0.0.1:49153', 'http://localhost:49152', 'https://127.0.0.1:49152']) {
+        await t.test(origin, () => {
+            // Observe the getter itself: even reading opaque-origin storage can throw a SecurityError.
+            let reads = 0;
+            const globals = { location: { origin } };
+            Object.defineProperty(globals, 'localStorage', { get() { reads += 1; return { setItem() {} }; } });
+            initialize(globals);
+            assert.equal(reads, 0, 'must skip the document before reading storage');
+        });
+    }
+});
+
+test('storage initialization writes every existing seed key at the intended app origin', async () => {
+    const initialize = await storageInit();
+    const stored = {};
+    initialize({ location: { origin: 'http://127.0.0.1:49152' },
+        localStorage: { setItem: (key, value) => { stored[key] = value; } } });
+    assert.deepEqual(stored, buildStorageSeed('gruvbox'));
+});
+
+test('storage initialization propagates storage failure at the intended app origin', async () => {
+    const initialize = await storageInit();
+    const error = new Error('storage unavailable');
+    assert.throws(() => initialize({ location: { origin: 'http://127.0.0.1:49152' },
+        localStorage: { setItem: () => { throw error; } } }), actual => actual === error);
 });
 
 test('HTML pairs app left and mockup right using relative paths, and makes missing captures explicit', () => {
