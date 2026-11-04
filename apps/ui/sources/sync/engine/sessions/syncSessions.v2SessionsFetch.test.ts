@@ -4355,7 +4355,7 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
         expect(initializeSessions).not.toHaveBeenCalled();
     });
 
-    it('aborts superseded session-list data-key hydration before queued native work dispatches', async () => {
+    it.each([null, 'same-append-cursor'])('aborts superseded session-list data-key hydration at cursor %s before queued native work dispatches', async sessionListCursor => {
         const firstRequest = vi.fn(async () =>
             jsonResponse({
                 sessions: [
@@ -4388,6 +4388,7 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
 
         const firstFetch = fetchAndApplySessions({
             serverId: 'server-superseded',
+            sessionListCursor,
             credentials: { token: 't', secret: 's' },
             encryption,
             sessionDataKeys,
@@ -4403,6 +4404,7 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
 
         const secondFetch = fetchAndApplySessions({
             serverId: 'server-superseded',
+            sessionListCursor,
             credentials: { token: 't', secret: 's' },
             encryption,
             sessionDataKeys,

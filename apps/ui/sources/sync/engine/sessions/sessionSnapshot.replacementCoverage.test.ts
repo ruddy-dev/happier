@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuthCredentials } from '@/auth/storage/tokenStorage';
 import type { V2SessionRecord } from '@happier-dev/protocol';
+import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { storage } from '@/sync/domains/state/storage';
 
 import { fetchAndApplySessions, type SessionListEncryption } from './sessionSnapshot';
+import { createDeferred } from '@/dev/testkit';
 
 /**
  * Voice announcements are a genuine side-effect boundary reached by the hydrated
@@ -122,5 +125,138 @@ describe('session-list snapshot replacement coverage', () => {
                 ? jsonResponse({ error: 'Not found' }, 404)
                 : jsonResponse({ sessions: [buildPlainRow('s1')] }),
         })).resolves.toBe(false);
+    });
+});
+
+describe('snapshot search evidence at the producer', () => {
+    function snapshot(overrides: Partial<Parameters<typeof fetchAndApplySessions>[0]> = {}) {
+        return fetchAndApplySessions({
+            credentials: { token: 't', secret: 's' } as AuthCredentials,
+            encryption: createEncryptionHarness(),
+            sessionDataKeys: new Map(),
+            request: async () => jsonResponse({ sessions: [], hasNext: false, nextCursor: null }),
+            applySessions: () => {},
+            repairInvalidReadStateV1: async () => {},
+            log: { log: () => {} },
+            ...overrides,
+        });
+    }
+
+    it.each(['current', 'archived'] as const)('keeps policy-filtered %s rows out of content and identity evidence while retaining incomplete terminal coverage', async kind => {
+        const encryption = createEncryptionHarness();
+        const decryptMetadata = vi.fn(async (_version: number, value: string) => JSON.parse(value));
+        encryption.getSessionEncryption = vi.fn(() => ({ decryptMetadata, decryptAgentState: async () => ({}) }));
+        const previousStorage = storage.getState();
+        const applySessions = vi.fn<Parameters<typeof fetchAndApplySessions>[0]['applySessions']>(rows => storage.getState().applySessions(rows));
+        const onSnapshotFetched = vi.fn();
+        // Current lists publish renderables; archive lists hydrate full records.
+        const renderableOptions = kind === 'current' ? {
+            applySessionListRenderables: (rows: SessionListRenderableSession[]) => storage.getState().replaceSessionListRenderables(rows),
+            getCurrentSessionListRenderable: (id: string) => storage.getState().sessionListRenderables[id],
+        } : {};
+        const fetchRows = (rows: V2SessionRecord[]) => snapshot({
+            encryption, applySessions, onSnapshotFetched, ...renderableOptions,
+            clientEncryptionRequirement: 'require_e2ee',
+            sessionListPath: kind === 'archived' ? '/v2/sessions/archived' : undefined,
+            awaitSessionListHydration: true,
+            requiredHydrationSessionIds: ['searchable'],
+            request: async () => jsonResponse({ sessions: rows, hasNext: false, nextCursor: null }),
+        });
+        const blocked = { ...buildPlainRow('policy-blocked'), metadata: JSON.stringify({ name: 'Blocked private content', path: '/blocked', host: 'blocked' }) };
+        const searchable = { ...buildPlainRow('searchable'), encryptionMode: 'e2ee' as const };
+        try {
+            for (const rows of [[blocked], [blocked, searchable], [searchable], []]) {
+                storage.setState(storage.getInitialState(), true);
+                applySessions.mockClear();
+                decryptMetadata.mockClear();
+                const result = await fetchRows(rows);
+                const allowedIds = rows.filter(row => row.encryptionMode === 'e2ee').map(row => row.id);
+                expect(result.sessionIds).toEqual(allowedIds);
+                expect([...result.sessionMetadataVersions.keys()]).toEqual(allowedIds);
+                expect(onSnapshotFetched).toHaveBeenLastCalledWith(allowedIds);
+                expect(Object.keys(storage.getState().sessionListRenderables)).toEqual(allowedIds);
+                expect(storage.getState().sessions['policy-blocked']).toBeUndefined();
+                expect(applySessions.mock.calls.flatMap(([applied]) => applied.map((row: { id: string }) => row.id))).toEqual(allowedIds);
+                expect(decryptMetadata.mock.calls.map(([, value]) => value)).toEqual(allowedIds.map(() => searchable.metadata));
+                expect(result).toMatchObject({ serverReportedListEnd: true, cancelled: false,
+                    hasUnmaterializedRows: rows.includes(blocked) });
+            }
+        } finally {
+            storage.setState(previousStorage, true);
+        }
+    });
+
+    it.each([
+        [{ hasNext: false, nextCursor: null }, true],
+        [{}, false],
+        [{ hasNext: true, nextCursor: 'next' }, false],
+        [{ hasNext: true, nextCursor: null }, false],
+        [{ hasNext: 'false', nextCursor: null }, false],
+    ])('distinguishes explicit V2 terminal evidence from stopped paging %j', async (pagination, terminal) => {
+        const result = await snapshot({ request: async () => jsonResponse({ sessions: [], ...pagination }) });
+        expect(result).toMatchObject({ serverReportedListEnd: terminal, cancelled: false, hasUnmaterializedRows: false });
+    });
+
+    it('does not turn the capped V1 fallback into terminal evidence or add requests', async () => {
+        const request = vi.fn(async (path: string) => path.startsWith('/v2/')
+            ? jsonResponse({ error: 'Not found' }, 404)
+            : jsonResponse({ sessions: [buildPlainRow('legacy')] }));
+        const applySessions = vi.fn();
+        const result = await snapshot({ request, applySessions });
+        expect(result).toMatchObject({ source: 'v1', serverReportedListEnd: false, hasUnmaterializedRows: false });
+        expect(applySessions.mock.calls[0][0]).toHaveLength(1);
+        expect(request.mock.calls.map(([path]) => path)).toEqual(['/v2/sessions?limit=50', '/v1/sessions']);
+    });
+
+    it.each(['missing-key', 'null-metadata', 'throw'] as const)('reports unreadable encrypted input on the full-record path: %s', async failure => {
+        const row = { ...buildPlainRow('encrypted'), encryptionMode: 'e2ee' as const, metadata: 'opaque' };
+        const encryption = createEncryptionHarness();
+        if (failure !== 'missing-key') encryption.getSessionEncryption = () => ({
+            decryptMetadata: async () => { if (failure === 'throw') throw new Error('decode failed'); return null; },
+            decryptAgentState: async () => ({}),
+        });
+        const result = await snapshot({ encryption, request: async () => jsonResponse({ sessions: [row], hasNext: false, nextCursor: null }) });
+        expect(result).toMatchObject({ serverReportedListEnd: true, hasUnmaterializedRows: true, cancelled: false });
+    });
+
+    it('reports missing plaintext metadata as incomplete while still applying the readable sibling', async () => {
+        const applySessions = vi.fn();
+        const result = await snapshot({ applySessions, request: async () => jsonResponse({
+            sessions: [buildPlainRow('readable'), { ...buildPlainRow('unreadable'), metadataVersion: 2, metadata: 'invalid' }], hasNext: false, nextCursor: null,
+        }) });
+        expect(result.hasUnmaterializedRows).toBe(true);
+        expect(result.sessionMetadataVersions).toEqual(new Map([['readable', 1], ['unreadable', 2]]));
+        expect(applySessions.mock.calls[0][0]).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'readable', metadata: expect.any(Object) })]));
+    });
+
+    it('suppresses terminal evidence when superseded during full-record decryption, without applying stale rows', async () => {
+        const decrypted = createDeferred<null>();
+        const entered = createDeferred<void>();
+        const encryption = createEncryptionHarness();
+        encryption.getSessionEncryption = () => ({
+            decryptMetadata: async () => { entered.resolve(); return decrypted.promise; },
+            decryptAgentState: async () => ({}),
+        });
+        const applySessions = vi.fn();
+        const request = async () => jsonResponse({ sessions: [{ ...buildPlainRow('encrypted'), encryptionMode: 'e2ee', metadata: 'opaque' }], hasNext: false, nextCursor: null });
+        const pending = snapshot({ encryption, request, applySessions });
+        await entered.promise;
+        await snapshot({ encryption });
+        decrypted.resolve(null);
+        const result = await pending;
+        expect(result).toMatchObject({ cancelled: true, serverReportedListEnd: false });
+        expect(applySessions).not.toHaveBeenCalled();
+    });
+
+    it('does not certify a multi-page fetch which revisited its starting cursor before a terminal response', async () => {
+        let requests = 0;
+        const result = await snapshot({
+            sessionListCursor: 'repeated', sessionListMaxPages: 3,
+            request: async () => jsonResponse({ sessions: [], hasNext: ++requests === 1, nextCursor: requests === 1 ? 'repeated' : null }),
+        });
+        expect(result.serverReportedListEnd).toBe(false);
+        // Evidence must not alter the existing caller's pagination cost or continuation.
+        expect(requests).toBe(2);
+        expect(result.hasNext).toBe(false);
     });
 });

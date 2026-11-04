@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDeferred } from '@/dev/testkit';
+import { createDeferred, createSessionFixture } from '@/dev/testkit';
+import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
 import { storage } from '@/sync/domains/state/storage';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { installSessionRecordHarness, jsonResponse, plainWorkerRecord } from '@/ignorePrevious/testkit/sessionRecordHarness';
@@ -257,7 +258,64 @@ describe('sync record-only hydration', () => {
         } finally { owner.syncTuning.sessionListBackgroundHydrationMaxRows = previousLimit; }
     });
 
-    it('fetches only missing late records, dedupes concurrent registrations, caps at four, and retries failures only after set changes', async () => {
+    it.each(['late', 'snapshot'] as const)('refreshes demanded stale metadata through %s demand while reusing current loaded records', async demand => {
+        if (demand === 'late') await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        const serverId = String(getActiveServerSnapshot().serverId);
+        const stale = createSessionFixture({ id: 'demand-stale', serverId, metadataVersion: 1 });
+        const current = createSessionFixture({ id: 'demand-current', serverId, metadataVersion: 2 });
+        storage.getState().applySessions([stale, current]);
+        const loadedCurrent = storage.getState().sessions[current.id];
+        storage.getState().replaceSessionListRenderables([
+            buildSessionListRenderableFromSession({ ...stale, metadataVersion: 2 }),
+            buildSessionListRenderableFromSession(current),
+        ], { coversWholeList: true });
+        const response = createDeferred<Response>();
+        const original = harness.http.getMockImplementation()!;
+        harness.http.mockImplementation(path => path === '/v2/sessions/demand-stale' ? response.promise : original(path));
+        register(stale.id);
+        register(stale.id);
+        register(current.id);
+        const snapshot = demand === 'snapshot' ? harness.sync.refreshSessions({ awaitSessionListHydration: true }) : undefined;
+        await vi.waitFor(() => expect(harness.http.mock.calls.filter(([path]) => path === '/v2/sessions/demand-stale')).toHaveLength(1));
+        response.resolve(jsonResponse({ session: { ...plainWorkerRecord(stale.id), metadataVersion: 2 } }));
+        await snapshot;
+        await vi.waitFor(() => expect(storage.getState().sessions[stale.id]?.metadataVersion).toBe(2));
+        expect(storage.getState().sessions[current.id]).toBe(loadedCurrent);
+        expect(harness.http.mock.calls.filter(([path]) => path === '/v2/sessions/demand-current')).toHaveLength(0);
+        register(stale.id)();
+        await new Promise(resolve => setTimeout(resolve, 30));
+        expect(harness.http.mock.calls.filter(([path]) => path === '/v2/sessions/demand-stale')).toHaveLength(1);
+    });
+
+    it('keeps failed stale demand observable without looping, and retries through an explicit snapshot', async () => {
+        await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        const stale = createSessionFixture({ id: 'stale-retry', serverId: String(getActiveServerSnapshot().serverId), metadataVersion: 1 });
+        storage.getState().applySessions([stale]);
+        storage.getState().replaceSessionListRenderables([
+            buildSessionListRenderableFromSession({ ...stale, metadataVersion: 2 }),
+        ], { coversWholeList: true });
+        const failureLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const original = harness.http.getMockImplementation()!;
+        let fail = true;
+        harness.http.mockImplementation(async path => path === '/v2/sessions/stale-retry'
+            ? fail ? jsonResponse({ error: 'unavailable' }, 503)
+                : jsonResponse({ session: { ...plainWorkerRecord(stale.id), metadataVersion: 2 } })
+            : original(path));
+        try {
+            register(stale.id);
+            await vi.waitFor(() => expect(failureLog).toHaveBeenCalledWith(expect.stringContaining('Sync.recordConsumerHydration'), expect.any(Error)));
+            register(stale.id)();
+            await new Promise(resolve => setTimeout(resolve, 30));
+            expect(storage.getState().sessions[stale.id]?.metadataVersion).toBe(1);
+            expect(harness.http.mock.calls.filter(([path]) => path === '/v2/sessions/stale-retry')).toHaveLength(1);
+            fail = false;
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            expect(storage.getState().sessions[stale.id]?.metadataVersion).toBe(2);
+            expect(harness.http.mock.calls.filter(([path]) => path === '/v2/sessions/stale-retry')).toHaveLength(2);
+        } finally { failureLog.mockRestore(); }
+    });
+
+    it('fetches only missing late records, dedupes registrations, caps at four, and does not retry failures when other demand changes', async () => {
         await harness.sync.refreshSessions({ awaitSessionListHydration: true });
         const gates = new Map<string, ReturnType<typeof createDeferred<void>>>();
         let active = 0;
@@ -296,8 +354,8 @@ describe('sync record-only hydration', () => {
         await new Promise(resolve => setTimeout(resolve, 30));
         expect(exactIds.filter(id => id === 'late-failed')).toHaveLength(1);
         register('late-new');
-        await vi.waitFor(() => expect(exactIds.filter(id => id === 'late-failed')).toHaveLength(2));
         await vi.waitFor(() => expect(storage.getState().sessions['late-new']).toBeDefined());
+        expect(exactIds.filter(id => id === 'late-failed')).toHaveLength(1);
         expect(exactIds.filter(id => id === 'late-0')).toHaveLength(1);
         expect(harness.http.mock.calls.some(([path]) => /\/(messages|turns)(\?|$)/.test(path))).toBe(false);
     });

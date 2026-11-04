@@ -37,6 +37,11 @@ export function resolveIssue(src: IssueSources, knownProjectCodes?: ReadonlySet<
     return anchor;
 }
 
+/** Evidence needed before a missing issue key means that no issue could be resolved. */
+export function hasSessionIssueMetadata(row: SessionListRenderableSession, loaded: Session | undefined): boolean {
+    return Boolean(loaded?.metadata && loaded.metadataVersion >= row.metadataVersion);
+}
+
 /** List rows cannot establish a weaker link until the full record's tag has caught up. */
 export function resolveSessionIssue(
     row: SessionListRenderableSession,
@@ -44,7 +49,7 @@ export function resolveSessionIssue(
     branch: string | null,
     knownProjectCodes?: ReadonlySet<string>,
 ): string | null {
-    if (!loaded?.metadata || loaded.metadataVersion < row.metadataVersion) return null;
+    if (!hasSessionIssueMetadata(row, loaded) || !loaded?.metadata) return null;
     const tag = loaded.metadata.tag;
     return resolveIssue({
         tag: typeof tag === 'string' ? tag : null,
