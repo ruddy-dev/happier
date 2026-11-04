@@ -308,6 +308,54 @@ it.each([390, 820])('keeps phone top bar controls and accessible tabs at %i', as
     expect(element('ip-tab-waiting').closest('[role="tablist"]')).not.toBeNull();
     expect(element('ip-tab-shog').getAttribute('aria-selected')).toBe('true');
 });
+it.each(['Enter', ' '])('activates phone tabs once on %j release and retains the draft', async key => {
+    await render(820);
+    const composer = element('composer') as HTMLInputElement;
+    composer.value = 'Unsent draft';
+    const press = async (id: string) => {
+        const tab = element(id);
+        await act(async () => tab.focus());
+        expect(getComputedStyle(tab).borderTopWidth).toBe('2px');
+        await act(async () => {
+            tab.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+            tab.dispatchEvent(new KeyboardEvent('keydown', { key, repeat: true, bubbles: true, cancelable: true }));
+        });
+        expect(tab.getAttribute('aria-selected')).toBe('false');
+        await act(async () => tab.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true })));
+        expect(tab.getAttribute('aria-selected')).toBe('true');
+    };
+    await press('ip-tab-work');
+    await press('ip-tab-shog');
+    expect(element('composer')).toBe(composer);
+    expect(composer.value).toBe('Unsent draft');
+    await press('ip-tab-waiting');
+    expect(drawer()).not.toBeNull();
+});
+it('opens Waiting once when Space is released', async () => {
+    await render(820);
+    const tab = element('ip-tab-waiting');
+    await act(async () => tab.focus());
+    await act(async () => tab.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })));
+    expect(tab.getAttribute('aria-selected')).toBe('false');
+    await act(async () => tab.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true })));
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(drawer()).not.toBeNull();
+});
+it('cancels a held tab Space on blur and does not activate from a repeat alone', async () => {
+    await render(820);
+    const work = element('ip-tab-work');
+    await act(async () => work.focus());
+    const down = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    await act(async () => work.dispatchEvent(down));
+    expect(down.defaultPrevented).toBe(true);
+    await act(async () => element('ip-tab-shog').focus());
+    await act(async () => work.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true })));
+    expect(work.getAttribute('aria-selected')).toBe('false');
+    await act(async () => work.focus());
+    await act(async () => work.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', repeat: true, bubbles: true, cancelable: true })));
+    await act(async () => work.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true })));
+    expect(work.getAttribute('aria-selected')).toBe('false');
+});
 it('uses the selected desk palette for phone tabs and provides real focusable targets', async () => {
     deskPrefs.set('chatStyle', 'terminal'); deskPrefs.set('terminalPalette', 'tokyo');
     await render(390);
