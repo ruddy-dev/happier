@@ -7,6 +7,10 @@ import { t } from '@/text';
 import { initialRunSettings, offersUltracode, runEffortControl, runSettingsReducer, type DeskModel, type DeskEffort, type RunSettingsAction } from '../model/runSettings';
 import { useDeskPopup } from '../popups/useDeskPopup';
 import { DeskText } from '../typography/DeskText';
+import { deskMonoFontFamily } from '../fonts/deskFont';
+import { useCoordinatorComposerLayout } from '../model/coordinatorComposerInput';
+import { useDeskPref } from '../deskPrefs';
+import { terminalPalettes, useDeskPaint } from '../palette';
 
 const models = ['default', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'] as const;
 const modelKeys = { default: 'default', 'claude-opus-5-5': 'opus', 'claude-sonnet-5-5': 'sonnet', 'claude-haiku-5-5': 'haiku', 'claude-fable-5-1': 'fable' } as const;
@@ -22,6 +26,13 @@ function menuItemRole(kind: 'radio' | 'checkbox'): Pick<PressableProps, 'role'> 
 /** Fixture-only settings. Item 2.8 owns session writes and real turn-state wiring. */
 export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
     const { theme } = useUnistyles();
+    const { desk, terminal } = useCoordinatorComposerLayout();
+    const [palette] = useDeskPref('terminalPalette');
+    const { paint: slipPaint } = useDeskPaint();
+    const paint = terminal ? terminalPalettes[palette] : slipPaint;
+    const ink = desk ? paint.ink : theme.colors.text.primary;
+    const muted = desk ? paint.mute : theme.colors.text.secondary;
+    const fontFamily = deskMonoFontFamily();
     const [settings, setSettings] = React.useState(initialRunSettings);
     const [open, setOpen] = React.useState(false);
     const [changedDuringTurn, setChangedDuringTurn] = React.useState(false);
@@ -38,15 +49,15 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
     };
     const effort = runEffortControl(settings);
     const summary = `${modelLabel(settings.model)} · ${settings.ultracode ? t('ignorePrevious.runSettings.ultracode') : effortLabel(settings.effort)} · ${t('ignorePrevious.runSettings.plansOnly')}`;
-    const headingStyle = { color: theme.colors.text.secondary, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 3, fontSize: 12, fontWeight: '600' as const };
-    const noteStyle = { color: theme.colors.text.secondary, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12 };
+    const headingStyle = { color: muted, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 3, fontSize: 12, fontFamily, fontWeight: '600' as const };
+    const noteStyle = { color: muted, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontFamily };
     const choiceStyle = { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6 };
     return <>
-        <View style={{ flexShrink: 1 }}>
+        <View style={{ flexShrink: 1, minWidth: 0 }}>
             <Pressable ref={openerRef} testID="ip-run-settings" accessibilityRole="button" accessibilityLabel={summary}
                 aria-expanded={open} accessibilityState={{ expanded: open }} aria-haspopup="menu" onPress={() => setOpen(value => !value)}
-                style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12 }}>
-                <DeskText style={{ color: theme.colors.text.primary, fontSize: 13, fontWeight: settings.ultracode ? '700' : '400' }}>{summary}</DeskText>
+                style={{ paddingHorizontal: 9, paddingVertical: 4, minHeight: 44, justifyContent: 'center', borderRadius: terminal ? 2 : 12 }}>
+                <DeskText style={{ color: ink, fontSize: 13, fontWeight: settings.ultracode ? '700' : '400', fontFamily }}>{terminal ? `[${summary}]` : summary}</DeskText>
             </Pressable>
             {midTurn && changedDuringTurn ? <DeskText testID="ip-run-next-turn" accessibilityLiveRegion="polite" style={noteStyle}>{t('ignorePrevious.runSettings.nextTurn')}</DeskText> : null}
         </View>
@@ -66,8 +77,8 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
                             {models.map(model => <Pressable key={model} testID={`ip-run-model-${model}`} {...menuItemRole('radio')}
                                 aria-checked={settings.model === model} accessibilityState={{ checked: settings.model === model }} onPress={() => change({ type: 'model', model })}
                                 style={[choiceStyle, settings.model === model ? { backgroundColor: theme.colors.surface.selected } : null]}>
-                                <DeskText style={{ color: theme.colors.text.primary }}>{modelLabel(model)}</DeskText>
-                                <DeskText style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{t(`ignorePrevious.runSettings.modelDescriptions.${modelKeys[model]}`)}</DeskText>
+                                <DeskText style={{ color: ink, fontFamily }}>{modelLabel(model)}</DeskText>
+                                <DeskText style={{ color: muted, fontSize: 12, fontFamily }}>{t(`ignorePrevious.runSettings.modelDescriptions.${modelKeys[model]}`)}</DeskText>
                             </Pressable>)}
                         </View>
                         <View style={{ flex: 1, minWidth: 0 }}>
@@ -77,15 +88,15 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
                                 {effort.levels.map(value => <Pressable key={value} testID={`ip-run-effort-${value}`} {...menuItemRole('radio')}
                                     disabled={effort.disabled} aria-checked={effort.effectiveValue === value} accessibilityState={{ checked: effort.effectiveValue === value, disabled: effort.disabled === true }}
                                     onPress={() => change({ type: 'effort', effort: value })} style={choiceStyle}>
-                                    <DeskText style={{ color: effort.disabled ? theme.colors.text.secondary : theme.colors.text.primary }}>{effortLabel(value)}</DeskText>
-                                    <DeskText style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{t(`ignorePrevious.runSettings.effortDescriptions.${value}`)}</DeskText>
+                                    <DeskText style={{ color: effort.disabled ? muted : ink, fontFamily }}>{effortLabel(value)}</DeskText>
+                                    <DeskText style={{ color: muted, fontSize: 12, fontFamily }}>{t(`ignorePrevious.runSettings.effortDescriptions.${value}`)}</DeskText>
                                 </Pressable>)}
                             </View>
                             <DeskText style={headingStyle}>{t('ignorePrevious.runSettings.ultracode')}</DeskText>
                             {offersUltracode(settings.model) ? <Pressable testID="ip-run-ultracode" {...menuItemRole('checkbox')}
                                 aria-checked={settings.ultracode} accessibilityState={{ checked: settings.ultracode }} onPress={() => change({ type: 'ultracode', enabled: !settings.ultracode })} style={choiceStyle}>
-                                <DeskText style={{ color: theme.colors.text.primary }}>{t(settings.ultracode ? 'ignorePrevious.runSettings.ultracodeOn' : 'ignorePrevious.runSettings.ultracodeOff')}</DeskText>
-                                <DeskText style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{t('ignorePrevious.runSettings.ultracodeDescription')}</DeskText>
+                                <DeskText style={{ color: ink, fontFamily }}>{t(settings.ultracode ? 'ignorePrevious.runSettings.ultracodeOn' : 'ignorePrevious.runSettings.ultracodeOff')}</DeskText>
+                                <DeskText style={{ color: muted, fontSize: 12, fontFamily }}>{t('ignorePrevious.runSettings.ultracodeDescription')}</DeskText>
                             </Pressable> : <DeskText style={noteStyle}>{t('ignorePrevious.runSettings.ultracodeUnavailable')}</DeskText>}
                             <DeskText style={headingStyle}>{t('ignorePrevious.runSettings.permissionMode')}</DeskText>
                             <DeskText style={noteStyle}>{t('ignorePrevious.runSettings.permissionNote')}</DeskText>

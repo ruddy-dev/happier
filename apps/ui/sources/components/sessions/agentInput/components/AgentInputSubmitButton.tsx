@@ -12,6 +12,7 @@ import { hapticsLight } from '@/components/ui/theme/haptics';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
+import { useCoordinatorComposerLayout } from '@/ignorePrevious/model/coordinatorComposerInput';
 
 import {
     resolveAgentContinuationSubmitPresentation,
@@ -128,6 +129,7 @@ export const AgentInputSubmitButton = React.memo(function AgentInputSubmitButton
     onStop?: () => void;
 }>) {
     const { theme } = useUnistyles();
+    const { desk } = useCoordinatorComposerLayout();
     const showStopWhenEmpty = !props.hasSendableContent && !props.micPressHandler && props.canStop === true;
     /*
      * With nothing to send, a composer that has Voice hands this button to the
@@ -182,6 +184,7 @@ export const AgentInputSubmitButton = React.memo(function AgentInputSubmitButton
                 <RoundButton
                     testID={props.testID}
                     size="small"
+                    style={desk ? { minHeight: 44, minWidth: 44 } : undefined}
                     // "Continue with [mark]". Pressing this does not only send — it
                     // continues the Session with another Agent — so the control says
                     // so on its face rather than only in a popover the reader has
@@ -211,6 +214,7 @@ export const AgentInputSubmitButton = React.memo(function AgentInputSubmitButton
         <AgentInputSubmitShape>
             <PrimaryCircleIconButton
                 testID={props.testID}
+                style={desk ? { width: 44, height: 44 } : undefined}
                 active={props.hasSendableContent || props.isSending || Boolean(props.micPressHandler) || showStopWhenEmpty}
                 loading={props.isSending || (showStopWhenEmpty && props.isStopping)}
                 disabled={props.disabled}

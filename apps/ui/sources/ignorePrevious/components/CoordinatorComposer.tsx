@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Platform, View } from 'react-native';
 import { t } from '@/text';
 import { useDeskPref } from '../deskPrefs';
-import { terminalPalettes } from '../palette';
+import { deskThemes, terminalPalettes, useDeskPaint, type SpriteTheme } from '../palette';
 import { DESK_FONT_STACK } from '../fonts/deskFont';
 import { CoordinatorComposerInputContext, createCoordinatorComposerObserver } from '../model/coordinatorComposerInput';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
@@ -17,14 +17,20 @@ export function CoordinatorComposer({ children, coordinatorId, phone = false }: 
 
 function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {
     const [observer] = React.useState(createCoordinatorComposerObserver);
-    const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null, phone,
-        panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null }), [observer, coordinatorId, phone]);
+    const [style] = useDeskPref('chatStyle');
+    const { paint, borderWidth } = useDeskPaint();
+    const [palette] = useDeskPref('terminalPalette');
+    const panelStyle = React.useMemo(() => style === 'mask' ? slipPanelStyle(paint, borderWidth) : undefined, [style, paint, borderWidth]);
+    const controlInk = style === 'terminal' ? terminalPalettes[palette].ink : paint.ink;
+    const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null, phone, terminal: style === 'terminal', panelStyle, controlInk,
+        panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null }), [observer, coordinatorId, phone, panelStyle, style, controlInk]);
     return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
 }
 
 function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {
     const [observer] = React.useState(createCoordinatorComposerObserver);
     const [style] = useDeskPref('chatStyle');
+    const { paint: slipPaint, borderWidth: slipBorderWidth } = useDeskPaint();
     const [palette] = useDeskPref('terminalPalette');
     const paint = terminalPalettes[palette];
     const terminal = style === 'terminal';
@@ -32,13 +38,16 @@ function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsW
     const context = React.useMemo(() => ({
         observer,
         phone,
+        terminal,
+        controlInk: terminal ? paint.ink : slipPaint.ink,
+        panelStyle: terminal ? undefined : slipPanelStyle(slipPaint, slipBorderWidth),
         prompt: terminal ? <DeskText testID="ip-composer-prompt" aria-hidden style={{ color: paint.user, fontSize: 13, fontWeight: '700' }}>
             {t('ignorePrevious.composer.prompt')}<DeskText style={{ color: paint.mute }}>{' ~ '}</DeskText>{'> '}
         </DeskText> : null,
         panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null,
         panelFooter: terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null,
         textStyle: terminal ? { fontFamily: DESK_FONT_STACK, color: paint.ink } : undefined,
-    }), [observer, terminal, paint, phone, coordinatorId]);
+    }), [observer, terminal, paint, slipPaint, slipBorderWidth, phone, coordinatorId]);
     // CSS changes only this instance's existing web composer hosts. It neither discovers inputs
     // nor changes controls, focus, permission labels, context data or native layout.
     const selector = `#${scope}`;
@@ -86,4 +95,10 @@ function ComposerStatusStrip({ observer, paint }: {
 function PhoneShortcuts({ observer, coordinatorId }: { observer: ReturnType<typeof createCoordinatorComposerObserver>; coordinatorId: string }) {
     const writing = React.useSyncExternalStore(observer.subscribe, () => observer.getSnapshot().writing, () => false);
     return writing ? null : <CoordinatorPrompts coordinatorId={coordinatorId} phone />;
+}
+
+/** Mockup 12 uses the desk background, except Paper's white input panel. */
+function slipPanelStyle(paint: SpriteTheme, borderWidth: number) {
+    return { backgroundColor: paint === deskThemes.paper ? paint.panel2 : paint.bg, borderColor: paint.edge,
+        borderWidth, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderBottomRightRadius: 18, borderBottomLeftRadius: 8 };
 }

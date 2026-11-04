@@ -2,7 +2,8 @@ import * as React from 'react';
 import { Pressable, View, type View as RNView } from 'react-native';
 import { ResumeChip } from './ResumeChip';
 import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeForView';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
+import { useCoordinatorComposerLayout } from '@/ignorePrevious/model/coordinatorComposerInput';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from '@/components/sessions/agentInput/definitions/agentInputChipIconMetrics';
 
@@ -34,6 +35,7 @@ export type PathAndResumeRowProps = {
 };
 
 export function PathAndResumeRow(props: PathAndResumeRowProps) {
+    const { desk } = useCoordinatorComposerLayout();
     const leadingControls = props.leadingControls?.filter(Boolean) ?? [];
     const hasPath = Boolean(props.onPathClick);
     const hasResume = Boolean(props.onResumeClick);
@@ -52,6 +54,7 @@ export function PathAndResumeRow(props: PathAndResumeRowProps) {
                         hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                         style={(p) => ([
                             props.styles.actionChip,
+                            desk ? { height: 44, minWidth: 44 } : null,
                             p.pressed ? props.styles.actionChipPressed : null,
                             // Keep the path chip readable on mobile: let the row wrap it as a whole instead of
                             // compressing the text into an icon-only sliver.
@@ -64,15 +67,14 @@ export function PathAndResumeRow(props: PathAndResumeRowProps) {
                                 size={AGENT_INPUT_CHIP_ICON_SIZE_PX}
                                 color={props.iconColor} style={AGENT_INPUT_CHIP_ICON_STYLE} />,
                         )}
-                        <Text
+                        <DeskActionLabel
                             numberOfLines={1}
                             ellipsizeMode="middle"
                             style={[props.styles.actionChipText, { flexShrink: 1 }]}
-                        >
-                            {typeof props.currentPath === 'string' && props.currentPath.length > 0
+                            label={typeof props.currentPath === 'string' && props.currentPath.length > 0
                                 ? props.currentPath
                                 : props.emptyPathLabel}
-                        </Text>
+                        />
                     </Pressable>
                 ) : null}
 
@@ -87,6 +89,7 @@ export function PathAndResumeRow(props: PathAndResumeRowProps) {
                         iconColor={props.iconColor}
                         pressableStyle={(pressed) => ([
                             props.styles.actionChip,
+                            desk ? { height: 44, minWidth: 44 } : null,
                             !props.showChipLabels ? props.styles.actionChipIconOnly : null,
                             pressed ? props.styles.actionChipPressed : null,
                             // Prefer wrapping the chip onto a new line over shrinking it to fit the current line.

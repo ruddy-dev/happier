@@ -6,7 +6,7 @@ import type { ParticipantRecipientV1 } from '@happier-dev/protocol';
 import type { AgentInputExtraActionChipRenderContext } from '@/components/sessions/agentInput/agentInputContracts';
 import { AgentInputSelectionListPopover } from '@/components/sessions/agentInput/components/AgentInputSelectionListPopover';
 import type { SelectionListStep } from '@/components/ui/selectionList';
-import { Text } from '@/components/ui/text/Text';
+import { DeskActionLabel } from '@/ignorePrevious/components/DeskActionLabel';
 import { t } from '@/text';
 
 import { buildExecutionRunDeliveryRootStep } from './createExecutionRunDeliveryActionChip';
@@ -50,9 +50,7 @@ export const ExecutionRunDeliveryChip = React.memo(function ExecutionRunDelivery
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Icon name="sliders-horizontal" size={AGENT_INPUT_CHIP_ICON_SIZE_PX} color={props.ctx.iconColor} style={AGENT_INPUT_CHIP_ICON_STYLE} />
                         {props.ctx.showLabel ? (
-                            <Text numberOfLines={1} style={props.ctx.textStyle}>
-                                {t('runs.delivery.cardDelivery', { label: selectedLabel })}
-                            </Text>
+                            <DeskActionLabel numberOfLines={1} style={props.ctx.textStyle} label={t('runs.delivery.cardDelivery', { label: selectedLabel })} />
                         ) : null}
                     </View>
                 </Pressable>

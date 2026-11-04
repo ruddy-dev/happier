@@ -8,6 +8,7 @@ import { normalizeNodeForView } from '@/components/ui/rendering/normalizeNodeFor
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
 import { AGENT_INPUT_CHIP_ICON_SIZE_PX, AGENT_INPUT_CHIP_ICON_STYLE } from '@/components/sessions/agentInput/definitions/agentInputChipIconMetrics';
+import { useCoordinatorComposerLayout } from '@/ignorePrevious/model/coordinatorComposerInput';
 
 const SOURCE_CONTROL_BUTTON_HIT_SLOP = { top: 5, bottom: 10, left: 0, right: 0 } as const;
 
@@ -18,6 +19,7 @@ export const AgentInputSourceControlStatusButton = React.memo(function AgentInpu
 }>) {
     const hasMeaningfulScmStatus = useHasMeaningfulScmStatus(props.sessionId || '');
     const { theme } = useUnistyles();
+    const { desk, controlInk } = useCoordinatorComposerLayout();
     const compact = props.compact === true;
     const handlePress = React.useCallback(() => {
         hapticsLight();
@@ -29,11 +31,12 @@ export const AgentInputSourceControlStatusButton = React.memo(function AgentInpu
         borderRadius: Platform.select({ default: 16, android: 20 }),
         paddingHorizontal: 8,
         paddingVertical: 6,
-        height: 32,
+        height: desk ? 44 : 32,
+        minWidth: desk ? 44 : undefined,
         opacity: state.pressed ? 0.7 : 1,
         flex: compact ? 0 : 1,
         overflow: 'hidden' as const,
-    }), [compact]);
+    }), [compact, desk]);
 
     if (!props.sessionId || !props.onPress) {
         return null;
@@ -55,7 +58,7 @@ export const AgentInputSourceControlStatusButton = React.memo(function AgentInpu
                     <Icon
                         name="git-branch"
                         size={AGENT_INPUT_CHIP_ICON_SIZE_PX}
-                        color={theme.colors.composer.chipTint} style={AGENT_INPUT_CHIP_ICON_STYLE} />,
+                        color={controlInk ?? theme.colors.composer.chipTint} style={AGENT_INPUT_CHIP_ICON_STYLE} />,
                 )
             )}
         </Pressable>

@@ -2519,6 +2519,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     }), []);
     const chipStyle = React.useCallback((pressed: boolean) => ([
         styles.actionChip,
+        deskLayout.desk ? { height: 44, minWidth: 44 } : null,
         !showChipLabels ? actionChipTransientStyles.iconOnly : null,
         pressed ? actionChipTransientStyles.pressed : null,
     ]), [
@@ -2526,9 +2527,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         actionChipTransientStyles.pressed,
         showChipLabels,
         styles.actionChip,
+        deskLayout.desk,
     ]);
     const chipStyleAutoHide = React.useCallback((pressed: boolean) => ([
         styles.actionChip,
+        deskLayout.desk ? { height: 44, minWidth: 44 } : null,
         !showAutoHideChipLabels ? actionChipTransientStyles.iconOnly : null,
         pressed ? actionChipTransientStyles.pressed : null,
     ]), [
@@ -2536,6 +2539,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         actionChipTransientStyles.pressed,
         showAutoHideChipLabels,
         styles.actionChip,
+        deskLayout.desk,
     ]);
 
     // Fade the chip rows out to the composer's own fill: the glass surface in glass
@@ -2688,14 +2692,14 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         chips: props.extraActionChips,
         overlayAnchorRef,
         onToggleExtraChipCollapsedPopover: handleToggleExtraChipCollapsedPopover,
-        themeTint: theme.colors.composer.chipTint,
+        themeTint: deskLayout.controlInk ?? theme.colors.composer.chipTint,
         showChipLabels,
         showAutoHideChipLabels,
         chipStyle,
         chipStyleAutoHide,
         textStyle: styles.actionChipText,
         countTextStyle: styles.actionChipCountText,
-        actionButtonStyle: styles.actionButton,
+        actionButtonStyle: deskLayout.desk ? [styles.actionButton, { height: 44, minWidth: 44 }] : styles.actionButton,
         actionButtonPressedStyle: styles.actionButtonPressed,
         showPermissionChip,
         permissionChipAnchorRef,
@@ -3052,7 +3056,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         <>
             {actionBarShouldScroll ? (
                 <AgentInputScrollableChipRow
-                    revealFocusedControl={deskLayout.phone}
+                    revealFocusedControl={deskLayout.desk}
                     containerStyle={styles.actionButtonsLeftScroll}
                     contentStyle={styles.actionButtonsLeftScrollContent}
                     fadeColor={actionBarFadeColor}
@@ -3095,13 +3099,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             >{[
                 <View
                     key="row1"
-                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.phone ? { flexDirection: 'column', alignItems: 'stretch' } : null]}
+                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.desk ? { flexDirection: 'column', alignItems: 'stretch' } : null]}
                 >
-                    {deskLayout.desk ? <View style={deskLayout.phone ? { width: '100%' } : { flexShrink: 1 }}>{leadingActions}</View> : leadingActions}
+                    {deskLayout.desk ? <View style={{ width: '100%', minWidth: 0 }}>{leadingActions}</View> : leadingActions}
                     {deskLayout.desk ? (
                         <View
                             testID="agent-input-desk-controls-row"
-                            style={[styles.actionButtonsRow, deskLayout.phone ? { width: '100%' } : { flex: 1, minWidth: 0 }]}
+                            style={[styles.actionButtonsRow, { width: '100%', minWidth: 0 }]}
                         >
                             {renderActionControls()}
                         </View>
@@ -3130,7 +3134,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 fillAvailableWidth={false}
                                 leadingControls={secondaryLeadingControlsForWrap}
                                 showChipLabels={showChipLabels}
-                                iconColor={theme.colors.composer.chipTint}
+                                iconColor={deskLayout.controlInk ?? theme.colors.composer.chipTint}
                                 currentPath={props.currentPath}
                                 pathChipAnchorRef={pathChipAnchorRef}
                                 emptyPathLabel={t('newSession.selectPathTitle')}
@@ -3159,7 +3163,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             }}
                             leadingControls={secondaryLeadingControlsForWrap}
                             showChipLabels={showChipLabels}
-                            iconColor={theme.colors.composer.chipTint}
+                            iconColor={deskLayout.controlInk ?? theme.colors.composer.chipTint}
                             currentPath={props.currentPath}
                             pathChipAnchorRef={pathChipAnchorRef}
                             emptyPathLabel={t('newSession.selectPathTitle')}
