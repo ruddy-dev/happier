@@ -184,14 +184,17 @@ function signalTargets(targets: { pids: number[]; groupIds: number[] }, signal: 
 }
 
 function allTargetsStopped(targets: { pids: number[]; groupIds: number[] }): boolean {
-  return targets.pids.every((pid) => !isProcessAlive(pid));
+  return targets.pids.every((pid) => !isProcessAlive(pid)) && targets.groupIds.every(groupId => {
+    try { process.kill(-groupId, 0); return false; }
+    catch (error: unknown) { return (error as NodeJS.ErrnoException).code === 'ESRCH'; }
+  });
 }
 
 export async function terminateProcessTreeByPid(
   pid: number,
   options: { graceMs?: number; pollMs?: number; skipAliveCheck?: boolean; additionalPids?: number[] } = {},
 ): Promise<void> {
-  if (!Number.isInteger(pid) || pid <= 0) return;
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error('Cannot confirm termination without an owned process id');
 
   const graceMsRaw = options.graceMs;
   const pollMsRaw = options.pollMs;
@@ -200,31 +203,46 @@ export async function terminateProcessTreeByPid(
   const graceMs = typeof graceMsRaw === 'number' && Number.isInteger(graceMsRaw) && graceMsRaw >= 0 ? graceMsRaw : 10_000;
   const pollMs = typeof pollMsRaw === 'number' && Number.isInteger(pollMsRaw) && pollMsRaw > 0 ? pollMsRaw : 100;
 
-  if (!skipAliveCheck && !isProcessAlive(pid) && additionalPids.every((extraPid) => !isProcessAlive(extraPid))) return;
-
   if (process.platform === 'win32') {
+    if (!skipAliveCheck && !isProcessAlive(pid) && additionalPids.every((extraPid) => !isProcessAlive(extraPid))) return;
     taskkillTree(pid);
     for (const extraPid of additionalPids) {
       taskkillTree(extraPid);
     }
-    return;
+    const deadline = Date.now() + graceMs;
+    while (true) {
+      if (![pid, ...additionalPids].some(isProcessAlive)) return;
+      if (Date.now() >= deadline) throw new Error('Owned process termination was not confirmed');
+      await sleep(pollMs);
+    }
   }
 
-  signalTargets(collectTreeTargets(pid, additionalPids), 'SIGTERM');
+  // Preserve observed targets across reparenting and root exit. A later empty ps
+  // result cannot erase a process we already own or certify a live process group.
+  const observedPids = new Set([pid, ...additionalPids]);
+  const observedGroups = new Set<number>();
+  const collectTargets = () => {
+    const targets = collectTreeTargets(pid, [...observedPids]);
+    for (const target of targets.pids) observedPids.add(target);
+    for (const group of targets.groupIds) observedGroups.add(group);
+    return { pids: [...observedPids], groupIds: [...observedGroups] };
+  };
+  signalTargets(collectTargets(), 'SIGTERM');
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < graceMs) {
-    const targets = collectTreeTargets(pid, additionalPids);
-    if (targets.pids.length === 0 || allTargetsStopped(targets)) return;
+    const targets = collectTargets();
+    if (allTargetsStopped(targets)) return;
     await sleep(pollMs);
   }
 
-  signalTargets(collectTreeTargets(pid, additionalPids), 'SIGKILL');
+  signalTargets(collectTargets(), 'SIGKILL');
 
   const killDeadline = Date.now() + Math.max(250, pollMs * 4);
   while (Date.now() < killDeadline) {
-    const targets = collectTreeTargets(pid, additionalPids);
-    if (targets.pids.length === 0 || allTargetsStopped(targets)) return;
+    const targets = collectTargets();
+    if (allTargetsStopped(targets)) return;
     await sleep(pollMs);
   }
+  if (!allTargetsStopped(collectTargets())) throw new Error('Owned process termination was not confirmed');
 }

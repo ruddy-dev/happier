@@ -126,11 +126,14 @@ export async function runLoggedCommand(params: {
   const streamDrainTimeoutMs = Math.max(10_000, Math.min(timeoutMs, 120_000));
 
   const outcome = await new Promise<{ ok: true } | { ok: false; error: Error }>((resolve) => {
+    let timedOut = false;
     const timer = setTimeout(() => {
-      if (typeof child.pid === 'number' && child.pid > 0) {
-        void terminateProcessTreeByPid(child.pid, { graceMs: 0, pollMs: 25 });
-      }
-      resolve({ ok: false, error: new Error(`${params.command} ${params.args.join(' ')} timed out after ${timeoutMs}ms`) });
+      timedOut = true;
+      const error = new Error(`${params.command} ${params.args.join(' ')} timed out after ${timeoutMs}ms`);
+      void terminateProcessTreeByPid(child.pid ?? 0, { graceMs: 0, pollMs: 25, skipAliveCheck: true }).then(
+        () => resolve({ ok: false, error }),
+        stopError => resolve({ ok: false, error: new AggregateError([error, stopError], 'Command timed out and owned process termination failed') }),
+      );
     }, timeoutMs);
 
     child.on('error', (err) => {
@@ -146,11 +149,12 @@ export async function runLoggedCommand(params: {
       } catch {
         // ignore
       }
-      resolve({ ok: false, error: err instanceof Error ? err : new Error(String(err)) });
+      if (!timedOut) resolve({ ok: false, error: err instanceof Error ? err : new Error(String(err)) });
     });
     child.on('exit', (code, signal) => {
       clearTimeout(timer);
       detachCleanup();
+      if (timedOut) return;
       if (code === 0) {
         resolve({ ok: true });
         return;
@@ -173,6 +177,7 @@ export async function runLoggedCommand(params: {
       throw new Error(
         `${outcome.error.message}; ${drainError.message} ` +
         `(stdout=${params.stdoutPath} stderr=${params.stderrPath})`,
+        { cause: outcome.error },
       );
     }
     throw drainError;
@@ -248,12 +253,7 @@ export function spawnLoggedProcess(params: {
     }
 
     if (typeof child.pid !== 'number' || child.pid <= 0) {
-      try {
-        child.kill(signal);
-      } catch {
-        // ignore
-      }
-      return;
+      throw new Error('Cannot confirm termination without an owned process id');
     }
 
     if (process.platform === 'win32') {

@@ -4300,12 +4300,14 @@ class Sync {
             ...upstreamRequiredSessionIds,
             ...recordConsumerSessionIds,
         ]));
-        // Cold bootstrap has no mounted record consumers yet. Its first snapshot must
-        // materialize metadata before readiness exposes counts and coordinator identity.
-        // Resolve the rows inside the existing snapshot owner, without another fetch.
+        // A refresh can start after disconnect but before restore enters bootstrap.
+        // While the scope is not ready, shared replacement fetches must already meet
+        // the initial snapshot contract, so bootstrap can consume their same result.
         const awaitBootstrapSnapshotHydration = !isAppend
-            && this.bootstrapReadiness?.generation === generation
-            && !this.bootstrapReadiness.sessionsReady;
+            && (!initialState.isDataReady || (
+                this.bootstrapReadiness?.generation === generation
+                && !this.bootstrapReadiness.sessionsReady
+            ));
         const awaitSessionListHydration = options?.awaitSessionListHydration === true
             || awaitBootstrapSnapshotHydration
             || organizationRequiredSessionIds.length > 0
@@ -4416,7 +4418,7 @@ class Sync {
         this.sessionListHasMore = result.hasNext;
         // Direct refresh/import callers share this completion boundary with the queue.
         // Snapshot receipt alone precedes required hydration and may still end in failure.
-        if (!isAppend && snapshotFetched && this.bootstrapReadiness?.generation === generation) {
+        if (awaitBootstrapSnapshotHydration && snapshotFetched && this.bootstrapReadiness?.generation === generation) {
             this.bootstrapReadiness.sessionsReady = true;
             this.publishBootstrapReadyIfComplete();
         }
