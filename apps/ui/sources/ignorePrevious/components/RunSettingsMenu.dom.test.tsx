@@ -6,9 +6,17 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { RunSettingsMenu } from './RunSettingsMenu';
 import { CoordinatorComposerInputContext, createCoordinatorComposerObserver } from '../model/coordinatorComposerInput';
+import { deskPrefs } from '../deskPrefs';
+import { terminalPalettes } from '../palette';
 
 // Real web hosts exercise menu roles, focus and the shared popup lifecycle.
 vi.mock('react-native', async () => vi.importActual('react-native-web'));
+vi.mock('react-native-reanimated', async () => {
+    const { createReanimatedModuleMock } = await import('@/dev/testkit/mocks/reanimated');
+    const rn = await import('react-native-web');
+    const base = createReanimatedModuleMock();
+    return { ...base, default: { ...base.default, View: rn.View, ScrollView: rn.ScrollView } };
+});
 vi.mock('@/hooks/ui/useReducedMotionPreference', async () => { const { createReducedMotionModuleMock } = await import('@/dev/testkit/mocks/reducedMotion'); return createReducedMotionModuleMock(true); });
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root;
@@ -90,4 +98,29 @@ it('binds the Terminal summary to the composer context without changing its acce
     expect(element('ip-run-settings').getAttribute('aria-label')).toBe('Opus 5.5 · high · plans only');
     await click('ip-run-settings');
     expect(element('ip-run-menu').getAttribute('role')).toBe('menu');
+});
+
+it.each(['terminalPaper', 'tokyo'] as const)('paints the portaled Terminal menu and selected and disabled choices together for %s', async (palette) => {
+    const previous = deskPrefs.get('terminalPalette');
+    try {
+        deskPrefs.set('terminalPalette', palette);
+        const context = { observer: createCoordinatorComposerObserver(), prompt: null, panelFooter: null, panelLeading: null, terminal: true };
+        await act(async () => root.render(<SafeAreaInsetsContext.Provider value={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+            <CoordinatorComposerInputContext.Provider value={context}><RunSettingsMenu /></CoordinatorComposerInputContext.Provider>
+        </SafeAreaInsetsContext.Provider>));
+        await click('ip-run-settings');
+        const menu = element('ip-run-menu');
+        expect(container.contains(menu)).toBe(false);
+        let surface = menu.parentElement;
+        while (surface && getComputedStyle(surface).backgroundColor === 'rgba(0, 0, 0, 0)') surface = surface.parentElement;
+        expect(surface).toBeTruthy();
+        const rgb = (color: string) => { const probe = document.createElement('span'); probe.style.color = color; document.body.append(probe); const result = getComputedStyle(probe).color; probe.remove(); return result; };
+        expect(getComputedStyle(surface!).backgroundColor).toBe(rgb(terminalPalettes[palette].bg));
+        expect(getComputedStyle(element('ip-run-model-claude-opus-5-5')).backgroundColor).toBe(rgb(terminalPalettes[palette].panel2));
+        expect(getComputedStyle(element('ip-run-model-claude-opus-5-5').firstElementChild!).color).toBe(rgb(terminalPalettes[palette].ink));
+        await click('ip-run-ultracode');
+        const disabled = element('ip-run-effort-low');
+        expect(disabled.getAttribute('aria-disabled')).toBe('true');
+        expect(getComputedStyle(disabled.firstElementChild!).color).toBe(rgb(terminalPalettes[palette].mute));
+    } finally { await act(async () => deskPrefs.set('terminalPalette', previous)); }
 });

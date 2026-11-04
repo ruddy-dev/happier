@@ -63,7 +63,7 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
         </View>
         <Popover open={open} anchorRef={openerRef} placement="top" portal={{ web: true }}
             {...(Platform.OS === 'web' ? { backdrop: false as const } : { backdrop: true as const, onRequestClose: close })} maxWidthCap={560} edgePadding={8}>
-            {({ maxHeight }) => <FloatingOverlay maxHeight={maxHeight} containerStyle={{ width: 560, maxWidth: '100%' }}>
+            {({ maxHeight }) => <FloatingOverlay maxHeight={maxHeight} surfaceColor={desk ? paint.bg : undefined} containerStyle={{ width: 560, maxWidth: '100%' }}>
                 <View ref={contentRef} testID="ip-run-menu" accessibilityRole="menu" accessibilityLabel={t('ignorePrevious.runSettings.title')}
                     onLayout={() => {
                         // Focus the selected model after the portaled host is mounted. Picks keep focus.
@@ -76,7 +76,7 @@ export function RunSettingsMenu({ midTurn = false }: { midTurn?: boolean }) {
                             <DeskText style={headingStyle}>{t('ignorePrevious.runSettings.model')}</DeskText>
                             {models.map(model => <Pressable key={model} testID={`ip-run-model-${model}`} {...menuItemRole('radio')}
                                 aria-checked={settings.model === model} accessibilityState={{ checked: settings.model === model }} onPress={() => change({ type: 'model', model })}
-                                style={[choiceStyle, settings.model === model ? { backgroundColor: theme.colors.surface.selected } : null]}>
+                                style={[choiceStyle, settings.model === model ? { backgroundColor: desk ? paint.panel2 : theme.colors.surface.selected } : null]}>
                                 <DeskText style={{ color: ink, fontFamily }}>{modelLabel(model)}</DeskText>
                                 <DeskText style={{ color: muted, fontSize: 12, fontFamily }}>{t(`ignorePrevious.runSettings.modelDescriptions.${modelKeys[model]}`)}</DeskText>
                             </Pressable>)}

@@ -3,7 +3,7 @@ import { Platform, View } from 'react-native';
 import { t } from '@/text';
 import { useDeskPref } from '../deskPrefs';
 import { deskThemes, terminalPalettes, useDeskPaint, type SpriteTheme } from '../palette';
-import { DESK_FONT_STACK } from '../fonts/deskFont';
+import { DESK_FONT_STACK, deskMonoFontFamily } from '../fonts/deskFont';
 import { CoordinatorComposerInputContext, createCoordinatorComposerObserver } from '../model/coordinatorComposerInput';
 import { useDeskWaitsSummary } from '../model/useDeskWaits';
 import { CoordinatorPrompts } from './CoordinatorPrompts';
@@ -20,10 +20,12 @@ function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.Pro
     const [style] = useDeskPref('chatStyle');
     const { paint, borderWidth } = useDeskPaint();
     const [palette] = useDeskPref('terminalPalette');
-    const panelStyle = React.useMemo(() => style === 'mask' ? slipPanelStyle(paint, borderWidth) : undefined, [style, paint, borderWidth]);
-    const controlInk = style === 'terminal' ? terminalPalettes[palette].ink : paint.ink;
-    const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null, phone, terminal: style === 'terminal', panelStyle, controlInk,
-        panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null }), [observer, coordinatorId, phone, panelStyle, style, controlInk]);
+    const activePaint = style === 'terminal' ? terminalPalettes[palette] : paint;
+    const panelStyle = React.useMemo(() => style === 'mask' ? slipPanelStyle(paint, borderWidth) :
+        { backgroundColor: activePaint.bg, borderColor: activePaint.edge, borderWidth: 1, borderRadius: 0 }, [style, paint, borderWidth, activePaint]);
+    const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null, phone, terminal: style === 'terminal', panelStyle, controlInk: activePaint.ink,
+        textStyle: { fontFamily: deskMonoFontFamily(), color: activePaint.ink }, placeholderColor: activePaint.mute,
+        panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null }), [observer, coordinatorId, phone, panelStyle, style, activePaint]);
     return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
 }
 

@@ -41,6 +41,7 @@ export const CoordinatorComposerInputContext = React.createContext<Readonly<{
     controlInk?: string;
     panelStyle?: StyleProp<ViewStyle>;
     textStyle?: Readonly<{ fontFamily: string; color: string }>;
+    placeholderColor?: string;
 }> | null>(null);
 
 export function useCoordinatorComposerLayout() {
