@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDesk } from './openDesk';
 
 const uiBaseUrl = 'http://127.0.0.1:23456';
-type View = 'welcome' | 'coordinator' | 'chooser' | 'shell' | 'hidden-chooser' | 'other-route' | 'foreign-composer';
+type View = 'welcome' | 'coordinator' | 'chooser' | 'shell' | 'hidden-chooser' | 'other-route' | 'foreign-composer' | 'restore-root';
 
 // Fake only Playwright's browser boundary. Navigation and both readiness passes run real.
 function browser(first: View, cold: View = first, signedIn = false) {
@@ -45,6 +45,7 @@ function browser(first: View, cold: View = first, signedIn = false) {
             return null;
         }),
         url: () => currentUrl,
+        evaluate: async () => {}, // no count observer in these readiness-only cases
         getByTestId: (id: string) => locator(id),
         getByRole: () => locator('unused-role'),
         locator,
@@ -54,7 +55,7 @@ function browser(first: View, cold: View = first, signedIn = false) {
             const next = load === 1 ? first : cold;
             if (view === 'welcome' && next !== 'welcome') {
                 view = next;
-                currentUrl = next === 'other-route' ? `${uiBaseUrl}/desk/settings` : `${uiBaseUrl}/desk`;
+                currentUrl = next === 'other-route' ? `${uiBaseUrl}/desk/settings` : next === 'restore-root' ? `${uiBaseUrl}/` : `${uiBaseUrl}/desk`;
                 readyLoads.push(load);
             }
         },
@@ -65,6 +66,37 @@ function browser(first: View, cold: View = first, signedIn = false) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('openDesk', () => {
+    it('opens the ordinary desk route after restore has returned to root', async () => {
+        const h = browser('restore-root', 'chooser');
+        await openDesk(h.page, {
+            uiBaseUrl,
+            openAuthenticatedPage: async page => {
+                await page.goto(`${uiBaseUrl}/restore/manual`);
+                await page.waitForTimeout(1);
+            },
+        });
+        expect(h.navigations).toEqual([`${uiBaseUrl}/restore/manual`, `${uiBaseUrl}/desk`]);
+    });
+
+    it('keeps the first authenticated document so cold-load observations survive', async () => {
+        const h = browser('chooser');
+        await openDesk(h.page, {
+            uiBaseUrl,
+            openAuthenticatedPage: async page => { await page.goto(`${uiBaseUrl}/restore/manual`); },
+        });
+        expect(h.navigations).toEqual([`${uiBaseUrl}/restore/manual`]);
+        expect(h.readyLoads).toEqual([1]);
+    });
+
+    it('still requires a ready desk after production authentication', async () => {
+        const h = browser('shell');
+        await expect(openDesk(h.page, {
+            uiBaseUrl,
+            openAuthenticatedPage: async page => { await page.goto(`${uiBaseUrl}/restore/manual`); },
+        })).rejects.toThrow(/Desk.*cold load.*120000ms/);
+        expect(h.navigations).toEqual([`${uiBaseUrl}/restore/manual`]);
+    });
+
     it.each(['coordinator', 'chooser'] as const)('waits through sign-in and a fresh desk load with a %s', async view => {
         const h = browser(view);
         await expect(openDesk(h.page, { uiBaseUrl })).resolves.toBeUndefined();

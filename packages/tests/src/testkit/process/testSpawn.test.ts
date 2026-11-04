@@ -2,7 +2,7 @@ import { once } from 'node:events';
 
 import { describe, expect, it } from 'vitest';
 
-import { isProcessAlive, terminateProcessTreeByPid } from './processTree';
+import { isProcessAlive, observeOwnedProcessTree } from './processTree';
 import { spawnDetachedInlineNodeTestProcess, spawnDetachedTestProcess, spawnTestProcess } from './testSpawn';
 import { resolveTsxImportHookSpecifier } from './tsxImportHook';
 import { repoRootDir } from '../paths';
@@ -28,11 +28,33 @@ describe('testSpawn', () => {
     const child = spawnDetachedInlineNodeTestProcess('setInterval(() => {}, 1000)');
     const pid = child.pid;
 
-    expect(pid).toBeTypeOf('number');
-    expect(isProcessAlive(pid!)).toBe(true);
+    let didExit = false;
+    let finishWaiting: (() => void) | undefined;
+    const onExit = () => {
+      didExit = true;
+      finishWaiting?.();
+    };
+    child.once('exit', onExit);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
 
-    await terminateProcessTreeByPid(pid!, { graceMs: 0, pollMs: 25 }).catch(() => {});
-    expect(isProcessAlive(pid!)).toBe(false);
+    try {
+      expect(pid).toBeTypeOf('number');
+      expect(isProcessAlive(pid!)).toBe(true);
+      await child.stop();
+      // stop() accepts an owned zombie; Node must reap it before PID absence.
+      if (!didExit) {
+        await new Promise<void>((resolve, reject) => {
+          finishWaiting = resolve;
+          timeout = setTimeout(() => reject(new Error('Timed out waiting for detached inline node process to exit')), 20_000);
+        });
+      }
+      expect(didExit).toBe(true);
+      expect(isProcessAlive(pid!)).toBe(false);
+    } finally {
+      clearTimeout(timeout);
+      child.removeListener('exit', onExit);
+      await child.stop();
+    }
   });
 
   it('terminateProcessTreeByPid does not SIGTERM the caller when the target shares its process group', async () => {
@@ -49,38 +71,41 @@ describe('testSpawn', () => {
         '--input-type=module',
         '-e',
         [
-          "import { spawn } from 'node:child_process';",
-          "import { terminateProcessTreeByPid } from './packages/tests/src/testkit/process/processTree.ts';",
-          "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+          "import { spawnTestProcess } from './packages/tests/src/testkit/process/testSpawn.ts';",
+          "const child = spawnTestProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
           "if (!child.pid) throw new Error('Failed to spawn child process');",
-          'await terminateProcessTreeByPid(child.pid, { graceMs: 0, pollMs: 25 });',
+          "process.stdout.write('ready\\n');",
+          "await new Promise(resolve => process.stdin.once('data', resolve));",
+          'await child.stop();',
+          'process.stdin.destroy();',
           'process.exit(0);',
           '',
         ].join('\n'),
       ],
       {
         cwd: repoRootDir(),
-        stdio: ['ignore', 'ignore', 'ignore'],
+        stdio: ['pipe', 'pipe', 'ignore'],
       },
     );
 
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error('Timed out waiting for detached processTree fixture to exit')), 20_000);
+    });
     try {
+      await Promise.race([once(child.stdout!, 'data'), timedOut]);
+      observeOwnedProcessTree(child.ownership);
+      expect(child.ownership.processes.size).toBeGreaterThan(1);
+      child.stdin!.end('release');
       const [code, signal] = await Promise.race([
         once(child, 'exit') as Promise<[number | null, NodeJS.Signals | null]>,
-        new Promise<[number | null, NodeJS.Signals | null]>((_, reject) =>
-          setTimeout(() => reject(new Error('Timed out waiting for detached processTree fixture to exit')), 20_000),
-        ),
+        timedOut,
       ]);
       expect(code).toBe(0);
       expect(signal).toBeNull();
     } finally {
-      try {
-        if (typeof child.pid === 'number') {
-          process.kill(-child.pid, 'SIGKILL');
-        }
-      } catch {
-        // ignore
-      }
+      clearTimeout(timeout);
+      await child.stop();
     }
   });
 });

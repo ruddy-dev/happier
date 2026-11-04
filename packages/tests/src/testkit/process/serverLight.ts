@@ -215,6 +215,20 @@ export type StartedServer = {
   stop: () => Promise<void>;
 };
 
+/** Cleanup evidence belongs to the startup owner, including failures before a handle exists. */
+export class ServerLightStartupError extends Error {
+  constructor(
+    readonly dataDir: string,
+    readonly terminationConfirmed: boolean,
+    cause: unknown,
+  ) {
+    super(terminationConfirmed
+      ? 'Server-light startup failed after owned process termination was confirmed'
+      : 'Server-light startup failed; termination is unconfirmed and its data directory must be retained', { cause });
+    this.name = 'ServerLightStartupError';
+  }
+}
+
 export type TestDbProvider = 'pglite' | 'sqlite' | 'postgres' | 'mysql';
 export type ServerStartLaunchSpec = Readonly<{
   command: string;
@@ -895,227 +909,241 @@ export async function startServerLight(params: {
   __portAllocator?: () => Promise<number>;
 }): Promise<StartedServer> {
   const dataDir = resolve(params.testDir, 'server-light-data');
-  mkdirSync(dataDir, { recursive: true });
+  // Preparation can itself run migration/build processes. Until a returned process
+  // owner confirms stop, a startup rejection alone is not cleanup evidence.
+  let terminationConfirmed = false;
+  try {
+    mkdirSync(dataDir, { recursive: true });
 
-  const mergedEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...params.extraEnv,
-  };
+    const mergedEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...params.extraEnv,
+    };
 
-  const dbProvider = params.dbProvider ?? resolveTestDbProvider(mergedEnv);
-  const currentOwnerInspection = inspectOwnedProcess(process.pid);
+    const dbProvider = params.dbProvider ?? resolveTestDbProvider(mergedEnv);
+    const currentOwnerInspection = inspectOwnedProcess(process.pid);
 
-  const baseEnv: NodeJS.ProcessEnv = {
-    ...mergedEnv,
-    CI: '1',
-    // Avoid global port conflicts during test runs.
-    METRICS_ENABLED: 'false',
-    // Core E2E assumes a fresh auth key can always mint an account token unless a test explicitly disables it.
-    AUTH_ANONYMOUS_SIGNUP_ENABLED: mergedEnv.AUTH_ANONYMOUS_SIGNUP_ENABLED ?? 'true',
-    // Core E2E suite expects public file storage to work without extra services (Minio/S3).
-    HAPPIER_FILES_BACKEND: 'local',
-    HAPPY_SERVER_LIGHT_DATA_DIR: dataDir,
-    HAPPY_SERVER_LIGHT_DB_DIR: join(dataDir, 'pglite'),
-    HAPPY_SERVER_LIGHT_FILES_DIR: join(dataDir, 'files'),
-    HAPPIER_SERVER_LIGHT_DATA_DIR: dataDir,
-    HAPPIER_SERVER_LIGHT_DB_DIR: join(dataDir, 'pglite'),
-    HAPPIER_SERVER_LIGHT_FILES_DIR: join(dataDir, 'files'),
-    HAPPIER_DB_PROVIDER: dbProvider,
-    HAPPY_DB_PROVIDER: dbProvider,
-    // Some sandboxed environments disallow binding to 0.0.0.0; prefer loopback for E2E.
-    HAPPIER_SERVER_HOST: '127.0.0.1',
-    HAPPY_SERVER_HOST: '127.0.0.1',
-  };
+    const baseEnv: NodeJS.ProcessEnv = {
+      ...mergedEnv,
+      CI: '1',
+      // Avoid global port conflicts during test runs.
+      METRICS_ENABLED: 'false',
+      // Core E2E assumes a fresh auth key can always mint an account token unless a test explicitly disables it.
+      AUTH_ANONYMOUS_SIGNUP_ENABLED: mergedEnv.AUTH_ANONYMOUS_SIGNUP_ENABLED ?? 'true',
+      // Core E2E suite expects public file storage to work without extra services (Minio/S3).
+      HAPPIER_FILES_BACKEND: 'local',
+      HAPPY_SERVER_LIGHT_DATA_DIR: dataDir,
+      HAPPY_SERVER_LIGHT_DB_DIR: join(dataDir, 'pglite'),
+      HAPPY_SERVER_LIGHT_FILES_DIR: join(dataDir, 'files'),
+      HAPPIER_SERVER_LIGHT_DATA_DIR: dataDir,
+      HAPPIER_SERVER_LIGHT_DB_DIR: join(dataDir, 'pglite'),
+      HAPPIER_SERVER_LIGHT_FILES_DIR: join(dataDir, 'files'),
+      HAPPIER_DB_PROVIDER: dbProvider,
+      HAPPY_DB_PROVIDER: dbProvider,
+      // Some sandboxed environments disallow binding to 0.0.0.0; prefer loopback for E2E.
+      HAPPIER_SERVER_HOST: '127.0.0.1',
+      HAPPY_SERVER_HOST: '127.0.0.1',
+    };
 
-  // Keep workspace package ESM exports current before booting server processes.
-  await ensureServerSharedDepsBuilt({ testDir: params.testDir, env: baseEnv });
+    // Keep workspace package ESM exports current before booting server processes.
+    await ensureServerSharedDepsBuilt({ testDir: params.testDir, env: baseEnv });
 
-  const inheritSqliteDatabaseUrl = params.dbProvider == null || !!params.extraEnv?.DATABASE_URL?.toString().trim();
-  const sqliteUrl = resolveServerLightSqliteDatabaseUrl({
-    dataDir,
-    env: mergedEnv,
-    inheritDatabaseUrl: inheritSqliteDatabaseUrl,
-  });
-  const sqliteUrlIsExplicit = dbProvider === 'sqlite'
-    && inheritSqliteDatabaseUrl
-    && !!mergedEnv.DATABASE_URL?.toString().trim();
-  const databaseUrlForExternalProvider = mergedEnv.DATABASE_URL?.toString().trim();
-  if ((dbProvider === 'postgres' || dbProvider === 'mysql') && !databaseUrlForExternalProvider) {
-    throw new Error(`Missing DATABASE_URL for HAPPIER_E2E_DB_PROVIDER or HAPPY_E2E_DB_PROVIDER=${dbProvider}`);
-  }
-
-  // Ensure Prisma client is generated for the current schema.
-  // In multi-worktree setups it's easy for @prisma/client to become stale and then
-  // light-mode boot will fail at runtime (PrismaClientValidationError).
-  await ensureServerGeneratedProviders({ testDir: params.testDir, env: baseEnv, dbProvider });
-
-  if (currentOwnerInspection.ok) {
-    await sweepServerLightOwnershipLeases({
-      rootDir: repoRootDir(),
-      currentOwnerPid: process.pid,
-      currentOwnerStartTime: currentOwnerInspection.startTime,
-    });
-  }
-
-  // Ensure the light database schema exists before the server boots.
-  // Server light uses pglite/sqlite + Prisma but does not auto-migrate on startup.
-  const shouldReuseExistingDataDir =
-    params.preserveExistingDataDir === true
-    && existsSync(dataDir)
-    && readdirSync(dataDir).length > 0;
-  if (!shouldReuseExistingDataDir) {
-    await prepareServerLightDataDir({
-      rootDir: repoRootDir(),
-      testDir: params.testDir,
+    const inheritSqliteDatabaseUrl = params.dbProvider == null || !!params.extraEnv?.DATABASE_URL?.toString().trim();
+    const sqliteUrl = resolveServerLightSqliteDatabaseUrl({
       dataDir,
-      baseEnv,
-      dbProvider,
-      sqliteUrl,
-      sqliteUrlIsExplicit,
-      databaseUrlForExternalProvider,
+      env: mergedEnv,
+      inheritDatabaseUrl: inheritSqliteDatabaseUrl,
     });
-  }
-
-  const portAllocator = params.__portAllocator ?? (async () => pickPortCandidate());
-  const maxAttempts = 5;
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const port = await portAllocator();
-    const portAvailability = await isPortAvailableForListenWithError(port, '127.0.0.1');
-    const preflightPortAvailable = portAvailability.available;
-    if (!preflightPortAvailable) {
-      if (attempt < maxAttempts) {
-        lastError = portAvailability.error;
-        continue;
-      }
-      throw new Error(
-        `server-light could not allocate an available port after ${maxAttempts} attempts (lastPort=${port})${renderListenAvailabilityErrorSuffix(portAvailability.error)}`,
-      );
+    const sqliteUrlIsExplicit = dbProvider === 'sqlite'
+      && inheritSqliteDatabaseUrl
+      && !!mergedEnv.DATABASE_URL?.toString().trim();
+    const databaseUrlForExternalProvider = mergedEnv.DATABASE_URL?.toString().trim();
+    if ((dbProvider === 'postgres' || dbProvider === 'mysql') && !databaseUrlForExternalProvider) {
+      throw new Error(`Missing DATABASE_URL for HAPPIER_E2E_DB_PROVIDER or HAPPY_E2E_DB_PROVIDER=${dbProvider}`);
     }
 
-    const baseUrl = `http://127.0.0.1:${port}`;
+    // Ensure Prisma client is generated for the current schema.
+    // In multi-worktree setups it's easy for @prisma/client to become stale and then
+    // light-mode boot will fail at runtime (PrismaClientValidationError).
+    await ensureServerGeneratedProviders({ testDir: params.testDir, env: baseEnv, dbProvider });
 
-    const env: NodeJS.ProcessEnv = {
-      ...baseEnv,
-      PORT: String(port),
-      PUBLIC_URL: baseUrl,
-      ...(dbProvider === 'sqlite'
-        ? { DATABASE_URL: sqliteUrl }
-        : dbProvider === 'postgres' || dbProvider === 'mysql'
-          ? { DATABASE_URL: databaseUrlForExternalProvider }
-          : {}),
-    };
-
-    const launchSpec = resolveServerStartLaunchSpec({
-      provider: dbProvider,
-      env,
-      useDevLightMigrationOwner: params.useDevLightMigrationOwner,
-    });
-
-    const logPrefix = params.instanceLabel?.trim()
-      ? `server.${params.instanceLabel.trim().replaceAll(/[^a-zA-Z0-9_-]/g, '-')}`
-      : 'server';
-    const proc = spawnLoggedProcess({
-      command: launchSpec.command,
-      args: launchSpec.args,
-      cwd: launchSpec.cwd,
-      env: {
-        ...env,
-        ...(launchSpec.env ?? {}),
-      },
-      stdoutPath: resolve(params.testDir, `${logPrefix}.stdout.log`),
-      stderrPath: resolve(params.testDir, `${logPrefix}.stderr.log`),
-    });
-
-    await registerProcessOwnershipLease({
-      rootDir: repoRootDir(),
-      leaseKind: 'server-light',
-      child: proc.child,
-      ownerPid: process.pid,
-      ownerStartTime: currentOwnerInspection.ok ? currentOwnerInspection.startTime : null,
-      metadata: {
-        port,
-        baseUrl,
-        dataDir,
-      },
-    });
-
-    let stderrTail = '';
-    let stdoutTail = '';
-    const maxTail = 8_000;
-    const onStderr = (chunk: Buffer) => {
-      stderrTail = (stderrTail + chunk.toString('utf8')).slice(-maxTail);
-    };
-    const onStdout = (chunk: Buffer) => {
-      stdoutTail = (stdoutTail + chunk.toString('utf8')).slice(-maxTail);
-    };
-    proc.child.stderr?.on('data', onStderr);
-    proc.child.stdout?.on('data', onStdout);
-
-    const removeTailListeners = () => {
-      proc.child.stderr?.off('data', onStderr);
-      proc.child.stdout?.off('data', onStdout);
-    };
-
-    let exitHandler: ((code: number | null, signal: NodeJS.Signals | null) => void) | null = null;
-    const exitedEarly = new Promise<never>((_, reject) => {
-      exitHandler = (code, signal) => {
-        const detail = signal ? `signal=${signal}` : `code=${code ?? 'null'}`;
-        reject(new Error(`server-light exited before /health was ready (${detail})`));
-      };
-      proc.child.once('exit', exitHandler);
-      if (proc.child.exitCode !== null || proc.child.signalCode !== null) {
-        const code = proc.child.exitCode;
-        const signal = proc.child.signalCode as NodeJS.Signals | null;
-        proc.child.off('exit', exitHandler);
-        exitHandler(code, signal);
-      }
-    });
-
-    try {
-      await Promise.race([waitForOkHealth(baseUrl, { timeoutMs: 90_000 }), exitedEarly]);
-
-      removeTailListeners();
-      if (exitHandler) proc.child.off('exit', exitHandler);
-
-      return {
-        baseUrl,
-        port,
-        dataDir,
-        proc,
-        stop: async () => {
-          await proc.stop();
-        },
-      };
-    } catch (e) {
-      removeTailListeners();
-      if (exitHandler) proc.child.off('exit', exitHandler);
-      await proc.stop().catch(() => {});
-
-      const contextualError = attachServerStartTailToError({
-        error: e,
-        stderrTail,
-        stdoutTail,
+    if (currentOwnerInspection.ok) {
+      await sweepServerLightOwnershipLeases({
+        rootDir: repoRootDir(),
+        currentOwnerPid: process.pid,
+        currentOwnerStartTime: currentOwnerInspection.startTime,
       });
-      lastError = contextualError;
+    }
 
-      if (
-        shouldRetryServerStartFromFailureContext({
-          attempt,
-          maxAttempts,
-          preflightPortAvailable,
-          error: contextualError,
+    // Ensure the light database schema exists before the server boots.
+    // Server light uses pglite/sqlite + Prisma but does not auto-migrate on startup.
+    const shouldReuseExistingDataDir =
+      params.preserveExistingDataDir === true
+      && existsSync(dataDir)
+      && readdirSync(dataDir).length > 0;
+    if (!shouldReuseExistingDataDir) {
+      await prepareServerLightDataDir({
+        rootDir: repoRootDir(),
+        testDir: params.testDir,
+        dataDir,
+        baseEnv,
+        dbProvider,
+        sqliteUrl,
+        sqliteUrlIsExplicit,
+        databaseUrlForExternalProvider,
+      });
+    }
+
+    const portAllocator = params.__portAllocator ?? (async () => pickPortCandidate());
+    const maxAttempts = 5;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const port = await portAllocator();
+      const portAvailability = await isPortAvailableForListenWithError(port, '127.0.0.1');
+      const preflightPortAvailable = portAvailability.available;
+      if (!preflightPortAvailable) {
+        if (attempt < maxAttempts) {
+          lastError = portAvailability.error;
+          continue;
+        }
+        throw new Error(
+          `server-light could not allocate an available port after ${maxAttempts} attempts (lastPort=${port})${renderListenAvailabilityErrorSuffix(portAvailability.error)}`,
+        );
+      }
+
+      const baseUrl = `http://127.0.0.1:${port}`;
+
+      const env: NodeJS.ProcessEnv = {
+        ...baseEnv,
+        PORT: String(port),
+        PUBLIC_URL: baseUrl,
+        ...(dbProvider === 'sqlite'
+          ? { DATABASE_URL: sqliteUrl }
+          : dbProvider === 'postgres' || dbProvider === 'mysql'
+            ? { DATABASE_URL: databaseUrlForExternalProvider }
+            : {}),
+      };
+
+      const launchSpec = resolveServerStartLaunchSpec({
+        provider: dbProvider,
+        env,
+        useDevLightMigrationOwner: params.useDevLightMigrationOwner,
+      });
+
+      const logPrefix = params.instanceLabel?.trim()
+        ? `server.${params.instanceLabel.trim().replaceAll(/[^a-zA-Z0-9_-]/g, '-')}`
+        : 'server';
+      terminationConfirmed = false;
+      const proc = spawnLoggedProcess({
+        command: launchSpec.command,
+        args: launchSpec.args,
+        cwd: launchSpec.cwd,
+        env: {
+          ...env,
+          ...(launchSpec.env ?? {}),
+        },
+        stdoutPath: resolve(params.testDir, `${logPrefix}.stdout.log`),
+        stderrPath: resolve(params.testDir, `${logPrefix}.stderr.log`),
+      });
+
+      let stderrTail = '';
+      let stdoutTail = '';
+      const maxTail = 8_000;
+      const onStderr = (chunk: Buffer) => {
+        stderrTail = (stderrTail + chunk.toString('utf8')).slice(-maxTail);
+      };
+      const onStdout = (chunk: Buffer) => {
+        stdoutTail = (stdoutTail + chunk.toString('utf8')).slice(-maxTail);
+      };
+      proc.child.stderr?.on('data', onStderr);
+      proc.child.stdout?.on('data', onStdout);
+
+      const removeTailListeners = () => {
+        proc.child.stderr?.off('data', onStderr);
+        proc.child.stdout?.off('data', onStdout);
+      };
+
+      let exitHandler: ((code: number | null, signal: NodeJS.Signals | null) => void) | null = null;
+      try {
+        await registerProcessOwnershipLease({
+          rootDir: repoRootDir(),
+          leaseKind: 'server-light',
+          child: proc.child,
+          ownerPid: process.pid,
+          ownerStartTime: currentOwnerInspection.ok ? currentOwnerInspection.startTime : null,
+          metadata: {
+            port,
+            baseUrl,
+            dataDir,
+          },
+        });
+
+        const exitedEarly = new Promise<never>((_, reject) => {
+          exitHandler = (code, signal) => {
+            const detail = signal ? `signal=${signal}` : `code=${code ?? 'null'}`;
+            reject(new Error(`server-light exited before /health was ready (${detail})`));
+          };
+          proc.child.once('exit', exitHandler);
+          if (proc.child.exitCode !== null || proc.child.signalCode !== null) {
+            const code = proc.child.exitCode;
+            const signal = proc.child.signalCode as NodeJS.Signals | null;
+            proc.child.off('exit', exitHandler);
+            exitHandler(code, signal);
+          }
+        });
+
+        await Promise.race([waitForOkHealth(baseUrl, { timeoutMs: 90_000 }), exitedEarly]);
+
+        removeTailListeners();
+        if (exitHandler) proc.child.off('exit', exitHandler);
+
+        return {
+          baseUrl,
+          port,
+          dataDir,
+          proc,
+          stop: async () => {
+            await proc.stop();
+          },
+        };
+      } catch (e) {
+        removeTailListeners();
+        if (exitHandler) proc.child.off('exit', exitHandler);
+        try {
+          await proc.stop();
+          terminationConfirmed = true;
+        } catch (stopError) {
+          // Keep both causes and refuse retry while this attempt still owns targets.
+          throw new AggregateError([e, stopError], 'Server-light startup and owned process termination failed');
+        }
+
+        const contextualError = attachServerStartTailToError({
+          error: e,
           stderrTail,
           stdoutTail,
-        })
-      ) {
-        continue;
+        });
+        lastError = contextualError;
+
+        if (
+          shouldRetryServerStartFromFailureContext({
+            attempt,
+            maxAttempts,
+            preflightPortAvailable,
+            error: contextualError,
+            stderrTail,
+            stdoutTail,
+          })
+        ) {
+          continue;
+        }
+
+        throw contextualError;
       }
-
-      throw contextualError;
     }
-  }
 
-  throw lastError instanceof Error ? lastError : new Error('Failed to start server-light');
+    throw lastError instanceof Error ? lastError : new Error('Failed to start server-light');
+  } catch (error) {
+    throw new ServerLightStartupError(dataDir, terminationConfirmed, error);
+  }
 }

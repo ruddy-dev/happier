@@ -1,22 +1,14 @@
-import { spawnSync, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { repoRootDir } from '../paths';
-import { terminateProcessTreeByPid } from './processTree';
+import { captureProcessTreeOwnership, terminateProcessTreeByPid } from './processTree';
 
-export type ProcessInspectionResult =
-    | {
-        ok: true;
-        command: string;
-        startTime: string;
-    }
-    | {
-        ok: false;
-        reason: 'not_found' | 'ps_missing' | 'inspect_failed';
-    };
+export { inspectOwnedProcess, type ProcessInspectionResult } from './processIdentity';
+import { inspectOwnedProcess, type ProcessInspectionResult } from './processIdentity';
 
 export type ProcessOwnershipLease<TMetadata = unknown> = Readonly<{
     childPid: number;
@@ -26,46 +18,6 @@ export type ProcessOwnershipLease<TMetadata = unknown> = Readonly<{
     createdAtMs: number;
     metadata?: TMetadata;
 }>;
-
-export function inspectOwnedProcess(pid: number): ProcessInspectionResult {
-    if (!Number.isInteger(pid) || pid <= 1) {
-        return { ok: false, reason: 'not_found' };
-    }
-
-    try {
-        let commandRes = spawnSync('ps', ['-o', 'args=', '-p', String(pid), '-ww'], { encoding: 'utf8' });
-        if (commandRes.status !== 0) {
-            commandRes = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' });
-        }
-        if (commandRes.status !== 0) {
-            return { ok: false, reason: 'not_found' };
-        }
-
-        let startTimeRes = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid), '-ww'], { encoding: 'utf8' });
-        if (startTimeRes.status !== 0) {
-            startTimeRes = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
-        }
-        if (startTimeRes.status !== 0) {
-            return { ok: false, reason: 'inspect_failed' };
-        }
-
-        const command = String(commandRes.stdout || '').trim();
-        const startTime = String(startTimeRes.stdout || '').trim();
-        if (!command || !startTime) {
-            return { ok: false, reason: 'inspect_failed' };
-        }
-
-        return {
-            ok: true,
-            command,
-            startTime,
-        };
-    } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (err?.code === 'ENOENT') return { ok: false, reason: 'ps_missing' };
-        return { ok: false, reason: 'inspect_failed' };
-    }
-}
 
 export async function waitForOwnedProcessInspection(
     pid: number,
@@ -185,6 +137,10 @@ export async function sweepProcessOwnershipLeases(params: {
             continue;
         }
 
+        if (!ownerInfo.ok && ownerInfo.reason !== 'not_found') {
+            throw new Error(`Cannot inspect process lease owner ${lease.ownerPid}; retaining ${path}`);
+        }
+
         const childInfo = inspectProcess(lease.childPid);
         if (!childInfo.ok) {
             if (childInfo.reason === 'not_found') {
@@ -194,6 +150,7 @@ export async function sweepProcessOwnershipLeases(params: {
                     // ignore
                 }
             }
+            if (childInfo.reason !== 'not_found') throw new Error(`Cannot inspect leased process ${lease.childPid}; retaining ${path}`);
             continue;
         }
 
@@ -204,7 +161,11 @@ export async function sweepProcessOwnershipLeases(params: {
             continue;
         }
 
-        await terminate(lease.childPid, { graceMs: 3_000, pollMs: 50 }).catch(() => {});
+        await terminate(lease.childPid, {
+            graceMs: 3_000,
+            pollMs: 50,
+            ownership: captureProcessTreeOwnership(lease.childPid, childInfo),
+        });
         try {
             unlinkSync(path);
         } catch {
