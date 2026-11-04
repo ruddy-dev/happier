@@ -288,6 +288,7 @@ it('groups sheet rows by issue and keeps the coordinator separate', async () => 
     });
     // The title and row context are separate visible text, both named by the button.
     const rowText = [...issued.querySelectorAll('*')];
+    expect(issued.textContent).toBe(`ATR-6 Builder${context}`);
     expect(rowText.filter(node => node.textContent === 'ATR-6 Builder')).toHaveLength(1);
     expect(rowText.filter(node => node.textContent === context)).toHaveLength(1);
     expect(issued.getAttribute('role')).toBe('button');
