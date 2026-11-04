@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, View, type LayoutChangeEvent } from 'react-native';
 import { t } from '@/text';
 import { useDeskPref } from '../deskPrefs';
 import { deskThemes, terminalPalettes, useDeskPaint, type SpriteTheme } from '../palette';
@@ -10,8 +10,10 @@ import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { DeskText } from '../typography/DeskText';
 
 /** Per-composer opt-in around the real SessionView and the synthetic screenshot body alike. */
-export function CoordinatorComposer({ children, coordinatorId, phone = false }: React.PropsWithChildren<{ coordinatorId?: string; phone?: boolean }>) {
-    return Platform.OS === 'web' ? <WebCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</WebCoordinatorComposer> :
+export function CoordinatorComposer({ children, coordinatorId, phone = false, onTranscriptLayout }: React.PropsWithChildren<{
+    coordinatorId?: string; phone?: boolean; onTranscriptLayout?: (event: LayoutChangeEvent) => void;
+}>) {
+    return Platform.OS === 'web' ? <WebCoordinatorComposer coordinatorId={coordinatorId} phone={phone} onTranscriptLayout={onTranscriptLayout}>{children}</WebCoordinatorComposer> :
         <NativeCoordinatorComposer coordinatorId={coordinatorId} phone={phone}>{children}</NativeCoordinatorComposer>;
 }
 
@@ -31,7 +33,9 @@ function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.Pro
     return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
 }
 
-function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {
+function WebCoordinatorComposer({ children, coordinatorId, phone, onTranscriptLayout }: React.PropsWithChildren<{
+    coordinatorId?: string; phone: boolean; onTranscriptLayout?: (event: LayoutChangeEvent) => void;
+}>) {
     const [observer] = React.useState(createCoordinatorComposerObserver);
     const [style] = useDeskPref('chatStyle');
     const { paint: slipPaint, borderWidth: slipBorderWidth } = useDeskPaint();
@@ -44,6 +48,7 @@ function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsW
         return {
             observer,
             phone,
+            onTranscriptLayout,
             terminal,
             controlInk: terminal ? paint.ink : slipPaint.ink,
             panelBackground: panelStyle?.backgroundColor ?? paint.bg,
@@ -56,7 +61,7 @@ function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsW
             panelFooter: terminal ? <ComposerStatusStrip observer={observer} paint={paint} /> : null,
             textStyle: { fontFamily: deskMonoFontFamily(), color: terminal ? paint.ink : slipPaint.ink },
         };
-    }, [observer, terminal, paint, slipPaint, slipBorderWidth, phone, coordinatorId]);
+    }, [observer, terminal, paint, slipPaint, slipBorderWidth, phone, coordinatorId, onTranscriptLayout]);
     // CSS changes only this instance's existing web composer hosts. It neither discovers inputs
     // nor changes controls, focus, permission labels, context data or native layout.
     const selector = `#${scope}`;

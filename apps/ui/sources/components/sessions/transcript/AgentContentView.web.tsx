@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { useKeyboardDismissOnTap } from './useKeyboardDismissOnTap';
 import { TranscriptAppearanceContext } from './TranscriptAppearanceContext';
+import { useCoordinatorTranscriptLayout } from '@/ignorePrevious/model/coordinatorComposerInput';
 
 interface AgentContentViewProps {
     input?: React.ReactNode | null;
@@ -26,6 +27,7 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     const headerHeight = useHeaderHeight();
     const bottomChromeHeight = useSessionCockpitBottomChromeHeight();
     const keyboardDismissOnTapHandlers = useKeyboardDismissOnTap();
+    const onTranscriptLayout = useCoordinatorTranscriptLayout();
     const { theme } = useUnistyles();
     const appearance = React.useContext(TranscriptAppearanceContext);
     const backgroundColor = appearance?.shellColors?.background ?? theme.colors.surface.base;
@@ -43,7 +45,7 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
                 layoutBottomInset={bottomChromeHeight}
                 safeAreaBottom={safeAreaBottom ?? safeArea.bottom}
                 headerHeight={headerHeight}
-                contentProps={keyboardDismissOnTapHandlers}
+                contentProps={{ ...keyboardDismissOnTapHandlers, onLayout: onTranscriptLayout }}
                 composer={input}
             >
                 {content ? (
