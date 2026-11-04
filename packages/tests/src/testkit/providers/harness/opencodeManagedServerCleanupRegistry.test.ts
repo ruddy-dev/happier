@@ -29,7 +29,7 @@ describe('opencodeManagedServerCleanupRegistry', () => {
       const listing = argv.includes('-axo');
       const pid = Number(argv[argv.indexOf('-p') + 1]);
       const stdout = listing ? [...alive].map(id => `${id} 1 ${id} ${start} ${command}`).join('\n')
-        : alive.has(pid) ? argv.includes('lstart=') ? start : command : '';
+        : alive.has(pid) ? argv.includes('stat=') ? 'S' : argv.includes('lstart=') ? start : command : '';
       return { pid: 0, output: [null, stdout, null], stdout, stderr: '', status: listing || alive.has(pid) ? 0 : 1, signal: null };
     });
     vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {

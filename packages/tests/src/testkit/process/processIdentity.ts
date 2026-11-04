@@ -1,10 +1,13 @@
 import { spawnSync } from 'node:child_process';
+import { processInstanceFingerprintMatches, readProcessInstanceFingerprintSync } from '@happier-dev/cli-common/processInstance';
 
 export type ProcessInspectionResult =
     | {
         ok: true;
         command: string;
         startTime: string;
+        state?: string;
+        processInstanceFingerprint?: string;
     }
     | {
         ok: false;
@@ -16,7 +19,30 @@ export function inspectOwnedProcess(pid: number): ProcessInspectionResult {
         return { ok: false, reason: 'not_found' };
     }
 
-    if (process.platform === 'win32') return { ok: false, reason: 'inspect_failed' };
+    if (process.platform === 'win32') {
+        try {
+            // Use the existing CreationDate contract, including its UTC/O format.
+            const before = readProcessInstanceFingerprintSync(pid, { spawnSyncImpl: spawnSync });
+            const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', [
+                `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction Stop`,
+                'if ($null -eq $p) { exit 3 }',
+                '$p.CommandLine',
+            ].join('; ')], { encoding: 'utf8', windowsHide: true });
+            if (!result.error && result.status === 3) {
+                try { process.kill(pid, 0); }
+                catch (error) {
+                    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return { ok: false, reason: 'not_found' };
+                }
+            }
+            const command = String(result.stdout ?? '').trim();
+            if (result.error || result.status !== 0 || !command || !before) return { ok: false, reason: 'inspect_failed' };
+            const after = readProcessInstanceFingerprintSync(pid, { spawnSyncImpl: spawnSync });
+            if (!processInstanceFingerprintMatches(before, after)) return { ok: false, reason: 'inspect_failed' };
+            return { ok: true, command, startTime: before, processInstanceFingerprint: before };
+        } catch {
+            return { ok: false, reason: 'inspect_failed' };
+        }
+    }
 
     try {
         let commandRes = spawnSync('ps', ['-o', 'args=', '-p', String(pid), '-ww'], { encoding: 'utf8' });
@@ -27,10 +53,13 @@ export function inspectOwnedProcess(pid: number): ProcessInspectionResult {
             return { ok: false, reason: (commandRes.error as NodeJS.ErrnoException).code === 'ENOENT' ? 'ps_missing' : 'inspect_failed' };
         }
         if (commandRes.status !== 0) {
-            // ps failure alone is not evidence that the process is gone.
-            try { process.kill(pid, 0); }
-            catch (error) {
-                if ((error as NodeJS.ErrnoException).code === 'ESRCH') return { ok: false, reason: 'not_found' };
+            // Only an empty no-match query corroborated by ESRCH proves absence.
+            // A command/query failure cannot authorize retiring persisted state.
+            if (commandRes.status === 1 && !String(commandRes.stdout ?? '').trim() && !String(commandRes.stderr ?? '').trim()) {
+                try { process.kill(pid, 0); }
+                catch (error) {
+                    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return { ok: false, reason: 'not_found' };
+                }
             }
             return { ok: false, reason: 'inspect_failed' };
         }
@@ -49,8 +78,22 @@ export function inspectOwnedProcess(pid: number): ProcessInspectionResult {
             return { ok: false, reason: 'inspect_failed' };
         }
 
+        const stateResult = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+        const state = String(stateResult.stdout ?? '').trim();
+        if (stateResult.error || stateResult.status !== 0 || !/^[A-Z][A-Za-z<+]*$/.test(state)) {
+            return { ok: false, reason: 'inspect_failed' };
+        }
+        // A zombie may have lost its original args. Re-read birth after observing
+        // state so a recycled PID cannot borrow the earlier process's birth proof.
+        if (state.startsWith('Z')) {
+            const birth = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid), '-ww'], { encoding: 'utf8' });
+            if (birth.error || birth.status !== 0 || String(birth.stdout ?? '').trim() !== startTime) {
+                return { ok: false, reason: 'inspect_failed' };
+            }
+        }
         return {
             ok: true,
+            state,
             command,
             startTime,
         };

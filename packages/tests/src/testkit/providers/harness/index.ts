@@ -27,6 +27,7 @@ import { enqueuePendingQueueV2, listPendingQueueV2 } from '../../pendingQueueV2'
 import { seedCliAuthForServer } from '../../cliAuth';
 
 import { runWithFlakeRetry } from './flakeRetry';
+import { withCleanup } from '../../process/withCleanup';
 import { providerTraceProtocolMatches } from './providerTraceProtocolMatcher';
 import { resolveProviderCliSpawnSpec } from './resolveProviderCliSpawnSpec';
 
@@ -517,7 +518,7 @@ async function runOneScenario(params: {
     ? registerOpenCodeManagedServerHomeForCleanup(cliHome)
     : null;
 
-  try {
+  await withCleanup(async () => {
   if (scenario.setup) {
     await scenario.setup({ workspaceDir, cliHome });
   }
@@ -733,7 +734,7 @@ async function runOneScenario(params: {
       });
 
       let uiSocket: Awaited<ReturnType<typeof waitForPermissionRpcReady>>['socket'] | null = null;
-    try {
+    return await withCleanup(async () => {
       // Wait for the provider client to be connected before posting the first prompt.
       // Even in YOLO scenarios, we may need to resolve *session-level* permission prompts
       // (e.g. ACP history import) to make resume flows deterministic.
@@ -1226,7 +1227,7 @@ async function runOneScenario(params: {
         });
 
         return { traceRaw: finalRaw, traceEvents: finalEvents, tokenTelemetryEntries };
-      } finally {
+      }, async () => {
         try {
           uiSocket?.close();
         } catch {
@@ -1238,7 +1239,7 @@ async function runOneScenario(params: {
         cleanup.push(...await Promise.allSettled([proc.stop()]));
         const errors = cleanup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
         if (errors.length) throw new AggregateError(errors, 'Provider process cleanup failed');
-      }
+      });
     }
 
   const hasSteps = Array.isArray(scenario.steps) && scenario.steps.length > 0;
@@ -1452,7 +1453,7 @@ async function runOneScenario(params: {
       resumeId: resumeIdForVerify,
     });
   }
-  } finally {
+  }, async () => {
     // OpenCode server-native backend starts a detached managed `opencode serve` process.
     // Provider harness runs each scenario with its own isolated happy home; without cleanup,
     // we'd accumulate one server process per scenario and eventually hit resource exhaustion.
@@ -1460,7 +1461,7 @@ async function runOneScenario(params: {
       await stopOpenCodeManagedServerFromHomeDir(cliHome);
       unregisterOpenCodeManagedServerCleanup?.();
     }
-  }
+  });
 }
 
 async function runProviderWithRetry(params: {
@@ -1496,6 +1497,7 @@ export async function runProviderContractMatrix(): Promise<ProviderContractMatri
   let server: StartedServer | null = null;
   const skipWarnings: string[] = [];
   try {
+    return await withCleanup<ProviderContractMatrixResult>(async () => {
     // Provider runs execute the CLI in dev mode (tsx). Ensure shared workspace packages are built so
     // `@happier-dev/*` ESM exports are up-to-date before starting provider processes.
     const setupDir = run.testDir('setup');
@@ -1638,9 +1640,8 @@ export async function runProviderContractMatrix(): Promise<ProviderContractMatri
       return { ok: true, skipped: { reason: `skipped providers: ${skipWarnings.length}` } };
     }
     return { ok: true };
+    }, async () => { await server?.stop(); });
   } catch (e: any) {
     return { ok: false, error: String(e?.message ?? e) };
-  } finally {
-    await server?.stop();
   }
 }

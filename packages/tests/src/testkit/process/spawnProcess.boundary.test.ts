@@ -10,7 +10,10 @@ import { spawnTestProcess } from './testSpawn';
 vi.mock('node:child_process', async importOriginal => ({
   ...await importOriginal<typeof childProcess>(), spawn: vi.fn(), spawnSync: vi.fn(),
 }));
-vi.mock('node:fs', () => ({ createWriteStream: () => new PassThrough() }));
+vi.mock('node:fs', () => ({
+  createWriteStream: () => new PassThrough(),
+  readFileSync: vi.fn(() => { throw new Error('No synthetic proc file'); }),
+}));
 
 class BoundaryChild extends ChildProcess {
   override pid: number | undefined = 8123;
@@ -28,7 +31,7 @@ beforeEach(() => {
     const argv = args as string[];
     const stdout = child.exitCode !== null ? '' : argv.includes('-axo')
       ? '8123 1 8123 Tue Mar 18 10:10:10 2026 synthetic'
-      : argv.join().includes('lstart') ? 'Tue Mar 18 10:10:10 2026' : 'synthetic';
+      : argv.includes('stat=') ? 'S' : argv.join().includes('lstart') ? 'Tue Mar 18 10:10:10 2026' : 'synthetic';
     return { pid: 0, output: [null, stdout, null], stdout, stderr: '', status: argv.includes('-axo') || stdout ? 0 : 1, signal: null };
   });
   vi.spyOn(process, 'kill').mockImplementation(() => true);
@@ -116,7 +119,7 @@ it.each(['descendant', 'root', 'reparented'] as const)('preserves captured owner
       stdout = [...rows].map(([pid, value]) => `${pid} ${value.parent} ${value.group}` +
         (argv.join().includes('lstart') ? ` ${value.start} ${value.command}` : '')).join('\n');
     } else if (row) {
-      stdout = argv.join().includes('lstart') ? row.start : row.command;
+      stdout = argv.includes('stat=') ? 'S' : argv.join().includes('lstart') ? row.start : row.command;
     }
     return { pid: 0, output: [null, stdout, null], stdout, stderr: '', status: argv.includes('-axo') || stdout ? 0 : 1, signal: null };
   });
@@ -151,14 +154,32 @@ it.each(['descendant', 'root', 'reparented'] as const)('preserves captured owner
   expect(rows.has(reusedPid)).toBe(true);
 });
 
-it('fails safely on Windows without invoking taskkill against numeric PIDs', async () => {
+it.each([false, true])('stops Windows spawn-owned root and observed children, root exited: %s', async absent => {
   vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
-  const proc = spawnLoggedProcess(params);
-  const result = expect(proc.stop()).rejects.toThrow(/identity|unsupported/i);
-  await vi.runAllTimersAsync();
-  await result;
-  expect(vi.mocked(childProcess.spawnSync).mock.calls.some(call => String(call[1]).includes('taskkill'))).toBe(false);
-  expect(process.kill).not.toHaveBeenCalled();
+  const rows = new Map([[8123, { ppid: 1, command: 'synthetic' }], [8124, { ppid: 8123, command: 'worker' }]]);
+  const start = '2026-03-18T10:10:10.1234567Z';
+  vi.mocked(childProcess.spawnSync).mockImplementation((command, args) => {
+    expect(command).toBe('powershell.exe');
+    const script = String(args?.at(-1));
+    const pid = Number(script.match(/ProcessId=(\d+)/)?.[1]);
+    const row = rows.get(pid);
+    const query = script.includes('ProcessId=');
+    const stdout = query ? row ? script.includes('CommandLine') ? row.command : start : ''
+      : JSON.stringify([...rows].map(([pid, row]) => ({ pid, ...row, startTime: `win32-cim:${start}` })));
+    return { pid: 0, output: [null, stdout, null], stdout, stderr: '', status: query && !row ? 3 : 0, signal: null };
+  });
+  const signals: number[] = [];
+  vi.mocked(process.kill).mockImplementation((pid, signal) => {
+    if (!rows.has(pid)) throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+    if (signal !== 0) { signals.push(pid); rows.delete(pid); }
+    return true;
+  });
+  const proc = spawnLoggedProcess({ ...params, cleanupDescendantsOnExit: false });
+  if (absent) { rows.delete(8123); rows.get(8124)!.ppid = 1; }
+  rows.set(9000, { ppid: 1, command: 'unrelated' });
+  await proc.stop();
+  expect(signals).toEqual(absent ? [8124] : [8124, 8123]);
+  expect([...rows.keys()]).toEqual([9000]);
 });
 
 it('keeps steady-state tree observation within four snapshots per second', async () => {

@@ -97,7 +97,7 @@ beforeEach(async () => {
     const found = pid === process.pid || (pid === 8123 && alive);
     const stdout = argv.includes('-axo')
       ? alive ? '8123 1 8123 Tue Mar 18 10:10:10 2026 node apps/server/dist/index.mjs start:light' : ''
-      : found ? argv.includes('lstart=') ? 'Tue Mar 18 10:10:10 2026' : 'node apps/server/dist/index.mjs start:light' : '';
+      : found ? argv.includes('stat=') ? 'S' : argv.includes('lstart=') ? 'Tue Mar 18 10:10:10 2026' : 'node apps/server/dist/index.mjs start:light' : '';
     return { pid: 0, output: [null, stdout, null], stderr: '', status: argv.includes('-axo') || found ? 0 : 1, signal: null, stdout };
   });
   vi.mocked(childProcess.spawn).mockImplementation((_command, _args, options) => {

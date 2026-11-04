@@ -219,7 +219,7 @@ export function spawnLoggedProcess(params: {
   const ownership = captureProcessTreeOwnership(child.pid ?? 0);
   const detachCleanup = attachExitCleanup(child, ownership);
   let descendantPoller: ReturnType<typeof setTimeout> | null = null;
-  let descendantPollerActive = process.platform !== 'win32';
+  let descendantPollerActive = true;
   const pollStartedAtMs = Date.now();
   // Match the established testkit policy: capture short-lived startup wrappers,
   // then leave the event loop available instead of spawning synchronous ps every millisecond.

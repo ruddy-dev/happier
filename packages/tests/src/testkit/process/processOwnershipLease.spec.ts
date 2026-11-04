@@ -146,7 +146,7 @@ it.each(['failed-stop', 'active-owner', 'reused-child', 'owner-inspection-failed
       let stdout = '';
       if (!stopped) stdout = argv.includes('-axo')
         ? `8123 1 8123${argv.join().includes('lstart') ? ` ${start} generic-worker` : ''}`
-        : argv.join().includes('lstart') ? start : 'generic-worker';
+        : argv.includes('stat=') ? 'S' : argv.join().includes('lstart') ? start : 'generic-worker';
       return { pid: 0, output: [null, stdout, null], stdout, stderr: '', status: argv.includes('-axo') || stdout ? 0 : 1, signal: null };
     });
     try {

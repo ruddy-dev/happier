@@ -11,6 +11,7 @@ import {
   sweepProcessOwnershipLeases,
 } from '../process/processOwnershipLease';
 import { spawnLoggedProcess, type SpawnedProcess } from '../process/spawnProcess';
+import { withCleanup } from '../process/withCleanup';
 import { resolveCliTestLaunchSpec, shouldUseCliSourceEntrypoint } from '../process/cliLaunchSpec';
 import { sanitizeCliTestEnv } from '../process/cliTestEnv';
 import { DEFAULT_CLI_DIST_BUILD_TIMEOUT_MS } from '../process/cliDist';
@@ -211,7 +212,7 @@ type DaemonSessionMarkerCandidate = Readonly<{
   raw: string;
 }>;
 
-async function listDaemonSessionMarkerCandidates(happyHomeDir: string): Promise<DaemonSessionMarkerCandidate[]> {
+async function listDaemonSessionMarkerCandidates(happyHomeDir: string, errors: unknown[]): Promise<DaemonSessionMarkerCandidate[]> {
   const markerDirs = await resolveDaemonSessionMarkerDirs(happyHomeDir);
   const candidates: DaemonSessionMarkerCandidate[] = [];
   for (const markerDir of markerDirs) {
@@ -220,7 +221,8 @@ async function listDaemonSessionMarkerCandidates(happyHomeDir: string): Promise<
       entries = await readdir(markerDir);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
-      throw error;
+      errors.push(new Error(`Cannot inspect process marker directory: ${markerDir}`, { cause: error }));
+      continue;
     }
 
     for (const name of entries) {
@@ -254,7 +256,7 @@ async function listDaemonSessionMarkerCandidates(happyHomeDir: string): Promise<
         });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
-        throw new Error(`Cannot establish process ownership from marker: ${markerPath}`, { cause: error });
+        errors.push(new Error(`Cannot establish process ownership from marker: ${markerPath}`, { cause: error }));
       }
     }
   }
@@ -262,20 +264,23 @@ async function listDaemonSessionMarkerCandidates(happyHomeDir: string): Promise<
 }
 
 async function stopDaemonLeakedSessionsFromMarkers(happyHomeDir: string): Promise<void> {
-  const candidates = await listDaemonSessionMarkerCandidates(happyHomeDir);
+  const errors: unknown[] = [];
+  const candidates = await listDaemonSessionMarkerCandidates(happyHomeDir, errors);
   for (const marker of candidates) {
     if (marker.startedBy !== 'daemon') continue;
-
-    const ownership = capturePersistedProcessTreeOwnership(marker.pid, {
-      processInstanceFingerprint: marker.processInstanceFingerprint,
-      commandHash: marker.processCommandHash,
-    });
-    await terminateProcessTreeByPid(marker.pid, { ownership, graceMs: 3_000, pollMs: 50 });
-    if (await readFile(marker.markerPath, 'utf8') !== marker.raw) {
-      throw new Error(`Process marker changed during termination: ${marker.markerPath}`);
-    }
-    await unlink(marker.markerPath);
+    try {
+      const ownership = capturePersistedProcessTreeOwnership(marker.pid, {
+        processInstanceFingerprint: marker.processInstanceFingerprint,
+        commandHash: marker.processCommandHash,
+      });
+      if (ownership) await terminateProcessTreeByPid(marker.pid, { ownership, graceMs: 3_000, pollMs: 50 });
+      if (await readFile(marker.markerPath, 'utf8') !== marker.raw) {
+        throw new Error(`Process marker changed during termination: ${marker.markerPath}`);
+      }
+      await unlink(marker.markerPath);
+    } catch (error) { errors.push(error); }
   }
+  if (errors.length) throw new AggregateError(errors, `Daemon session cleanup failed: ${errors.map(String).join('; ')}`);
 }
 
 async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
@@ -838,9 +843,5 @@ export async function withTestDaemon<T>(params: {
   run: (daemon: StartedDaemon) => Promise<T>;
 }): Promise<T> {
   const daemon = await startTestDaemon({ testDir: params.testDir, happyHomeDir: params.happyHomeDir, env: params.env });
-  try {
-    return await params.run(daemon);
-  } finally {
-    await daemon.stop();
-  }
+  return await withCleanup(() => params.run(daemon), () => daemon.stop());
 }

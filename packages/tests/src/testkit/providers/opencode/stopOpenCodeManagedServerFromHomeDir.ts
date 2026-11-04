@@ -45,7 +45,7 @@ export async function stopOpenCodeManagedServerFromHomeDir(happyHomeDir: string)
     processInstanceFingerprint: state.processInstanceFingerprint,
     commandHash: state.expectedCmdlineHash,
   });
-  await terminateProcessTreeByPid(state.pid, { ownership, graceMs: 5_000, pollMs: 100 });
+  if (ownership) await terminateProcessTreeByPid(state.pid, { ownership, graceMs: 5_000, pollMs: 100 });
 
   if (await readFile(statePath, 'utf8') !== raw) {
     throw new Error(`Managed-server state changed during termination: ${statePath}`);
