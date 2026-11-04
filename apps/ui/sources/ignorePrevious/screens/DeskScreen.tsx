@@ -37,8 +37,6 @@ import { isIssueArchiveTarget, useIssueArchiveTargets } from '../model/issueArch
 import { DeskBrowserNotifier } from '../model/useDeskBrowserNotifier';
 import { usePhoneControlPaint } from '../components/usePhoneControlPaint';
 
-const WIDE = 1100;
-
 function CoordinatorPicker({
     sessions,
     onPick,
@@ -154,7 +152,7 @@ function useApprovalsDrawer(width: number) {
 
 /**
  * The Ignore Previous desk: the coordinator's chat in the middle, the work by issue beside it
- * (left when wide, above when narrow) and what waits on you in a drawer on the right. The Work
+ * (beside it above phone width) and what waits on you in a drawer on the right. The Work
  * panel collapses to a rail of issue keys and states; both choices survive a reload.
  */
 export function DeskScreen() {
@@ -163,7 +161,7 @@ export function DeskScreen() {
     const [chatStyle] = useDeskPref('chatStyle');
     const workSurface = chatStyle === 'terminal' ? { backgroundColor: workPaint.paint.panel } : {};
     const router = useRouter();
-    const { width, height } = useWindowDimensions();
+    const { width } = useWindowDimensions();
     // Until the session list arrives an empty desk means "not loaded yet", not "no sessions".
     const { list: sessions, ready: dataReady } = useDeskSessions();
     const [workCollapsed, collapseWork] = useDeskPref('workCollapsed');
@@ -239,7 +237,7 @@ export function DeskScreen() {
         </ScrollView>
     );
 
-    const wide = width >= WIDE;
+    const wide = !phone;
     const coordinatorCard = (form: 'full' | 'slim' | 'rail') => coordinatorId ? (
         <CoordinatorCard sessionId={coordinatorId} form={form} onOpen={() => { setChanging(false); setPhonePane('shog'); }} />
     ) : null;
@@ -280,33 +278,22 @@ export function DeskScreen() {
                 <WorkColumn compact="column" />
             </ScrollView>
         ) : (
-            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 360, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
+            <ScrollView testID="ip-work" horizontal={false} showsHorizontalScrollIndicator={false} style={{ width: 330, minWidth: 0, flexGrow: 0, flexShrink: 0, overflow: 'hidden', ...workSurface, ...divider }} contentContainerStyle={{ gap: 8, padding: 10 }}>
                 <View style={{ alignItems: 'flex-end' }}>{collapse}</View>
                 {coordinatorCard('slim')}
                 <WorkColumn />
             </ScrollView>
         );
     } else {
-        work = workCollapsed && !phone ? (
-            <View testID="ip-work-rail" style={{ flexDirection: 'row', alignItems: 'flex-start', minWidth: 0, maxHeight: Math.round(height * 0.45), gap: 8, padding: 8, ...workSurface, ...divider }}>
-                <ScrollView horizontal={false} showsHorizontalScrollIndicator={false} style={{ flex: 1, minWidth: 0, maxHeight: Math.max(0, Math.round(height * 0.45) - 16), overflow: 'hidden' }} contentContainerStyle={{ minWidth: 0 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4, minWidth: 0 }}>
-                        {coordinatorCard('rail')}
-                        <View style={{ flex: 1, minWidth: 0 }}><WorkColumn compact="row" /></View>
-                    </View>
-                </ScrollView>
-                {expand}
-            </View>
-        ) : (
+        work = (
             <ScrollView
                 testID="ip-work"
                 horizontal={false}
                 showsHorizontalScrollIndicator={false}
-                style={{ minWidth: 0, overflow: 'hidden', maxHeight: phone ? undefined : Math.round(height * 0.45), flexGrow: phone ? 1 : 0, ...workSurface, ...divider }}
+                style={{ minWidth: 0, overflow: 'hidden', flexGrow: 1, ...workSurface, ...divider }}
                 contentContainerStyle={{ gap: 8, padding: 12 }}
             >
-                {!phone && <View style={{ alignItems: 'flex-end' }}>{collapse}</View>}
-                {coordinatorCard(phone && phonePane === 'work' ? 'full' : 'slim')}
+                {coordinatorCard(phonePane === 'work' ? 'full' : 'slim')}
                 <WorkColumn />
             </ScrollView>
         );
