@@ -4,6 +4,7 @@ import { useQuestionContextData } from '../model/useWorkCardData';
 import * as React from 'react';
 import { Platform, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 
 import { isMobileLayoutWidth } from '@/components/sessions/layout/isMobileLayoutWidth';
 import type { SessionViewComposerOverrides } from '@/components/sessions/model/sessionComposerOverrides';
@@ -53,13 +54,20 @@ function getFixtureBody(inFixtureRoute: boolean): React.ComponentType<FixtureBod
     return null;
 }
 
+function CoordinatorEnterHint({ children }: React.PropsWithChildren) {
+    const { theme } = useUnistyles();
+    const appearance = React.useContext(TranscriptAppearanceContext);
+    return <DeskText testID="ip-composer-enter-hint" style={{ color: appearance?.shellColors?.secondary ?? theme.colors.text.secondary, fontSize: 12 }}>
+        {children}
+    </DeskText>;
+}
+
 /**
  * The coordinator's chat: Happier's own session view, embedded the way the workspace cockpit
  * embeds it. The mask's bulb lights when anything is waiting on you. "Shog" is the coordinator's quiet nickname;
  * pressing the mask shows Shog up close.
  */
 export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: string; headerAccessory?: (colour: string) => React.ReactNode }) {
-    const { theme } = useUnistyles();
     const contextData = useQuestionContextData(sessionId);
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const [shogOpen, setShogOpen] = React.useState(false);
@@ -87,13 +95,13 @@ export function CoordinatorPane({ sessionId, headerAccessory }: { sessionId: str
         hide: { ...controls.hide, contextUsage: true },
         statusTrailingActions: (showEnterHint || (coordinator && sessionContextMeter(coordinator))) ? <>
             {showEnterHint ? (
-                <DeskText testID="ip-composer-enter-hint" style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
+                <CoordinatorEnterHint>
                     {enterHint}
-                </DeskText>
+                </CoordinatorEnterHint>
             ) : null}
             {coordinator ? <ContextGauge session={coordinator} /> : null}
         </> : null,
-    }), [placeholder, enterHint, showEnterHint, theme.colors.text.secondary, sessionId, coordinator, controls]);
+    }), [placeholder, enterHint, showEnterHint, sessionId, coordinator, controls]);
     // On a cold load the desk knows the coordinator from the sidebar's list before its record has
     // loaded. SessionView doesn't fetch a missing record, so ask for it the way the session route does,
     // and hand SessionView the state so it shows loading or retrying instead of "isn't available".

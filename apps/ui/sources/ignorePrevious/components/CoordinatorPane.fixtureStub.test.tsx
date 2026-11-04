@@ -1,6 +1,9 @@
 import * as React from 'react';
 import { act } from 'react';
 import { StyleSheet } from 'react-native';
+import { useUnistyles } from 'react-native-unistyles';
+import { lightTheme, darkTheme } from '@/theme';
+import { parseThemeColor, themeContrastRatioOverLayers } from '@/theme/themeContrastMath';
 import { DeskCreature } from '../creature/DeskCreature';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -83,7 +86,12 @@ describe('CoordinatorPane body', () => {
     afterEach(() => {
         viewport.width = 1200;
         vi.unstubAllEnvs();
-        storage.setState(before, true);
+        act(() => {
+            storage.setState(before, true);
+            Object.assign(useUnistyles().theme, lightTheme);
+            deskPrefs.set('chatStyle', 'mask');
+            deskPrefs.set('terminalPalette', 'tokyo');
+        });
     });
 
     it.each([['mask', 128], ['terminal', 116]] as const)('renders one desk header at the %s height', async (style, height) => {
@@ -328,13 +336,23 @@ describe('CoordinatorPane body', () => {
         expect(screen.tree.findByType(SessionView).props.composer.statusTrailingActions).toBeNull();
     });
 
-    it('J1: the Enter hint appears once in a wide chat and disappears when the chat narrows', async () => {
+    it.each([
+        { palette: 'tokyo', app: lightTheme },
+        { palette: 'terminalPaper', app: darkTheme },
+    ] as const)('J1: Terminal $palette Enter hint stays readable in an opposing app theme and hides in a narrow chat', async ({ palette, app }) => {
+        Object.assign(useUnistyles().theme, app);
+        deskPrefs.set('chatStyle', 'terminal');
+        deskPrefs.set('terminalPalette', palette);
         vi.stubEnv('EXPO_PUBLIC_IP_FIXTURES', '');
         const screen = await renderScreen(<CoordinatorPane sessionId="c1" />);
         const pane = screen.findByTestId('ip-coordinator-pane');
         expect(pane).not.toBeNull();
         await act(async () => pane!.props.onLayout({ nativeEvent: { layout: { width: 900 } } }));
         expect(screen.tree.findAll((node) => node.props.testID === 'ip-composer-enter-hint' && typeof node.type === 'string')).toHaveLength(1);
+        const hint = StyleSheet.flatten(screen.findHostByTestId('ip-composer-enter-hint')!.props.style);
+        expect(hint.color).toBe(deskThemes[palette].mute);
+        expect(hint.fontFamily).toBe(DESK_FONT_STACK);
+        expect(themeContrastRatioOverLayers(parseThemeColor(hint.color), [deskThemes[palette].panel])).toBeGreaterThanOrEqual(4.5);
         await act(async () => pane!.props.onLayout({ nativeEvent: { layout: { width: 390 } } }));
         expect(screen.findByTestId('ip-composer-enter-hint')).toBeNull();
     });

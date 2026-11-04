@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Text, View } from 'react-native';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 
-import { renderScreen } from '@/dev/testkit';
+import { makeToolCall, renderScreen } from '@/dev/testkit';
 import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { lightTheme, darkTheme } from '@/theme';
 import { parseThemeColor, themeContrastRatioOverLayers } from '@/theme/themeContrastMath';
@@ -22,6 +22,10 @@ import { AppPaneProvider } from '@/components/appShell/panes/AppPaneProvider';
 import { WorkAppearance } from './WorkAppearance';
 import { TranscriptAppearanceContext } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { ComposerKeyboardScaffold as NativeScaffold } from '@/components/sessions/keyboardAvoidance/ComposerKeyboardScaffold.native';
+import { ToolTimelineRowHeader } from '@/components/tools/shell/views/timeline/ToolTimelineRowHeader';
+import { SessionActionRail } from '@/components/sessions/panes/SessionActionRail';
+import { Icon } from '@/components/ui/icons/Icon';
+import { ToolTimelineRow } from '@/components/tools/shell/views/ToolTimelineRow';
 
 vi.mock('react-native-unistyles', async () => {
     const { createUnistylesMock } = await import('@/dev/testkit/mocks/unistyles');
@@ -79,6 +83,79 @@ describe('coordinator conversation paint through the real shell', () => {
             deskPrefs.set('terminalPalette', 'tokyo');
         });
         Object.assign(useUnistyles().theme, lightTheme);
+    });
+
+    const metadata = <ToolTimelineRowHeader density="comfortable" icon={null} title="Release review"
+        subtitle="coordinator" statusText="Waiting for your response"
+        disclosure={{ behavior: 'persistent', state: 'expanded' }} />;
+
+    it.each(cases)('$label: coordinator metadata uses readable desk ink and loaded typography', async ({ style, palette, app, paint }) => {
+        Object.assign(useUnistyles().theme, app);
+        deskPrefs.set('chatStyle', style);
+        deskPrefs.set('terminalPalette', palette);
+        const screen = await renderScreen(<CoordinatorTranscriptAppearanceProvider>{metadata}</CoordinatorTranscriptAppearanceProvider>);
+        const labels = screen.findAll(node => typeof node.type === 'string' && String(node.type) === 'Text');
+        expect(labels).toHaveLength(3);
+        for (const [index, label] of labels.entries()) {
+            const rendered = StyleSheet.flatten(label.props.style);
+            expect(rendered.color).toBe(index === 0 ? paint.ink : paint.mute);
+            expect(rendered.fontFamily).toBe(DESK_FONT_STACK);
+            expect(themeContrastRatioOverLayers(parseThemeColor(rendered.color), [paint.panel])).toBeGreaterThanOrEqual(4.5);
+        }
+        expect(screen.tree.findByType(Icon).props.color).toBe(paint.mute);
+    });
+
+    it.each(cases)('$label: inactive and selected action-rail icons stay readable', async ({ style, palette, app, paint }) => {
+        Object.assign(useUnistyles().theme, app);
+        deskPrefs.set('chatStyle', style);
+        deskPrefs.set('terminalPalette', palette);
+        const screen = await renderScreen(<AuthProvider initialCredentials={null}><AppPaneProvider>
+            <CoordinatorTranscriptAppearanceProvider><SessionActionRail sessionId="coordinator" scopeId="palette-test" /></CoordinatorTranscriptAppearanceProvider>
+        </AppPaneProvider></AuthProvider>);
+        const git = () => screen.findHostByTestId('session-action-rail:git')!;
+        expect(git().findByType(Icon).props.color).toBe(paint.mute);
+        expect(themeContrastRatioOverLayers(parseThemeColor(git().findByType(Icon).props.color), [paint.panel])).toBeGreaterThanOrEqual(3);
+        await screen.pressByTestIdAsync('session-action-rail:git');
+        expect(git().props.accessibilityState.selected).toBe(true);
+        expect(git().findByType(Icon).props.color).toBe(paint.ink);
+        const marker = git().findAll(node => typeof node.type === 'string' && String(node.type) === 'View' && StyleSheet.flatten(node.props.style)?.width === 2);
+        expect(marker).toHaveLength(1);
+        expect(StyleSheet.flatten(marker[0].props.style).backgroundColor).toBe(paint.ink);
+    });
+
+    it.each(cases.slice(0, 2))('$label: the question metadata icon uses the same desk ink', async ({ style, palette, app, paint }) => {
+        Object.assign(useUnistyles().theme, app);
+        deskPrefs.set('chatStyle', style);
+        deskPrefs.set('terminalPalette', palette);
+        const screen = await renderScreen(<AuthProvider initialCredentials={null}><AppPaneProvider>
+            <CoordinatorTranscriptAppearanceProvider><ToolTimelineRow sessionId="coordinator" metadata={null}
+                tool={makeToolCall({ name: 'AskUserQuestion', state: 'completed', input: { questions: [] } })} />
+            </CoordinatorTranscriptAppearanceProvider>
+        </AppPaneProvider></AuthProvider>);
+        const header = screen.findHostByTestId('tool-timeline-row')!;
+        const icons = header.findAllByType(Icon);
+        expect(icons.length).toBeGreaterThan(0);
+        for (const icon of icons) expect([paint.ink, paint.mute]).toContain(icon.props.color);
+    });
+
+    it.each([lightTheme, darkTheme])('metadata and action rail retain ordinary-session appearance without a provider', async app => {
+        Object.assign(useUnistyles().theme, app);
+        const screen = await renderScreen(<AuthProvider initialCredentials={null}><AppPaneProvider>
+            {metadata}<SessionActionRail sessionId="worker" scopeId="ordinary-test" />
+        </AppPaneProvider></AuthProvider>);
+        const labels = screen.findAll(node => typeof node.type === 'string' && String(node.type) === 'Text' && node.children.some(child =>
+            typeof child === 'string' && ['Release review', 'coordinator', ' · Waiting for your response'].includes(child)));
+        expect(labels).toHaveLength(3);
+        for (const [index, label] of labels.entries()) {
+            const rendered = StyleSheet.flatten(label.props.style);
+            expect(rendered.fontFamily).not.toBe(DESK_FONT_STACK);
+            // This Unistyles boundary evaluates static styles once, using its initial light theme.
+            expect(rendered.color).toBe(index === 0 ? lightTheme.colors.text.primary : lightTheme.colors.text.secondary);
+        }
+        const git = () => screen.findHostByTestId('session-action-rail:git')!;
+        expect(git().findByType(Icon).props.color).toBe(app.colors.text.secondary);
+        await screen.pressByTestIdAsync('session-action-rail:git');
+        expect(git().findByType(Icon).props.color).toBe(app.colors.text.primary);
     });
 
     it.each(cases)('$label: empty and populated shells have no opaque app-theme islands', async ({ style, palette, app, paint }) => {
