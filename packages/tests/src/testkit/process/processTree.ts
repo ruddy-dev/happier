@@ -1,4 +1,20 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { processInstanceFingerprintMatches, readProcessInstanceFingerprintSync } from '@happier-dev/cli-common/processInstance';
+import { inspectOwnedProcess, type ProcessInspectionResult } from './processIdentity';
+
+type ProcessIdentity = Pick<Extract<ProcessInspectionResult, { ok: true }>, 'command' | 'startTime'> & {
+  processInstanceFingerprint?: string;
+};
+type ProcessEntry = ProcessIdentity & { pid: number; ppid: number; pgid: number };
+
+export type ProcessTreeOwnership = {
+  rootPid: number;
+  processes: Map<number, ProcessIdentity>;
+  // Groups are confirmation checks only. A numeric group id never grants signal authority.
+  groups: Set<number>;
+  inspectionError?: Error;
+};
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -6,225 +22,280 @@ function sleep(ms: number): Promise<void> {
 
 export function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error: any) {
-    if (error?.code === 'ESRCH') return false;
-    return true;
-  }
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
 }
-
-function tryKillPid(pid: number, signal: NodeJS.Signals): boolean {
-  try {
-    process.kill(pid, signal);
-    return true;
-  } catch (error: any) {
-    if (error?.code === 'ESRCH') return true;
-    return false;
-  }
-}
-
-function tryKillGroup(pid: number, signal: NodeJS.Signals): boolean {
-  try {
-    process.kill(-pid, signal);
-    return true;
-  } catch (error: any) {
-    if (error?.code === 'ESRCH') return true;
-    return false;
-  }
-}
-
-function taskkillTree(pid: number): boolean {
-  const command = process.env.COMSPEC || 'cmd.exe';
-  const result = spawnSync(command, ['/d', '/s', '/c', `taskkill /PID ${pid} /T /F`], {
-    stdio: 'ignore',
-  });
-  return (result.status ?? 1) === 0;
-}
-
-type ProcessEntry = {
-  pid: number;
-  ppid: number;
-  pgid: number;
-};
 
 function listUnixProcesses(): ProcessEntry[] {
-  const result = spawnSync('ps', ['-axo', 'pid=,ppid=,pgid='], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
+  const result = spawnSync('ps', ['-axo', 'pid=,ppid=,pgid=,lstart=,args=', '-ww'], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
   });
-
-  if (result.status !== 0 || typeof result.stdout !== 'string' || result.stdout.length === 0) {
-    return [];
+  if (result.error || result.status !== 0 || typeof result.stdout !== 'string') {
+    throw new Error('Owned process termination was not confirmed: process inspection failed');
   }
-
-  const entries: ProcessEntry[] = [];
-  for (const line of result.stdout.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const [pidText, ppidText, pgidText] = trimmed.split(/\s+/, 3);
-    const pid = Number.parseInt(pidText ?? '', 10);
-    const ppid = Number.parseInt(ppidText ?? '', 10);
-    const pgid = Number.parseInt(pgidText ?? '', 10);
-    if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isInteger(pgid) || pid <= 0 || pgid <= 0) continue;
-    entries.push({ pid, ppid, pgid });
-  }
-
-  return entries;
+  return result.stdout.split('\n').filter(line => line.trim()).map(line => {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.+)$/);
+    if (!match) throw new Error('Owned process termination was not confirmed: malformed process inspection');
+    return { pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), startTime: match[4].replace(/\s+/g, ' '), command: match[5].trim() };
+  });
 }
 
-export function collectDescendantPids(rootPid: number): number[] {
-  if (process.platform === 'win32' || !Number.isInteger(rootPid) || rootPid <= 0) return [];
+function listProcesses(): ProcessEntry[] {
+  if (process.platform !== 'win32') return listUnixProcesses();
+  // Snapshot parentage and birth together. CreationDate encoding matches the
+  // cli-common processInstance contract; individual checks still use that owner.
+  const script = [
+    '$rows = @(Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object {',
+    '[pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId;',
+    'startTime = if ($null -ne $_.CreationDate) { "win32-cim:" + $_.CreationDate.ToUniversalTime().ToString("O") } else { "" };',
+    'command = $_.CommandLine } });',
+    'ConvertTo-Json -InputObject $rows -Compress',
+  ].join(' ');
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.error || result.status !== 0) throw new Error('Owned process termination was not confirmed: CIM inspection failed');
+  const rows: unknown = JSON.parse(String(result.stdout));
+  if (!Array.isArray(rows)) throw new Error('Owned process termination was not confirmed: malformed CIM inspection');
+  return rows.map((value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('Malformed CIM process identity');
+    const row = value as Record<string, unknown>;
+    if (!Number.isInteger(row.pid) || !Number.isInteger(row.ppid) || typeof row.startTime !== 'string'
+      || (row.command !== null && typeof row.command !== 'string')) throw new Error('Malformed CIM process identity');
+    return { pid: row.pid as number, ppid: row.ppid as number, pgid: 0,
+      startTime: row.startTime, command: (row.command ?? '').trim() };
+  });
+}
 
-  const childrenByParent = new Map<number, number[]>();
-  for (const entry of listUnixProcesses()) {
-    if (entry.ppid <= 0) continue;
-    const children = childrenByParent.get(entry.ppid);
-    if (children) {
-      children.push(entry.pid);
-    } else {
-      childrenByParent.set(entry.ppid, [entry.pid]);
+// Observational API for callers that display/wait on descendants. These numbers
+// confer no termination authority; cleanup uses captured identities below.
+export function collectDescendantPids(rootPid: number): number[] {
+  if (!Number.isInteger(rootPid) || rootPid <= 1) return [];
+  const snapshot = listProcesses();
+  const descendants = new Set<number>();
+  const queue = [rootPid];
+  while (queue.length) {
+    const parent = queue.shift()!;
+    for (const entry of snapshot) {
+      if (entry.ppid !== parent || entry.pid === rootPid || descendants.has(entry.pid)) continue;
+      descendants.add(entry.pid);
+      queue.push(entry.pid);
     }
   }
-
-  const descendants = new Set<number>();
-  const queue = [...(childrenByParent.get(rootPid) ?? [])];
-  while (queue.length > 0) {
-    const pid = queue.shift();
-    if (typeof pid !== 'number' || pid <= 0 || descendants.has(pid)) continue;
-    descendants.add(pid);
-    const children = childrenByParent.get(pid);
-    if (children) queue.push(...children);
-  }
-
   return [...descendants];
 }
 
-function signalProcessGroup(groupId: number, signal: NodeJS.Signals): boolean {
-  if (!Number.isInteger(groupId) || groupId <= 0) return true;
+function sameIdentity(left: ProcessIdentity, right: ProcessIdentity): boolean {
+  return left.startTime.replace(/\s+/g, ' ') === right.startTime.replace(/\s+/g, ' ') && left.command === right.command;
+}
+
+// Call only when ownership is established (spawn or a validated persisted lease),
+// never to recover authority from a remembered numeric PID at stop time.
+export function captureProcessTreeOwnership(pid: number, identity?: ProcessIdentity): ProcessTreeOwnership {
+  const ownership: ProcessTreeOwnership = { rootPid: pid, processes: new Map(), groups: new Set() };
+  if (identity) {
+    ownership.processes.set(pid, identity);
+  } else {
+    const initial = inspectOwnedProcess(pid);
+    if (initial.ok) ownership.processes.set(pid, initial);
+    else ownership.inspectionError = new Error('Owned process termination was not confirmed: initial identity unavailable');
+  }
+  return ownership;
+}
+
+// Existing product markers may contain the canonical cli-common birth proof.
+// Legacy timestamps and command hashes alone cannot establish ownership.
+export function capturePersistedProcessTreeOwnership(pid: number, record: {
+  processInstanceFingerprint?: string;
+  commandHash?: string;
+}): ProcessTreeOwnership | null {
+  const fingerprint = record.processInstanceFingerprint?.trim();
+  if (!fingerprint || !record.commandHash) {
+    throw new Error(`Cannot establish process ownership for ${pid}: persisted birth identity and command hash required`);
+  }
+  const matches = () => processInstanceFingerprintMatches(fingerprint,
+    readProcessInstanceFingerprintSync(pid, { spawnSyncImpl: spawnSync }));
+  const before = matches();
+  const inspected = inspectOwnedProcess(pid);
+  // A null fingerprint also means probe failure. Only positive OS absence can
+  // retire an unchanged persisted marker without obtaining signal authority.
+  if (!inspected.ok && inspected.reason === 'not_found') return null;
+  if (!before) throw new Error(`Cannot establish process ownership for ${pid}: birth identity unavailable or changed`);
+  if (!inspected.ok || (!inspected.state?.startsWith('Z') && createHash('sha256').update(inspected.command).digest('hex') !== record.commandHash) || !matches()) {
+    throw new Error(`Cannot establish process ownership for ${pid}: command or birth identity inspection failed`);
+  }
+  return captureProcessTreeOwnership(pid, { ...inspected, processInstanceFingerprint: fingerprint });
+}
+
+function matchesPersistedFingerprint(pid: number, expected: ProcessIdentity): boolean {
+  return !expected.processInstanceFingerprint || processInstanceFingerprintMatches(expected.processInstanceFingerprint,
+    readProcessInstanceFingerprintSync(pid, { spawnSyncImpl: spawnSync }));
+}
+
+export function observeOwnedProcessTree(ownership: ProcessTreeOwnership): void {
+  if (ownership.inspectionError) return;
   try {
-    process.kill(-groupId, signal);
-    return true;
-  } catch (error: any) {
-    if (error?.code === 'ESRCH') return true;
-    return false;
+    const snapshot = listProcesses();
+    const byPid = new Map(snapshot.map(entry => [entry.pid, entry]));
+    // Publish new authority only after the whole observation succeeds.
+    const processes = new Map(ownership.processes);
+    const groups = new Set(ownership.groups);
+    const queue = [...processes.keys()];
+    const visited = new Set<number>();
+    while (queue.length) {
+      const pid = queue.shift()!;
+      if (visited.has(pid)) continue;
+      visited.add(pid);
+      const expected = processes.get(pid)!;
+      const current = byPid.get(pid);
+      // Never use a replaced/exited root as authority for new descendants.
+      if (!current || !sameIdentity(expected, current) || !matchesPersistedFingerprint(pid, expected)) continue;
+      if (current.pgid === pid) groups.add(pid);
+      for (const child of snapshot) {
+        if (child.pid <= 1 || child.ppid !== pid || processes.has(child.pid)) continue;
+        if (process.platform === 'win32') {
+          // Windows retains the creator PID after it exits. A younger process
+          // reusing that PID cannot own the older child. Compare full UTC/O
+          // precision rather than truncating birth times to JS milliseconds.
+          const birthFormat = /^win32-cim:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z$/;
+          if (!birthFormat.test(child.startTime) || !birthFormat.test(current.startTime)) {
+            throw new Error('Owned process termination was not confirmed: malformed CIM birth identity');
+          }
+          if (child.startTime < current.startTime) continue;
+        }
+        // Incomplete evidence cannot grant signal authority or prove the tree
+        // stopped. Keep the observation unresolved even if the parent exits.
+        if (!child.command || !child.startTime) {
+          throw new Error(`Owned process termination was not confirmed: child identity unavailable for ${child.pid}`);
+        }
+        processes.set(child.pid, { command: child.command, startTime: child.startTime,
+          ...(process.platform === 'win32' ? { processInstanceFingerprint: child.startTime } : {}) });
+        queue.push(child.pid);
+      }
+    }
+    ownership.processes = processes;
+    ownership.groups = groups;
+  } catch (error) {
+    // A missed observation can conceal a detached child after reparenting.
+    ownership.inspectionError = error instanceof Error ? error : new Error(String(error));
   }
 }
 
-function collectTreeTargets(rootPid: number, additionalPids: number[]): { pids: number[]; groupIds: number[] } {
-  const snapshot = listUnixProcesses();
-  const byPid = new Map(snapshot.map((entry) => [entry.pid, entry] as const));
-  const childrenByParent = new Map<number, number[]>();
-
-  for (const entry of snapshot) {
-    if (entry.ppid <= 0) continue;
-    const children = childrenByParent.get(entry.ppid);
-    if (children) {
-      children.push(entry.pid);
-    } else {
-      childrenByParent.set(entry.ppid, [entry.pid]);
-    }
+function inspectTarget(pid: number, expected: ProcessIdentity): 'live' | 'stopped' | 'absent' | 'replaced' {
+  const current = inspectOwnedProcess(pid);
+  if (!current.ok) {
+    if (current.reason === 'not_found') return 'absent';
+    throw new Error(`Owned process termination was not confirmed: cannot inspect identity for ${pid}`);
   }
-
-  const roots = new Set<number>();
-  if (Number.isInteger(rootPid) && rootPid > 0) roots.add(rootPid);
-  for (const pid of additionalPids) {
-    if (Number.isInteger(pid) && pid > 0) roots.add(pid);
+  if (current.startTime.replace(/\s+/g, ' ') !== expected.startTime.replace(/\s+/g, ' ')) return 'replaced';
+  if (!matchesPersistedFingerprint(pid, expected)) {
+    throw new Error(`Owned process termination was not confirmed: birth identity changed or unavailable for ${pid}`);
   }
-
-  const pids = new Set<number>();
-  const queue = [...roots];
-  while (queue.length > 0) {
-    const pid = queue.shift();
-    if (typeof pid !== 'number' || pid <= 0 || pids.has(pid)) continue;
-    pids.add(pid);
-    const children = childrenByParent.get(pid);
-    if (children) queue.push(...children);
+  // Only an observed kernel zombie state with matching captured birth proof can
+  // bypass command comparison. A stopped/suspended live process still needs stop.
+  if (current.state?.startsWith('Z')) return 'stopped';
+  if (!sameIdentity(expected, current)) {
+    throw new Error(`Owned process termination was not confirmed: command identity changed for ${pid}`);
   }
-
-  const groupIds = new Set<number>();
-  for (const rootPid of roots) {
-    if (!Number.isInteger(rootPid) || rootPid <= 0) continue;
-    const entry = byPid.get(rootPid);
-    if (entry?.pgid && entry.pgid > 0 && entry.pgid === rootPid) {
-      groupIds.add(entry.pgid);
-      continue;
-    }
-    // Detached wrappers use the child pid as the process-group id on Unix. Preserve
-    // that fallback even after the root process exits so orphaned descendants can be reaped.
-    groupIds.add(rootPid);
-  }
-  for (const pid of pids) {
-    const entry = byPid.get(pid);
-    if (entry && entry.pgid > 0 && entry.pgid === pid) {
-      groupIds.add(entry.pgid);
-    }
-  }
-
-  for (const entry of snapshot) {
-    if (groupIds.has(entry.pgid)) {
-      pids.add(entry.pid);
-    }
-  }
-
-  return { pids: [...pids], groupIds: [...groupIds] };
+  return 'live';
 }
 
-function signalTargets(targets: { pids: number[]; groupIds: number[] }, signal: NodeJS.Signals): void {
-  for (const groupId of targets.groupIds) {
-    signalProcessGroup(groupId, signal);
-  }
-
-  const orderedPids = [...targets.pids].sort((left, right) => right - left);
-  for (const pid of orderedPids) {
-    tryKillPid(pid, signal);
+function signalTargets(ownership: ProcessTreeOwnership, signal: NodeJS.Signals, errors: Map<number, unknown>): void {
+  // Children first. No negative PID or taskkill /T can expand this checked set.
+  for (const [pid, identity] of [...ownership.processes].reverse()) {
+    try {
+      if (inspectTarget(pid, identity) !== 'live') continue;
+      try { process.kill(pid, signal); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+          throw new Error(`Owned process termination was not confirmed: signal failed for ${pid}`, { cause: error });
+        }
+      }
+    } catch (error) { if (!errors.has(pid)) errors.set(pid, error); }
   }
 }
 
-function allTargetsStopped(targets: { pids: number[]; groupIds: number[] }): boolean {
-  return targets.pids.every((pid) => !isProcessAlive(pid));
+function allTargetsStopped(ownership: ProcessTreeOwnership, errors: Map<number, unknown>): boolean {
+  let stopped = true;
+  for (const [pid, identity] of ownership.processes) {
+    try {
+      const state = inspectTarget(pid, identity);
+      if (state === 'live' || state === 'replaced') stopped = false;
+    } catch (error) { if (!errors.has(pid)) errors.set(pid, error); stopped = false; }
+  }
+  if (!stopped) return false;
+  // A group containing only positively owned zombies is stopped. Unknown,
+  // replaced or unreadable members keep confirmation unresolved.
+  for (const group of ownership.groups) {
+    try { process.kill(-group, 0); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') continue;
+      errors.set(-group, error);
+      return false;
+    }
+    const members = listProcesses().filter(entry => entry.pgid === group);
+    if (!members.length) return false;
+    for (const member of members) {
+      const expected = ownership.processes.get(member.pid);
+      if (!expected) return false;
+      try { if (inspectTarget(member.pid, expected) !== 'stopped') return false; }
+      catch (error) { errors.set(member.pid, error); return false; }
+    }
+  }
+  return true;
 }
 
 export async function terminateProcessTreeByPid(
   pid: number,
-  options: { graceMs?: number; pollMs?: number; skipAliveCheck?: boolean; additionalPids?: number[] } = {},
+  options: { graceMs?: number; pollMs?: number; skipAliveCheck?: boolean; additionalPids?: number[]; ownership: ProcessTreeOwnership; signal?: NodeJS.Signals; descendants?: boolean },
 ): Promise<void> {
-  if (!Number.isInteger(pid) || pid <= 0) return;
-
-  const graceMsRaw = options.graceMs;
-  const pollMsRaw = options.pollMs;
-  const skipAliveCheck = options.skipAliveCheck === true;
-  const additionalPids = Array.isArray(options.additionalPids) ? options.additionalPids : [];
-  const graceMs = typeof graceMsRaw === 'number' && Number.isInteger(graceMsRaw) && graceMsRaw >= 0 ? graceMsRaw : 10_000;
-  const pollMs = typeof pollMsRaw === 'number' && Number.isInteger(pollMsRaw) && pollMsRaw > 0 ? pollMsRaw : 100;
-
-  if (!skipAliveCheck && !isProcessAlive(pid) && additionalPids.every((extraPid) => !isProcessAlive(extraPid))) return;
-
-  if (process.platform === 'win32') {
-    taskkillTree(pid);
-    for (const extraPid of additionalPids) {
-      taskkillTree(extraPid);
-    }
-    return;
+  if (!Number.isInteger(pid) || pid <= 1) throw new Error('Cannot confirm termination without an owned process id');
+  let ownership = options.ownership;
+  if (!ownership || ownership.rootPid !== pid || !ownership.processes.has(pid)) {
+    throw new Error('Owned process termination was not confirmed: captured identity required');
   }
-
-  signalTargets(collectTreeTargets(pid, additionalPids), 'SIGTERM');
-
+  if (options.additionalPids?.some(extra => !ownership.processes.has(extra))) {
+    throw new Error('Owned process termination was not confirmed: additional PID identity unavailable');
+  }
+  // Daemon replacement explicitly keeps sessions alive. Reuse the captured
+  // root proof, but neither discover nor signal its descendants in that flow.
+  if (options.descendants === false) {
+    ownership = { ...ownership, processes: new Map([[pid, ownership.processes.get(pid)!]]), groups: new Set() };
+  }
+  const graceMs = Number.isInteger(options.graceMs) && options.graceMs! >= 0 ? options.graceMs! : 10_000;
+  const pollMs = Number.isInteger(options.pollMs) && options.pollMs! > 0 ? options.pollMs! : 100;
+  const observe = () => {
+    if (options.descendants !== false) observeOwnedProcessTree(ownership);
+  };
+  const errors = new Map<number, unknown>();
+  const confirm = () => {
+    if (!allTargetsStopped(ownership, errors)) return false;
+    if (ownership.inspectionError || errors.size) throwCleanupErrors();
+    return true;
+  };
+  const throwCleanupErrors = () => {
+    // Failed discovery forbids success, but must not block independently
+    // revalidated known targets from either signal pass.
+    const details = [...(ownership.inspectionError ? [ownership.inspectionError] : []), ...errors.values()];
+    throw new AggregateError(details, `Owned process termination was not confirmed: ${details.map(String).join('; ')}`);
+  };
+  observe();
+  signalTargets(ownership, options.signal ?? 'SIGTERM', errors);
   const startedAt = Date.now();
   while (Date.now() - startedAt < graceMs) {
-    const targets = collectTreeTargets(pid, additionalPids);
-    if (targets.pids.length === 0 || allTargetsStopped(targets)) return;
+    observe();
+    if (confirm()) return;
+    if (errors.size) break;
     await sleep(pollMs);
   }
-
-  signalTargets(collectTreeTargets(pid, additionalPids), 'SIGKILL');
-
+  observe();
+  signalTargets(ownership, 'SIGKILL', errors);
   const killDeadline = Date.now() + Math.max(250, pollMs * 4);
   while (Date.now() < killDeadline) {
-    const targets = collectTreeTargets(pid, additionalPids);
-    if (targets.pids.length === 0 || allTargetsStopped(targets)) return;
+    observe();
+    if (confirm()) return;
+    if (errors.size) break;
     await sleep(pollMs);
   }
+  if (!confirm()) throwCleanupErrors();
 }

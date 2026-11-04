@@ -704,14 +704,18 @@ export async function startCodexAppServerRemoteHarness(params: Readonly<{
   let runtimeStopped = false;
   const stopRuntime = async (): Promise<void> => {
     if (runtimeStopped) return;
+    const cleanup = await Promise.allSettled([proc.stop()]);
+    cleanup.push(...await Promise.allSettled([stopDaemonFromHomeDir(cliHome)]));
+    const errors = cleanup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'Codex harness process cleanup failed');
     runtimeStopped = true;
-    await proc.stop().catch(() => {});
-    await stopDaemonFromHomeDir(cliHome).catch(() => {});
   };
 
   const stop = async (): Promise<void> => {
-    await stopRuntime();
-    await server.stop().catch(() => {});
+    const cleanup = await Promise.allSettled([stopRuntime()]);
+    cleanup.push(...await Promise.allSettled([server.stop()]));
+    const errors = cleanup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'Codex harness cleanup failed');
   };
 
   try {

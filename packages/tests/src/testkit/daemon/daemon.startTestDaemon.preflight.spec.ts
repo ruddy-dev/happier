@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isProcessAlive, terminateProcessTreeByPid } from '../process/processTree';
+import { isProcessAlive } from '../process/processTree';
 
 const cliLaunchSpecMock = vi.hoisted(() => ({
   resolveCliTestLaunchSpec: vi.fn(),
@@ -492,7 +492,9 @@ describe('startTestDaemon', () => {
     const testDir = await mkdtemp(join(tmpdir(), 'happier-daemon-lease-preflight-'));
     const homeDir = resolve(testDir, 'home');
     let stalePid: number | null = null;
+    let staleProc: ReturnType<typeof spawnDetachedTestProcess> | undefined;
     let freshPid: number | null = null;
+    let freshProc: Awaited<ReturnType<typeof startTestDaemon>>['proc'] | undefined;
 
     try {
       const freshScriptDir = resolve(testDir, 'fresh-daemon', 'dist');
@@ -500,7 +502,7 @@ describe('startTestDaemon', () => {
       await mkdir(homeDir, { recursive: true });
       await writeHoldingDaemonScript(resolve(freshScriptDir, 'index.mjs'), { writesState: true, httpPort: 32_224 });
 
-      const staleProc = spawnDetachedTestProcess(process.execPath, ['-e', "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);", 'daemon', 'start-sync'], {
+      staleProc = spawnDetachedTestProcess(process.execPath, ['-e', "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);", 'daemon', 'start-sync'], {
         stdio: 'ignore',
       });
       stalePid = staleProc.pid ?? null;
@@ -535,12 +537,14 @@ describe('startTestDaemon', () => {
       });
 
       const daemon = await startTestDaemon({
+        existingDaemonOwnership: staleProc.ownership,
         testDir,
         happyHomeDir: homeDir,
         env: {},
         startupTimeoutMs: 15_000,
       });
 
+      freshProc = daemon.proc;
       freshPid = daemon.proc.child.pid ?? null;
       expect(typeof freshPid).toBe('number');
       expect(freshPid && freshPid > 1).toBe(true);
@@ -549,8 +553,7 @@ describe('startTestDaemon', () => {
 
       await daemon.stop();
     } finally {
-      if (freshPid) await terminateProcessTreeByPid(freshPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
-      if (stalePid) await terminateProcessTreeByPid(stalePid, { graceMs: 0, pollMs: 25 }).catch(() => {});
+      await Promise.all([freshProc?.stop(), staleProc?.stop()]);
       await rm(testDir, { recursive: true, force: true });
     }
   });
@@ -563,7 +566,9 @@ describe('startTestDaemon', () => {
     const testDir = await mkdtemp(join(tmpdir(), 'happier-daemon-preflight-'));
     const homeDir = resolve(testDir, 'home');
     let stalePid: number | null = null;
+    let staleProc: ReturnType<typeof spawnDetachedTestProcess> | undefined;
     let freshPid: number | null = null;
+    let freshProc: Awaited<ReturnType<typeof startTestDaemon>>['proc'] | undefined;
 
     try {
       const staleScriptDir = resolve(testDir, 'stale-daemon', 'dist');
@@ -574,7 +579,7 @@ describe('startTestDaemon', () => {
       await writeHoldingDaemonScript(resolve(staleScriptDir, 'index.mjs'), { writesState: false });
       await writeHoldingDaemonScript(resolve(freshScriptDir, 'index.mjs'), { writesState: true, httpPort: 32_223 });
 
-      const staleProc = spawnDetachedTestProcess(process.execPath, [resolve(staleScriptDir, 'index.mjs'), 'daemon', 'start-sync'], {
+      staleProc = spawnDetachedTestProcess(process.execPath, [resolve(staleScriptDir, 'index.mjs'), 'daemon', 'start-sync'], {
         stdio: 'ignore',
         env: {
           ...process.env,
@@ -605,12 +610,14 @@ describe('startTestDaemon', () => {
       });
 
       const daemon = await startTestDaemon({
+        existingDaemonOwnership: staleProc.ownership,
         testDir,
         happyHomeDir: homeDir,
         env: {},
         startupTimeoutMs: 15_000,
       });
 
+      freshProc = daemon.proc;
       freshPid = daemon.proc.child.pid ?? null;
       expect(typeof freshPid).toBe('number');
       expect(freshPid && freshPid > 1).toBe(true);
@@ -621,8 +628,7 @@ describe('startTestDaemon', () => {
 
       await daemon.stop();
     } finally {
-      if (freshPid) await terminateProcessTreeByPid(freshPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
-      if (stalePid) await terminateProcessTreeByPid(stalePid, { graceMs: 0, pollMs: 25 }).catch(() => {});
+      await Promise.all([freshProc?.stop(), staleProc?.stop()]);
       await rm(testDir, { recursive: true, force: true });
     }
   });
@@ -686,7 +692,9 @@ describe('startTestDaemon', () => {
     const testDir = await mkdtemp(join(tmpdir(), 'happier-daemon-replacement-'));
     const homeDir = resolve(testDir, 'home');
     let originalPid: number | null = null;
+    let original: ReturnType<typeof spawnDetachedTestProcess> | undefined;
     let replacementPid: number | null = null;
+    let replacementProc: Awaited<ReturnType<typeof replaceTestDaemonWithoutStoppingSessions>>['proc'] | undefined;
 
     try {
       const originalScriptDir = resolve(testDir, 'original-daemon', 'dist');
@@ -707,7 +715,7 @@ describe('startTestDaemon', () => {
         httpPort: 32_226,
       });
 
-      const original = spawnDetachedTestProcess(process.execPath, [
+      original = spawnDetachedTestProcess(process.execPath, [
         resolve(originalScriptDir, 'index.mjs'),
         'daemon',
         'start-sync',
@@ -746,6 +754,7 @@ describe('startTestDaemon', () => {
       });
 
       const state = await replaceTestDaemonWithoutStoppingSessions({
+        originalOwnership: original.ownership,
         testDir,
         happyHomeDir: homeDir,
         env: {},
@@ -753,6 +762,7 @@ describe('startTestDaemon', () => {
         stderrPath: resolve(testDir, 'replacement.stderr.log'),
       });
 
+      replacementProc = state.proc;
       replacementPid = state.pid;
       expect(state).toEqual(expect.objectContaining({
         httpPort: 32_227,
@@ -762,8 +772,7 @@ describe('startTestDaemon', () => {
       expect(isProcessAlive(originalPid!)).toBe(false);
       expect(isProcessAlive(replacementPid)).toBe(true);
     } finally {
-      if (replacementPid) await terminateProcessTreeByPid(replacementPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
-      if (originalPid) await terminateProcessTreeByPid(originalPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
+      await Promise.all([replacementProc?.stop(), original?.stop()]);
       await rm(testDir, { recursive: true, force: true });
     }
   }, 20_000);
@@ -776,11 +785,12 @@ describe('startTestDaemon', () => {
     const testDir = await mkdtemp(join(tmpdir(), 'happier-daemon-replacement-safety-'));
     const homeDir = resolve(testDir, 'home');
     let originalPid: number | null = null;
+    let original: ReturnType<typeof spawnDetachedTestProcess> | undefined;
 
     try {
       await mkdir(homeDir, { recursive: true });
 
-      const original = spawnDetachedTestProcess(process.execPath, [
+      original = spawnDetachedTestProcess(process.execPath, [
         '-e',
         "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);",
       ], {
@@ -806,11 +816,11 @@ describe('startTestDaemon', () => {
           happyHomeDir: homeDir,
           env: {},
         }),
-      ).rejects.toThrow('refusing to hard-kill');
+      ).rejects.toThrow('captured process identity');
 
       expect(isProcessAlive(originalPid!)).toBe(true);
     } finally {
-      if (originalPid) await terminateProcessTreeByPid(originalPid, { graceMs: 0, pollMs: 25 }).catch(() => {});
+      await original?.stop();
       await rm(testDir, { recursive: true, force: true });
     }
   }, 20_000);

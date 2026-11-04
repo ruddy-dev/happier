@@ -118,11 +118,12 @@ describe('startCliAuthLoginForTerminalConnect', () => {
         const testDir = await mkdtemp(join(tmpdir(), 'happier-cli-terminal-connect-'));
         const cliHomeDir = resolve(testDir, 'cli-home');
         let stalePid: number | null = null;
+        let staleProc: ReturnType<typeof spawnDetachedTestProcess> | undefined;
 
         try {
             await mkdir(cliHomeDir, { recursive: true });
 
-            const staleProc = spawnDetachedTestProcess(
+            staleProc = spawnDetachedTestProcess(
                 process.execPath,
                 ['-e', "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);", 'auth', 'login', '--force', '--no-open', '--method', 'web'],
                 { stdio: 'ignore' },
@@ -160,13 +161,7 @@ describe('startCliAuthLoginForTerminalConnect', () => {
             await started.stop();
             expect(stopCalls).toBeGreaterThan(0);
         } finally {
-            if (stalePid) {
-                try {
-                    process.kill(stalePid, 'SIGKILL');
-                } catch {
-                    // ignore
-                }
-            }
+            await staleProc?.stop();
             await rm(testDir, { recursive: true, force: true });
         }
     });

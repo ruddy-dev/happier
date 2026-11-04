@@ -1,26 +1,30 @@
 import { unlink, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { terminateProcessTreeByPid } from '../../process/processTree';
+import { capturePersistedProcessTreeOwnership, terminateProcessTreeByPid } from '../../process/processTree';
 
 type ManagedServerState = Readonly<{
   baseUrl: string;
   pid: number;
   startedAtMs: number;
+  processInstanceFingerprint?: string;
+  expectedCmdlineHash?: string;
 }>;
 
 function parseState(raw: string): ManagedServerState | null {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    const baseUrl = typeof (parsed as any).baseUrl === 'string' ? String((parsed as any).baseUrl).trim() : '';
-    const pid = typeof (parsed as any).pid === 'number' ? (parsed as any).pid : Number((parsed as any).pid);
-    const startedAtMs =
-      typeof (parsed as any).startedAtMs === 'number' ? (parsed as any).startedAtMs : Number((parsed as any).startedAtMs);
+    const value = parsed as Record<string, unknown>;
+    const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl.trim() : '';
+    const pid = Number(value.pid);
+    const startedAtMs = Number(value.startedAtMs);
     if (!baseUrl) return null;
-    if (!Number.isFinite(pid) || pid <= 0) return null;
+    if (!Number.isInteger(pid) || pid <= 1) return null;
     if (!Number.isFinite(startedAtMs) || startedAtMs <= 0) return null;
-    return { baseUrl, pid: Math.trunc(pid), startedAtMs: Math.trunc(startedAtMs) };
+    return { baseUrl, pid: Math.trunc(pid), startedAtMs: Math.trunc(startedAtMs),
+      processInstanceFingerprint: typeof value.processInstanceFingerprint === 'string' ? value.processInstanceFingerprint : undefined,
+      expectedCmdlineHash: typeof value.expectedCmdlineHash === 'string' ? value.expectedCmdlineHash : undefined };
   } catch {
     return null;
   }
@@ -28,16 +32,25 @@ function parseState(raw: string): ManagedServerState | null {
 
 export async function stopOpenCodeManagedServerFromHomeDir(happyHomeDir: string): Promise<void> {
   const statePath = join(happyHomeDir, 'opencode', 'managed-server.json');
-  const lockPath = `${statePath}.lock`;
 
-  const raw = await readFile(statePath, 'utf8').catch(() => null);
-  if (!raw) return;
+  const raw = await readFile(statePath, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (raw === null) return;
   const state = parseState(raw);
-  if (!state) return;
+  if (!state) throw new Error(`Cannot establish managed-server ownership: invalid state at ${statePath}`);
 
-  await terminateProcessTreeByPid(state.pid, { graceMs: 5_000, pollMs: 100 }).catch(() => {});
+  const ownership = capturePersistedProcessTreeOwnership(state.pid, {
+    processInstanceFingerprint: state.processInstanceFingerprint,
+    commandHash: state.expectedCmdlineHash,
+  });
+  if (ownership) await terminateProcessTreeByPid(state.pid, { ownership, graceMs: 5_000, pollMs: 100 });
 
-  await unlink(statePath).catch(() => {});
-  await unlink(lockPath).catch(() => {});
+  if (await readFile(statePath, 'utf8') !== raw) {
+    throw new Error(`Managed-server state changed during termination: ${statePath}`);
+  }
+  await unlink(statePath);
+  // The lock belongs to its producer, not to the process described by the state.
 }
 

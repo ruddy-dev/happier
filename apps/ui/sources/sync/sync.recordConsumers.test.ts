@@ -19,7 +19,9 @@ describe('sync record-only hydration', () => {
         return release;
     };
     beforeEach(() => {
-        storage.setState({ sessions: {}, sessionListRenderables: {}, sessionMessages: {} });
+        // This suite exercises ordinary refresh/append after bootstrap. The harness
+        // installs credentials directly; cold readiness is covered by the public lifecycle suite.
+        storage.setState({ isDataReady: true, sessions: {}, sessionListRenderables: {}, sessionMessages: {} });
         releases = [];
         harness = installSessionRecordHarness([]);
     });

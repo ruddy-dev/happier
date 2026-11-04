@@ -13,6 +13,9 @@ describe('canonical session list paging read API', () => {
         previous = storage.getState();
         harness = installSessionRecordHarness([]);
         harness.sync.disconnectServer();
+        // These pager scenarios start after bootstrap. Credentials are installed by
+        // the harness; cold required hydration is covered by deskBootstrapReadiness.
+        storage.setState({ isDataReady: true });
     });
     afterEach(() => {
         harness.sync.disconnectServer();
