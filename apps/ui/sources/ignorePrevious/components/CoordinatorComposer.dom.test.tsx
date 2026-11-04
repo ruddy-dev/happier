@@ -21,6 +21,7 @@ import { getDemoConversation } from '../fixtures/demoConversation';
 import { installAgentAssetLoader } from '@/dev/testkit/mocks/agentAssets';
 import { deskPrefs } from '../deskPrefs';
 import { CoordinatorComposer } from './CoordinatorComposer';
+import { CoordinatorPrompts } from './CoordinatorPrompts';
 import { DeskPaintContext, deskThemes, useDeskPaint } from '../palette';
 
 // Keep the real web hosts and Animated.Value; RN Web lacks RN's hook.
@@ -279,6 +280,33 @@ it.each([821, 900])('reveals focused desk controls in the scrolling row at %ipx'
     chip.getBoundingClientRect = () => ({ left: -90, right: 20, width: 110 } as DOMRect);
     await act(async () => chip.focus());
     expect(scroller.scrollLeft).toBe(-30);
+});
+
+it('reveals partially visible phone shortcuts on real focus without moving the page', async () => {
+    await act(async () => root.render(<CoordinatorPrompts coordinatorId="coordinator" phone />));
+    const scroller = find('ip-phone-shortcuts')!;
+    const chip = find('ip-start-new')!;
+    // jsdom has no layout engine. Supply the observed browser geometry at the DOM boundary;
+    // only the production focus handler may change scrollLeft.
+    scroller.getBoundingClientRect = () => ({ left: 16, right: 374, width: 358 } as DOMRect);
+    chip.getBoundingClientRect = () => ({ left: 198.40625, right: 401.8125, width: 203.40625 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(document.activeElement).toBe(chip);
+    expect(scroller.scrollLeft).toBe(27.8125);
+    expect(chip.textContent).toContain(t('ignorePrevious.composer.startNew'));
+    expect(find('ip-phone-shortcuts')).toBe(scroller);
+    expect(document.documentElement.scrollLeft).toBe(0);
+    expect(document.documentElement.scrollTop).toBe(0);
+
+    await act(async () => chip.blur());
+    chip.getBoundingClientRect = () => ({ left: 0, right: 203.40625, width: 203.40625 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(11.8125);
+
+    await act(async () => chip.blur());
+    chip.getBoundingClientRect = () => ({ left: 30, right: 233.40625, width: 203.40625 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(11.8125);
 });
 
 it('retains the run control across the phone breakpoint', async () => {

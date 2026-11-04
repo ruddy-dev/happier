@@ -631,6 +631,17 @@ function AgentInputHiddenUsageOverflow(props: AgentInputHiddenUsageOverflowProps
     );
 }
 
+// Web intrinsic sizing lets the summary wrap before moving the whole controls group.
+// It follows the actual pane and label widths, including font/zoom changes.
+const deskLeadingActionsWebStyle: ViewStyle = {
+    // @ts-expect-error RN's native style type omits the CSS intrinsic size supported by RN Web.
+    flexBasis: 'min-content',
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%',
+    minWidth: 0,
+};
+
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     container: {
         alignItems: 'center',
@@ -1127,6 +1138,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const wrapDeskActions = deskLayout.desk && Platform.OS === 'web' && !deskLayout.phone;
     const voiceEnabled = useFeatureEnabled('voice');
     const uiBackdropBlurEnabled = useLocalSetting('uiBackdropBlurEnabled') !== false;
     const keyboardShortcutsV2Enabled = useSetting('keyboardShortcutsV2Enabled') === true;
@@ -3099,13 +3111,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             >{[
                 <View
                     key="row1"
-                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.desk ? { flexDirection: 'column', alignItems: 'stretch' } : null]}
+                    style={[styles.actionButtonsRow, showSecondaryControlsRow ? styles.actionButtonsRowWithBelow : null, deskLayout.desk ? (wrapDeskActions ? { flexWrap: 'wrap' } : { flexDirection: 'column', alignItems: 'stretch' }) : null]}
                 >
-                    {deskLayout.desk ? <View style={{ width: '100%', minWidth: 0 }}>{leadingActions}</View> : leadingActions}
+                    {deskLayout.desk ? <View style={wrapDeskActions ? deskLeadingActionsWebStyle : { width: '100%', minWidth: 0 }}>{leadingActions}</View> : leadingActions}
                     {deskLayout.desk ? (
                         <View
                             testID="agent-input-desk-controls-row"
-                            style={[styles.actionButtonsRow, { width: '100%', minWidth: 0 }]}
+                            // Let intrinsic content widths decide whether this group fits beside the model.
+                            // At narrow pane widths it wraps, keeping Send with the existing controls.
+                            style={[styles.actionButtonsRow, wrapDeskActions
+                                ? { flexBasis: 'auto', flexShrink: 1, maxWidth: '100%', minWidth: 0 }
+                                : { width: '100%', minWidth: 0 }]}
                         >
                             {renderActionControls()}
                         </View>
