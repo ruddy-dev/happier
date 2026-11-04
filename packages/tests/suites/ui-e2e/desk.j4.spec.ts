@@ -145,24 +145,22 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
             await openWorker.click();
             await expect(page).toHaveURL(new RegExp(`/session/${worker.sessionId}(?:[/?#]|$)`));
             const workerControl = width === 390
-                ? page.getByTestId('session-open-source-control').and(page.getByRole('button', { name: 'Source control', exact: true }))
+                ? page.getByTestId('session-cockpit-tab-git').and(page.getByRole('tab', { name: 'Git', exact: true }))
                 : page.getByTestId('session-action-rail:git').and(page.getByRole('button', { name: /^Git\b/ }));
             await expect(workerControl).toBeVisible();
             const workerUrl = page.url();
             await workerControl.click();
             if (width === 390) {
-                // The composer chip opens fileBrowser, not sourceControl.
-                await expect(page).toHaveURL(new RegExp(`/session/${worker.sessionId}/files(?:[?#]|$)`));
-                const filesTab = page.getByTestId('session-rightpanel-tab:files').and(page.getByRole('tab', { name: 'Files', exact: true }));
-                await expect(filesTab).toHaveAttribute('aria-selected', 'true');
-                const gitTab = page.getByTestId('session-rightpanel-tab:git').and(page.getByRole('tab', { name: 'Git', exact: true }));
-                await gitTab.click();
-                await expect(gitTab).toHaveAttribute('aria-selected', 'true');
-                await expect(filesTab).toHaveAttribute('aria-selected', 'false');
+                // The mobile cockpit switches surfaces inside the session route.
+                await expect(page).toHaveURL(workerUrl);
+                await expect(workerControl).toHaveAttribute('aria-selected', 'true');
+                await expect(page.getByTestId('session-git-screen')).toBeVisible();
             } else {
                 // The desktop rail opens the Git pane and pushes its URL state.
                 await expect(page).toHaveURL(url => url.pathname === `/session/${worker.sessionId}` && url.searchParams.get('right') === 'git');
                 await expect(workerControl).toHaveAttribute('aria-selected', 'true');
+                // Keep the passive rail tooltip over Update to catch pointer interception.
+                await expect(page.getByRole('tooltip')).toBeVisible();
             }
             const updateTab = page.getByTestId('session-rightpanel-git-subtab:update').and(page.getByRole('tab', { name: 'Update', exact: true }));
             await updateTab.click();
@@ -205,8 +203,10 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
             expect(opened).toEqual([]);
             checkpoint('verified-find');
             if (width === 390) {
-                // The ordinary /files Close action closes the pane and navigates back.
-                await page.getByTestId('session-rightpanel-close').and(page.getByRole('button', { name: 'Close', exact: true })).click();
+                const chatTab = page.getByTestId('session-cockpit-tab-chat').and(page.getByRole('tab'));
+                await chatTab.click();
+                await expect(chatTab).toHaveAttribute('aria-selected', 'true');
+                await expect(workerControl).toHaveAttribute('aria-selected', 'false');
             } else {
                 // Undo the desktop Git pane URL entry before leaving the worker.
                 await page.goBack();
