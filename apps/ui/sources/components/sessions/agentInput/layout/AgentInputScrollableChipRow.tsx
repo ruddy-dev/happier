@@ -23,6 +23,7 @@ export type AgentInputScrollableChipRowProps = Readonly<{
     contentStyle?: any;
     fadeLeftStyle?: any;
     fadeRightStyle?: any;
+    revealFocusedControl?: boolean;
 }>;
 
 export function AgentInputScrollableChipRow(props: AgentInputScrollableChipRowProps) {
@@ -141,17 +142,30 @@ export function AgentInputScrollableChipRow(props: AgentInputScrollableChipRowPr
         const animationFrameId = requestAnimationFrameSafe(() => {
             const node = getScrollNode() as any;
             if (!node || typeof node.addEventListener !== 'function') return;
-            cleanup = attachActionBarMouseDragScroll({
+            const detachDrag = attachActionBarMouseDragScroll({
                 node,
                 onScroll: () => reportWebScroll(node),
             });
+            const revealFocus = (event: FocusEvent) => {
+                if (!props.revealFocusedControl || !(event.target instanceof HTMLElement)) return;
+                const viewport = node.getBoundingClientRect();
+                const focused = event.target.getBoundingClientRect();
+                if (focused.left < viewport.left) node.scrollLeft += focused.left - viewport.left;
+                else if (focused.right > viewport.right) node.scrollLeft += focused.right - viewport.right;
+                reportWebScroll(node);
+            };
+            node.addEventListener('focusin', revealFocus);
+            cleanup = () => {
+                node.removeEventListener('focusin', revealFocus);
+                detachDrag();
+            };
         });
 
         return () => {
             cancelAnimationFrameSafe(animationFrameId);
             cleanup?.();
         };
-    }, [getScrollNode, reportWebScroll]);
+    }, [getScrollNode, reportWebScroll, props.revealFocusedControl]);
 
     const canScroll = fades.canScrollX;
     const showFadeLeft = canScroll && fades.visibility.left;

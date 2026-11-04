@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { TranscriptAppearanceContext, type TranscriptQuestionColors } from '@/components/sessions/transcript/TranscriptAppearanceContext';
 import { DeskQuestionCard } from '@/ignorePrevious/components/DeskQuestionCard';
+import { QuestionControlBracket, QuestionControlButton, terminalQuestionControlStyles } from '@/ignorePrevious/components/TerminalQuestionControls';
+import { deskMonoFontFamily } from '@/ignorePrevious/fonts/deskFont';
 import { View, TouchableOpacity, type GestureResponderEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { ToolViewProps } from '../core/_registry';
@@ -285,13 +287,14 @@ const defaultStyles = StyleSheet.create((theme) => ({
     },
 }));
 
-// Only the real question consumes these colors. Keep the ordinary Unistyles path intact.
+// Terminal supplies question colors; ordinary Happier and Slip keep the default styles.
 function scopedQuestionStyles(colors: TranscriptQuestionColors) {
+    const fontFamily = deskMonoFontFamily();
     return {
         ...defaultStyles,
         headerChip: [defaultStyles.headerChip, { backgroundColor: colors.surface }],
-        headerText: [defaultStyles.headerText, { color: colors.secondary }],
-        questionText: [defaultStyles.questionText, { color: colors.text }],
+        headerText: [defaultStyles.headerText, { color: colors.secondary, fontFamily }],
+        questionText: [defaultStyles.questionText, { color: colors.text, fontFamily }],
         optionButton: [defaultStyles.optionButton, { borderColor: colors.border }],
         optionButtonSelected: [defaultStyles.optionButtonSelected, { backgroundColor: colors.surface, borderColor: colors.accent }],
         // Observer and fixture text stays readable; canInteract still owns every control.
@@ -301,14 +304,14 @@ function scopedQuestionStyles(colors: TranscriptQuestionColors) {
         radioInner: [defaultStyles.radioInner, { backgroundColor: colors.accent }],
         checkboxOuter: [defaultStyles.checkboxOuter, { borderColor: colors.secondary }],
         checkboxOuterSelected: [defaultStyles.checkboxOuterSelected, { borderColor: colors.accent, backgroundColor: colors.accent }],
-        optionLabel: [defaultStyles.optionLabel, { color: colors.text }],
-        optionDescription: [defaultStyles.optionDescription, { color: colors.secondary }],
-        freeformInput: [defaultStyles.freeformInput, { color: colors.text, backgroundColor: colors.surface, borderColor: colors.border }],
-        freeformDescription: [defaultStyles.freeformDescription, { color: colors.secondary }],
+        optionLabel: [defaultStyles.optionLabel, { color: colors.text, fontFamily }],
+        optionDescription: [defaultStyles.optionDescription, { color: colors.secondary, fontFamily }],
+        freeformInput: [defaultStyles.freeformInput, { color: colors.text, backgroundColor: colors.surface, borderColor: colors.border, fontFamily }],
+        freeformDescription: [defaultStyles.freeformDescription, { color: colors.secondary, fontFamily }],
         submitButton: [defaultStyles.submitButton, { backgroundColor: colors.button }],
-        submitButtonText: [defaultStyles.submitButtonText, { color: colors.buttonText }],
-        submittedHeader: [defaultStyles.submittedHeader, { color: colors.secondary }],
-        submittedValue: [defaultStyles.submittedValue, { color: colors.text }],
+        submitButtonText: [defaultStyles.submitButtonText, { color: colors.buttonText, fontFamily }],
+        submittedHeader: [defaultStyles.submittedHeader, { color: colors.secondary, fontFamily }],
+        submittedValue: [defaultStyles.submittedValue, { color: colors.text, fontFamily }],
     };
 }
 
@@ -321,6 +324,8 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
     const appearance = React.useContext(TranscriptAppearanceContext);
     const colors = appearance?.questionColors;
     const styles = React.useMemo(() => colors ? scopedQuestionStyles(colors) : defaultStyles, [theme, colors]);
+    const controlStyles = React.useMemo(() => colors ? terminalQuestionControlStyles(colors) : null, [colors]);
+    const [focusedControl, setFocusedControl] = React.useState<string | null>(null);
     const [selections, setSelections] = React.useState<Map<number, Set<number>>>(new Map());
     const [freeformAnswers, setFreeformAnswers] = React.useState<Map<number, string>>(new Map());
     const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -648,7 +653,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
         <ToolSectionView>
             <View testID="ask-user-question" style={styles.container}>
                 {!canApprovePermissions && isRunning ? (
-                    <Text style={{ color: colors?.secondary ?? theme.colors.text.secondary }}>
+                    <Text style={[{ color: colors?.secondary ?? theme.colors.text.secondary }, controlStyles?.text]}>
                         {disabledMessage}
                     </Text>
                 ) : null}
@@ -679,6 +684,119 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
                     const selectedOptions = selections.get(qIndex) || new Set();
                     const options = Array.isArray(question.options) ? question.options : [];
 
+                    const freeformControl = options.length === 0 || question.freeform ? (
+                        <View key="freeform">
+                            <View testID={`ask-user-question.freeform-frame:${qIndex}`} style={controlStyles ? [
+                                controlStyles.inputFrame,
+                                canInteract && focusedControl === `input:${qIndex}` && controlStyles.focusedInput,
+                            ] : undefined}>
+                                {controlStyles ? <QuestionControlBracket style={controlStyles.bracket}>{'[ '}</QuestionControlBracket> : null}
+                                <TextInput
+                                    testID={`ask-user-question.freeform:${qIndex}`}
+                                    style={[styles.freeformInput, controlStyles?.input]}
+                                    onFocus={controlStyles ? () => setFocusedControl(`input:${qIndex}`) : undefined}
+                                    onBlur={controlStyles ? () => setFocusedControl(null) : undefined}
+                                    accessibilityLabel={controlStyles ? question.question : undefined}
+                                    value={effectiveFreeformAnswers.get(qIndex) ?? ''}
+                                    onTouchStart={keepFreeformTouchInsideInput}
+                                    onChangeText={(text) => {
+                                        if (!canInteract) return;
+                                        setFreeformAnswers((prev) => {
+                                            const next = new Map(prev);
+                                            next.set(qIndex, text);
+                                            return next;
+                                        });
+                                        if (options.length > 0 && text.trim().length > 0) {
+                                            setSelections((prev) => {
+                                                if (!prev.has(qIndex)) return prev;
+                                                const next = new Map(prev);
+                                                next.delete(qIndex);
+                                                return next;
+                                            });
+                                        }
+                                    }}
+                                    placeholder={question.freeform?.placeholder ?? t('tools.askUserQuestion.otherPlaceholder')}
+                                    placeholderTextColor={colors?.secondary ?? theme.colors.input.placeholder}
+                                    editable={canInteract}
+                                    multiline={question.freeform?.multiline === true}
+                                    textAlignVertical={question.freeform?.multiline === true ? 'top' : 'center'}
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
+                                />
+                                {controlStyles ? <QuestionControlBracket style={controlStyles.bracket}>{' ]'}</QuestionControlBracket> : null}
+                            </View>
+                            {question.freeform?.description ? (
+                                <Text style={styles.freeformDescription}>{question.freeform.description}</Text>
+                            ) : null}
+                        </View>
+                    ) : null;
+                    const optionControls = options.length > 0 ? (
+                        <View key="choices" style={[styles.optionsContainer, controlStyles?.options]}>
+                            {options.map((option, oIndex) => {
+                                const isSelected = selectedOptions.has(oIndex);
+                                const testID = `ask-user-question.option:${qIndex}:${oIndex}`;
+                                const focused = canInteract && focusedControl === testID;
+                                const terminalTextStyle = controlStyles ? [
+                                    controlStyles.text,
+                                    !canInteract && controlStyles.unavailableText,
+                                    focused && controlStyles.focusedText,
+                                ] : null;
+
+                                return (
+                                    <QuestionControlButton
+                                        key={oIndex}
+                                        terminal={controlStyles != null}
+                                        testID={testID}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={option.label}
+                                        accessibilityState={{ selected: isSelected }}
+                                        style={[
+                                            styles.optionButton,
+                                            isSelected && styles.optionButtonSelected,
+                                            !canInteract && styles.optionButtonDisabled,
+                                            controlStyles?.option,
+                                            controlStyles && !canInteract && controlStyles.unavailable,
+                                            controlStyles && focused && controlStyles.focusedOption,
+                                        ]}
+                                        onFocus={controlStyles ? () => setFocusedControl(testID) : undefined}
+                                        onBlur={controlStyles ? () => setFocusedControl(null) : undefined}
+                                        onPress={() => handleOptionToggle(qIndex, oIndex, question.multiSelect)}
+                                        disabled={!canInteract}
+                                        activeOpacity={0.7}
+                                    >
+                                        {controlStyles ? null : question.multiSelect ? (
+                                            <View style={[
+                                                styles.checkboxOuter,
+                                                isSelected && styles.checkboxOuterSelected,
+                                            ]}>
+                                                {isSelected && (
+                                                    <Icon name="check" size={14} color={colors?.onAccent ?? theme.colors.button.primary.tint} />
+                                                )}
+                                            </View>
+                                        ) : (
+                                            <View style={[
+                                                styles.radioOuter,
+                                                isSelected && styles.radioOuterSelected,
+                                            ]}>
+                                                {isSelected && <View style={styles.radioInner} />}
+                                            </View>
+                                        )}
+                                        <View style={[styles.optionContent, controlStyles?.optionContent]}>
+                                            <Text style={[styles.optionLabel, terminalTextStyle]}>
+                                                {controlStyles ? <QuestionControlBracket style={[styles.optionLabel, terminalTextStyle]}>{isSelected ? '[✓ ' : '[ '}</QuestionControlBracket> : null}
+                                                {option.label}
+                                                {controlStyles ? <QuestionControlBracket style={[styles.optionLabel, terminalTextStyle]}>{' ]'}</QuestionControlBracket> : null}
+                                            </Text>
+                                            {option.description && (
+                                                <Text style={[styles.optionDescription, terminalTextStyle]}>{option.description}</Text>
+                                            )}
+                                        </View>
+                                    </QuestionControlButton>
+                                );
+                            })}
+                        </View>
+                    ) : null;
+
                     return (
                         <View key={qIndex} style={styles.questionSection}>
                             <View style={styles.headerChip}>
@@ -691,88 +809,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
                                         {t('common.unavailable')}
                                     </Text>
                                 ) : null}
-                                {options.length === 0 || question.freeform ? (
-                                    <View>
-                                        <TextInput
-                                            testID={`ask-user-question.freeform:${qIndex}`}
-                                            style={styles.freeformInput}
-                                            value={effectiveFreeformAnswers.get(qIndex) ?? ''}
-                                            onTouchStart={keepFreeformTouchInsideInput}
-                                            onChangeText={(text) => {
-                                                if (!canInteract) return;
-                                                setFreeformAnswers((prev) => {
-                                                    const next = new Map(prev);
-                                                    next.set(qIndex, text);
-                                                    return next;
-                                                });
-                                                if (options.length > 0 && text.trim().length > 0) {
-                                                    setSelections((prev) => {
-                                                        if (!prev.has(qIndex)) return prev;
-                                                        const next = new Map(prev);
-                                                        next.delete(qIndex);
-                                                        return next;
-                                                    });
-                                                }
-                                            }}
-                                            placeholder={question.freeform?.placeholder ?? t('tools.askUserQuestion.otherPlaceholder')}
-                                            placeholderTextColor={colors?.secondary ?? theme.colors.input.placeholder}
-                                            editable={canInteract}
-                                            multiline={question.freeform?.multiline === true}
-                                            textAlignVertical={question.freeform?.multiline === true ? 'top' : 'center'}
-                                            autoCapitalize="none"
-                                            autoCorrect={false}
-                                        />
-                                        {question.freeform?.description ? (
-                                            <Text style={styles.freeformDescription}>{question.freeform.description}</Text>
-                                        ) : null}
-                                    </View>
-                                ) : null}
-                                {options.map((option, oIndex) => {
-                                    const isSelected = selectedOptions.has(oIndex);
-                                    const testID = `ask-user-question.option:${qIndex}:${oIndex}`;
-
-                                    return (
-                                        <TouchableOpacity
-                                            key={oIndex}
-                                            testID={testID}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={option.label}
-                                            accessibilityState={{ selected: isSelected }}
-                                            style={[
-                                                styles.optionButton,
-                                                isSelected && styles.optionButtonSelected,
-                                                !canInteract && styles.optionButtonDisabled,
-                                            ]}
-                                            onPress={() => handleOptionToggle(qIndex, oIndex, question.multiSelect)}
-                                            disabled={!canInteract}
-                                            activeOpacity={0.7}
-                                        >
-                                            {question.multiSelect ? (
-                                                <View style={[
-                                                    styles.checkboxOuter,
-                                                    isSelected && styles.checkboxOuterSelected,
-                                                ]}>
-                                                    {isSelected && (
-                                                        <Icon name="check" size={14} color={colors?.onAccent ?? theme.colors.button.primary.tint} />
-                                                    )}
-                                                </View>
-                                            ) : (
-                                                <View style={[
-                                                    styles.radioOuter,
-                                                    isSelected && styles.radioOuterSelected,
-                                                ]}>
-                                                    {isSelected && <View style={styles.radioInner} />}
-                                                </View>
-                                            )}
-                                            <View style={styles.optionContent}>
-                                                <Text style={styles.optionLabel}>{option.label}</Text>
-                                                {option.description && (
-                                                    <Text style={styles.optionDescription}>{option.description}</Text>
-                                                )}
-                                            </View>
-                                        </TouchableOpacity>
-                                    );
-                                })}
+                                {controlStyles ? [optionControls, freeformControl] : [freeformControl, optionControls]}
                             </View>
                         </View>
                     );
@@ -788,18 +825,24 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
                 ) : null}
 
                 {canInteract && (
-                    <View style={styles.actionsContainer}>
+                    <View style={[styles.actionsContainer, controlStyles?.actions]}>
                         {requiresCliUpdate ? (
                             <Text style={styles.optionDescription}>{t('deps.ui.notAvailableUpdateCli')}</Text>
                         ) : null}
-                        <TouchableOpacity
+                        <QuestionControlButton
+                            terminal={controlStyles != null}
                             testID="ask-user-question.submit"
                             accessibilityRole="button"
                             accessibilityLabel={t('tools.askUserQuestion.submit')}
                             style={[
                                 styles.submitButton,
                                 (!canSubmit || isSubmitting) && styles.submitButtonDisabled,
+                                controlStyles?.submit,
+                                controlStyles && (!canSubmit || isSubmitting) && controlStyles.unavailable,
+                                controlStyles && canSubmit && !isSubmitting && focusedControl === 'submit' && controlStyles.focusedSubmit,
                             ]}
+                            onFocus={controlStyles ? () => setFocusedControl('submit') : undefined}
+                            onBlur={controlStyles ? () => setFocusedControl(null) : undefined}
                             onPress={handleSubmit}
                             disabled={!canSubmit || isSubmitting}
                             activeOpacity={0.7}
@@ -807,9 +850,16 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, permission
                             {isSubmitting ? (
                                 <ActivitySpinner size="small" color={colors?.buttonText ?? theme.colors.button.primary.tint} />
                             ) : (
-                                <Text style={styles.submitButtonText}>{t('tools.askUserQuestion.submit')}</Text>
+                                <Text style={[styles.submitButtonText, controlStyles?.submitText,
+                                    controlStyles && (!canSubmit || isSubmitting) && controlStyles.unavailableText,
+                                    controlStyles && canSubmit && focusedControl === 'submit' && controlStyles.focusedText,
+                                ]}>
+                                    {controlStyles ? <QuestionControlBracket>{'[ '}</QuestionControlBracket> : null}
+                                    {t('tools.askUserQuestion.submit')}
+                                    {controlStyles ? <QuestionControlBracket>{' ]'}</QuestionControlBracket> : null}
+                                </Text>
                             )}
-                        </TouchableOpacity>
+                        </QuestionControlButton>
                     </View>
                 )}
             </View>

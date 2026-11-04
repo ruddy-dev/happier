@@ -35,8 +35,14 @@ export const CoordinatorComposerInputContext = React.createContext<Readonly<{
     prompt: React.ReactNode;
     panelFooter: React.ReactNode;
     panelLeading: React.ReactNode;
+    phone?: boolean;
     textStyle?: Readonly<{ fontFamily: string; color: string }>;
 }> | null>(null);
+
+export function useCoordinatorComposerLayout() {
+    const context = React.useContext(CoordinatorComposerInputContext);
+    return { desk: context !== null, phone: context?.phone === true };
+}
 
 /** AgentInput's session input is the only consumer, even when other textareas share the pane. */
 export function useCoordinatorComposerInput(testID: string | undefined) {

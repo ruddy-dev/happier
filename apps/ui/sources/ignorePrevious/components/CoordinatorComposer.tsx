@@ -17,8 +17,8 @@ export function CoordinatorComposer({ children, coordinatorId, phone = false }: 
 
 function NativeCoordinatorComposer({ children, coordinatorId, phone }: React.PropsWithChildren<{ coordinatorId?: string; phone: boolean }>) {
     const [observer] = React.useState(createCoordinatorComposerObserver);
-    const context = React.useMemo(() => phone && coordinatorId ? ({ observer, prompt: null, panelFooter: null,
-        panelLeading: <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> }) : null, [observer, coordinatorId, phone]);
+    const context = React.useMemo(() => ({ observer, prompt: null, panelFooter: null, phone,
+        panelLeading: phone && coordinatorId ? <PhoneShortcuts observer={observer} coordinatorId={coordinatorId} /> : null }), [observer, coordinatorId, phone]);
     return <CoordinatorComposerInputContext.Provider value={context}>{children}</CoordinatorComposerInputContext.Provider>;
 }
 
@@ -31,6 +31,7 @@ function WebCoordinatorComposer({ children, coordinatorId, phone }: React.PropsW
     const scope = `ip-composer-${React.useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
     const context = React.useMemo(() => ({
         observer,
+        phone,
         prompt: terminal ? <DeskText testID="ip-composer-prompt" aria-hidden style={{ color: paint.user, fontSize: 13, fontWeight: '700' }}>
             {t('ignorePrevious.composer.prompt')}<DeskText style={{ color: paint.mute }}>{' ~ '}</DeskText>{'> '}
         </DeskText> : null,
