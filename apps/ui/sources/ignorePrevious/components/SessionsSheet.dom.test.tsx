@@ -10,6 +10,8 @@ import { createSessionFixture } from '@/dev/testkit/fixtures/sessionFixtures';
 import { storage } from '@/sync/domains/state/storage';
 import type { SessionListEncryption } from '@/sync/engine/sessions/sessionSnapshot';
 import { buildSessionListRenderableFromSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { buildSessionListCacheEntryFromRenderable, buildSessionListRenderableFromCacheEntry } from '@/sync/domains/state/warmCacheAdapters';
+import { selectDeskSessions } from '../useDeskSessions';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { buildScopedSessionRouteHref } from '@/hooks/session/sessionRouteServerScope';
 import { FocusReturnProvider } from '@/keyboard/focusReturn';
@@ -114,6 +116,135 @@ afterEach(async () => {
 });
 
 describe('Sessions sheet, real scoped store and archive paging', () => {
+    it.each([false, true])('suppresses a previously permitted cached match after policy tightens and reaches a later allowed match, mixed head=%s', async mixed => {
+        const blocked = { ...record('cached-blocked', 'Needle blocked cached title'), archivedAt: null, updatedAt: 400 };
+        const retained = { ...record('cached-allowed', 'Retained allowed neighbor'), archivedAt: null, updatedAt: 100, encryptionMode: 'e2ee' as const };
+        const allowed = { ...record('later-allowed', 'Needle allowed later'), archivedAt: null, updatedAt: 50, encryptionMode: 'e2ee' as const };
+        const owner = harness.sync as unknown as { encryption: SessionListEncryption };
+        vi.spyOn(owner.encryption, 'getSessionEncryption').mockReturnValue({
+            decryptMetadata: async (_version, value) => JSON.parse(value), decryptAgentState: async () => ({}),
+        });
+        const original = harness.http.getMockImplementation()!;
+        let tightened = false;
+        const tail = createDeferred<Response>();
+        harness.http.mockImplementation(async path => {
+            const url = new URL(path, 'http://localhost');
+            if (url.pathname !== '/v2/sessions') return original(path);
+            if (url.searchParams.has('cursor')) return tail.promise;
+            return jsonResponse({ sessions: tightened ? [blocked, ...(mixed ? [retained] : [])] : [blocked, retained],
+                includedActive: true, hasNext: tightened, nextCursor: tightened ? 'allowed-tail' : null });
+        });
+        await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        storage.getState().applySessions([blocked, retained].map(row => createSessionFixture({
+            id: row.id, serverId, encryptionMode: row.encryptionMode, archivedAt: null,
+            updatedAt: row.updatedAt, metadataVersion: row.metadataVersion, metadata: JSON.parse(row.metadata),
+        })));
+        expect(selectDeskSessions(storage.getState()).list.map(row => row.id)).toContain(blocked.id);
+        const retainedProjection = storage.getState().sessionListRenderables[retained.id];
+        tightened = true;
+        storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'require_e2ee' } });
+        await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        await open();
+        await archivesLoaded();
+        expect.soft(node(`ip-sessions-row-${blocked.id}`)).toBeNull();
+        expect.soft(container.textContent).not.toContain('Needle blocked cached title');
+        expect.soft(selectDeskSessions(storage.getState()).lookup.has(blocked.id)).toBe(false);
+        expect(node(`ip-sessions-row-${retained.id}`)).not.toBeNull();
+        if (!mixed) expect(storage.getState().sessionListRenderables[retained.id]).toBe(retainedProjection);
+        await search('needle');
+        try {
+            await vi.waitFor(async () => {
+                await act(async () => {});
+                expect(harness.http.mock.calls.some(([path]) => path.includes('cursor=allowed-tail'))).toBe(true);
+            });
+        } finally {
+            await act(async () => tail.resolve(jsonResponse({ sessions: [allowed], includedActive: true, hasNext: false, nextCursor: null })));
+        }
+        await vi.waitFor(async () => {
+            await act(async () => {});
+            expect(node(`ip-sessions-row-${allowed.id}`)).not.toBeNull();
+        });
+        expect(node(`ip-sessions-row-${blocked.id}`)).toBeNull();
+        expect(node('ip-sessions-search-partial')).not.toBeNull();
+        expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
+        // Relaxation exposes the retained cache again; a new permitted replacement clears coverage.
+        await act(async () => storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'follow_account' } }));
+        if (!mixed) expect(node(`ip-sessions-row-${blocked.id}`)).not.toBeNull();
+        tightened = false;
+        await act(async () => harness.sync.refreshSessions({ awaitSessionListHydration: true }));
+        expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
+    });
+
+    it('suppresses unverified warm rows under require_e2ee and restores an allowed cached projection from a fetched row without full hydration', async () => {
+        const original = harness.http.getMockImplementation()!;
+        const detail = createDeferred<Response>();
+        let fetched = false;
+        harness.http.mockImplementation(async path => {
+            const pathname = new URL(path, 'http://localhost').pathname;
+            if (pathname === '/v2/sessions/warm-allowed' || pathname === '/v2/sessions/warm-blocked') return detail.promise;
+            if (fetched && pathname === '/v2/sessions') return jsonResponse({
+                sessions: [plainWorkerRecord('warm-blocked'), { ...plainWorkerRecord('warm-allowed'), encryptionMode: 'e2ee' }],
+                includedActive: true, hasNext: true, nextCursor: 'warm-tail',
+            });
+            return original(path);
+        });
+        const rows = ['warm-blocked', 'warm-allowed'].map(id => buildSessionListRenderableFromCacheEntry(
+            buildSessionListCacheEntryFromRenderable(buildSessionListRenderableFromSession(createSessionFixture({
+                id, encryptionMode: id === 'warm-blocked' ? 'plain' : 'e2ee', archivedAt: null,
+                metadata: { name: `Needle ${id}`, path: '/fixture/project', host: 'test-host', flavor: 'claude' },
+            }))),
+        ));
+        // The restore owner uses this same adapter and normal replacement store action.
+        storage.getState().replaceSessionListRenderables(rows);
+        await open();
+        await archivesLoaded();
+        expect(node('ip-sessions-row-warm-blocked')).not.toBeNull();
+        expect(node('ip-sessions-row-warm-allowed')).not.toBeNull();
+        await act(async () => storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'require_e2ee' } }));
+        expect.soft(node('ip-sessions-row-warm-blocked')).toBeNull();
+        expect.soft(node('ip-sessions-row-warm-allowed')).toBeNull();
+        fetched = true;
+        await act(async () => harness.sync.refreshSessions());
+        expect(node('ip-sessions-row-warm-blocked')).toBeNull();
+        expect(node('ip-sessions-row-warm-allowed')).not.toBeNull();
+        expect(storage.getState().sessions['warm-allowed']).toBeUndefined();
+        expect(harness.sync.getSessionListPagingState('current').hasUnmaterializedRows).toBe(true);
+        await act(async () => storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'follow_account' } }));
+        expect(node('ip-sessions-row-warm-blocked')).not.toBeNull();
+        await act(async () => detail.resolve(jsonResponse({ error: 'Session not found' }, 404)));
+    });
+
+    it('applies the shared policy to accepted archives and their full-record fallback without discarding allowed archive membership', async () => {
+        const blocked = record('cached-archive-blocked', 'Needle blocked archive');
+        const allowed = { ...record('cached-archive-allowed', 'Needle allowed archive'), encryptionMode: 'e2ee' as const };
+        const owner = harness.sync as unknown as { encryption: SessionListEncryption };
+        vi.spyOn(owner.encryption, 'getSessionEncryption').mockReturnValue({
+            decryptMetadata: async (_version, value) => JSON.parse(value), decryptAgentState: async () => ({}),
+        });
+        storage.getState().applySessions([blocked, allowed].map(row => createSessionFixture({
+            id: row.id, serverId, encryptionMode: row.encryptionMode, archivedAt: 10,
+            metadataVersion: row.metadataVersion, metadata: JSON.parse(row.metadata),
+        })));
+        archivePage(async () => jsonResponse({ sessions: [blocked, allowed], nextCursor: null, hasNext: false }));
+        await open();
+        await archivesLoaded();
+        await click('ip-sessions-toggle-archived');
+        expect(node(`ip-sessions-row-${blocked.id}`)).not.toBeNull();
+        expect(node(`ip-sessions-row-${allowed.id}`)).not.toBeNull();
+        // Accepted membership remains true from the permissive fetch. Policy is a separate requirement.
+        expect(harness.sync.isArchivedSessionListRowCurrent(blocked.id, blocked.metadataVersion)).toBe(true);
+        await act(async () => storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'require_e2ee' } }));
+        expect(node(`ip-sessions-row-${blocked.id}`)).toBeNull();
+        expect(selectDeskSessions(storage.getState()).lookup.has(blocked.id)).toBe(false);
+        expect(node(`ip-sessions-row-${allowed.id}`)).not.toBeNull();
+        expect(harness.sync.isArchivedSessionListRowCurrent(allowed.id, allowed.metadataVersion)).toBe(true);
+        await act(async () => storage.getState().replaceSessionListRenderables([], { coversWholeList: true }));
+        expect(node(`ip-sessions-row-${blocked.id}`)).toBeNull();
+        expect(node(`ip-sessions-row-${allowed.id}`)).not.toBeNull();
+        await act(async () => storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'follow_account' } }));
+        expect(node(`ip-sessions-row-${blocked.id}`)).not.toBeNull();
+    });
+
     it.each(['current', 'archived'] as const)('does not claim complete no-match for a policy-filtered terminal %s page, and completes an eligible empty replacement', async kind => {
         storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'require_e2ee' } });
         let blocked = true;
