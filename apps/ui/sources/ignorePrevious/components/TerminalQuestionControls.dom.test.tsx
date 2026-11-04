@@ -9,6 +9,8 @@ import { AskUserQuestionView } from '@/components/tools/renderers/workflow/AskUs
 import { CoordinatorTranscriptAppearanceProvider } from '../useCoordinatorTranscriptAppearance';
 import { deskPrefs } from '../deskPrefs';
 import { terminalPalettes } from '../palette';
+import { deskMonoFontFamily } from '../fonts/deskFont';
+import { t } from '@/text';
 
 // The installed RN Web controls own DOM events, keyboard activation and ARIA mapping.
 vi.mock('react-native', async () => vi.importActual('react-native-web'));
@@ -17,13 +19,14 @@ vi.mock('react-native-unistyles', async () => {
     return createUnistylesMock();
 });
 vi.mock('@/components/sessions/terminal/openAttachedSessionTerminal', () => ({
-    useOpenAttachedSessionTerminal: () => ({ available: false, unavailableReason: 'missing_session', open: vi.fn() }),
+    useOpenAttachedSessionTerminal: () => ({ available: false, unavailableReason: 'missing_machine', open: vi.fn() }),
 }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const tool = makeToolCall({ id: 'dom-question', name: 'AskUserQuestion', state: 'running', input: { questions: [{
     header: 'Release', question: 'Which release?', multiSelect: false,
-    options: [{ label: 'Stable' }, { label: 'Preview' }], freeform: { multiline: true },
+    options: [{ label: 'Stable', description: 'Use the stable release' }, { label: 'Preview' }],
+    freeform: { multiline: true, description: 'Explain your choice' },
 }, {
     header: 'Checks', question: 'Which checks?', multiSelect: true,
     options: [{ label: 'Tests' }, { label: 'Types' }],
@@ -40,6 +43,17 @@ it.each(['tokyo', 'terminalPaper', 'mask', 'ordinary'] as const)('exposes actual
     const find = (id: string) => container.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
     const option = (q: number, o: number) => find(`ask-user-question.option:${q}:${o}`);
     const paint = style === 'mask' || style === 'ordinary' ? null : terminalPalettes[style];
+    const expectTextFont = (text: string) => {
+        // Inspect the installed RN Web Text, not a style factory or wrapper. JSDOM's
+        // computed style lets RN Web's base `font` shorthand mask inline fontFamily.
+        // The lead's real-browser gate checks the computed font and loaded face.
+        const node = Array.from(container.querySelectorAll<HTMLElement>('*'))
+            .find(element => element.childElementCount === 0 && element.textContent === text);
+        expect(node, text).toBeDefined();
+        const family = node!.style.fontFamily;
+        if (paint) expect.soft(family, text).toBe(deskMonoFontFamily());
+        else expect.soft(family, text).not.toBe(deskMonoFontFamily());
+    };
     try {
         deskPrefs.set('chatStyle', paint ? 'terminal' : 'mask');
         if (style === 'tokyo' || style === 'terminalPaper') deskPrefs.set('terminalPalette', style);
@@ -50,6 +64,7 @@ it.each(['tokyo', 'terminalPaper', 'mask', 'ordinary'] as const)('exposes actual
         const question = <AskUserQuestionView {...makeToolViewProps(tool, { sessionId: 'dom-session' })} />;
         await act(async () => root.render(style === 'ordinary' ? question :
             <CoordinatorTranscriptAppearanceProvider>{question}</CoordinatorTranscriptAppearanceProvider>));
+        for (const text of ['Release', 'Which release?', 'Use the stable release', 'Explain your choice']) expectTextFont(text);
         const stable = option(0, 0);
         const controls = () => Array.from(container.querySelectorAll<HTMLElement>('button, textarea, input'))
             .filter(node => node.dataset.testid?.startsWith('ask-user-question.'));
@@ -124,6 +139,24 @@ it.each(['tokyo', 'terminalPaper', 'mask', 'ordinary'] as const)('exposes actual
         await act(async () => option(1, 1).click());
         expect(option(1, 1).getAttribute('aria-pressed')).toBe('true');
         expect(input.value).toBe('literal [answer]\nsecond line');
+
+        if (paint) expectTextFont(t('common.unavailable'));
+        const renderQuestion = async (props: Parameters<typeof makeToolViewProps>[1], currentTool = tool) => {
+            const view = <AskUserQuestionView {...makeToolViewProps(currentTool, { sessionId: 'dom-session', ...props })} />;
+            await act(async () => root.render(style === 'ordinary' ? view :
+                <CoordinatorTranscriptAppearanceProvider>{view}</CoordinatorTranscriptAppearanceProvider>));
+        };
+        await renderQuestion({ interaction: { canSendMessages: true, canApprovePermissions: false, permissionDisabledReason: 'readOnly' } });
+        expectTextFont(t('session.sharing.permissionApprovalsDisabledReadOnly'));
+        await renderQuestion({}, { ...tool, state: 'completed', result: { answers: {} } });
+        for (const text of ['Release:', 'Checks:', 'literal [answer]\nsecond line', 'Types']) expectTextFont(text);
+        // A terminal notice is a separate request, not a mutation of this answered form.
+        await act(async () => root.render(null));
+        await renderQuestion({}, { ...tool, input: { ...tool.input, happierDialog: {
+            kind: 'unrecognized', mode: 'notice', dialogId: 'unrecognized_confirmation', action: 'open_terminal',
+        } } });
+        for (const text of [t('tools.askUserQuestion.claudeDialogNotice.header'), t('tools.askUserQuestion.claudeDialogNotice.question'),
+            t('terminalEmbedded.errors.missingMachineTarget')]) expectTextFont(text);
     } finally {
         await act(async () => root.unmount());
         container.remove();

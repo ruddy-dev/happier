@@ -52,6 +52,13 @@ it.each(['ios', 'android'] as const)('binds Terminal choices through installed n
         const second = screen.findHostByTestId('ask-user-question.option:0:1')!;
         const input = screen.findHostByTestId('ask-user-question.freeform:0')!;
         const family = os === 'ios' ? 'Menlo' : 'monospace';
+        const expectTextFont = (text: string) => {
+            const node = screen.root.findAll(n => typeof n.type === 'string' && n.children.join('') === text)[0];
+            expect(node, text).toBeDefined();
+            expect.soft(StyleSheet.flatten(node.props.style).fontFamily, text).toBe(family);
+        };
+        expectTextFont('Checks');
+        expectTextFont('Which checks?');
         expect.soft(StyleSheet.flatten(input.props.style).fontFamily).toBe(family);
         for (const node of screen.root.findAll(n => typeof n.type === 'string' &&
             (n.children.includes('Tests') || n.children.includes('Run tests') || n.props['aria-hidden'] === true))) {
@@ -100,10 +107,18 @@ it.each(['ios', 'android'] as const)('binds Terminal choices through installed n
         expect(second.props.accessibilityState.selected).toBe(true);
         expect(input.props.editable).toBe(false);
         expect(input.props.value).toBe('');
+        const { t } = await import('@/text');
+        expectTextFont(t('common.unavailable'));
         act(() => deskPrefs.set('chatStyle', 'mask'));
         expect(screen.findHostByTestId('ask-user-question.option:0:1')!.type).toBe('TouchableOpacity');
         expect(screen.findHostByTestId('ask-user-question.option:0:1')!.props.accessibilityState.selected).toBe(true);
         expect(screen.findHostByTestId('ask-user-question.freeform:0')).toBe(input);
+        act(() => deskPrefs.set('chatStyle', 'terminal'));
+        await screen.update(<CoordinatorTranscriptAppearanceProvider>
+            <AskUserQuestionView {...makeToolViewProps({ ...tool, state: 'completed' }, { sessionId: 'native-session' })} />
+        </CoordinatorTranscriptAppearanceProvider>);
+        expectTextFont('Checks:');
+        expectTextFont('Types');
     } finally {
         standardCleanup();
         storage.setState({ sessions: original });
