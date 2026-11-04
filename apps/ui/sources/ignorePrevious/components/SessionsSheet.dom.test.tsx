@@ -114,6 +114,39 @@ afterEach(async () => {
 });
 
 describe('Sessions sheet, real scoped store and archive paging', () => {
+    it.each(['current', 'archived'] as const)('does not claim complete no-match for a policy-filtered terminal %s page, and completes an eligible empty replacement', async kind => {
+        storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'require_e2ee' } });
+        let blocked = true;
+        const original = harness.http.getMockImplementation()!;
+        harness.http.mockImplementation(async path => {
+            const pathname = new URL(path, 'http://localhost').pathname;
+            const matchesKind = pathname === (kind === 'current' ? '/v2/sessions' : '/v2/sessions/archived');
+            if (!matchesKind) return original(path);
+            return jsonResponse({ sessions: blocked ? [{ ...record('policy-blocked', 'Blocked private content'),
+                archivedAt: kind === 'archived' ? 10 : null }] : [], includedActive: true, nextCursor: null, hasNext: false });
+        });
+        if (kind === 'current') await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        await open();
+        await archivesLoaded();
+        await search('absent');
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+        expect(storage.getState().sessions['policy-blocked']).toBeUndefined();
+        expect(storage.getState().sessionListRenderables['policy-blocked']).toBeUndefined();
+        expect(node('ip-sessions-row-policy-blocked')).toBeNull();
+        expect(container.textContent).not.toContain('Blocked private content');
+        expect(node('ip-sessions-no-matches')).toBeNull();
+        expect(node('ip-sessions-unreadable')).not.toBeNull();
+        expect(node('ip-sessions-search-partial')).not.toBeNull();
+        blocked = false;
+        await click(kind === 'current' ? 'ip-sessions-load-current' : 'ip-sessions-retry-archived');
+        await archivesLoaded();
+        expect(node('ip-sessions-unreadable')).toBeNull();
+        expect(node('ip-sessions-search-partial')).toBeNull();
+        expect(node('ip-sessions-no-matches')).not.toBeNull();
+        expect(harness.http.mock.calls.map(([path]) => new URL(path, 'http://localhost').pathname)
+            .filter(path => path.startsWith('/v2/sessions/') && !['/v2/sessions/active', '/v2/sessions/archived'].includes(path))).toEqual([]);
+    });
+
     it.each(['terminal', 'mask'] as const)('%s renders available state and published mode context for current and archived rows, with honest unknown mode', async style => {
         deskPrefs.set('chatStyle', style);
         vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(390);

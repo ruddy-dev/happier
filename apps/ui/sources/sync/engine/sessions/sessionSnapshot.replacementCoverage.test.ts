@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuthCredentials } from '@/auth/storage/tokenStorage';
 import type { V2SessionRecord } from '@happier-dev/protocol';
+import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
+import { storage } from '@/sync/domains/state/storage';
 
 import { fetchAndApplySessions, type SessionListEncryption } from './sessionSnapshot';
 import { createDeferred } from '@/dev/testkit';
@@ -139,6 +141,50 @@ describe('snapshot search evidence at the producer', () => {
             ...overrides,
         });
     }
+
+    it.each(['current', 'archived'] as const)('keeps policy-filtered %s rows out of content and identity evidence while retaining incomplete terminal coverage', async kind => {
+        const encryption = createEncryptionHarness();
+        const decryptMetadata = vi.fn(async (_version: number, value: string) => JSON.parse(value));
+        encryption.getSessionEncryption = vi.fn(() => ({ decryptMetadata, decryptAgentState: async () => ({}) }));
+        const previousStorage = storage.getState();
+        const applySessions = vi.fn<Parameters<typeof fetchAndApplySessions>[0]['applySessions']>(rows => storage.getState().applySessions(rows));
+        const onSnapshotFetched = vi.fn();
+        // Current lists publish renderables; archive lists hydrate full records.
+        const renderableOptions = kind === 'current' ? {
+            applySessionListRenderables: (rows: SessionListRenderableSession[]) => storage.getState().replaceSessionListRenderables(rows),
+            getCurrentSessionListRenderable: (id: string) => storage.getState().sessionListRenderables[id],
+        } : {};
+        const fetchRows = (rows: V2SessionRecord[]) => snapshot({
+            encryption, applySessions, onSnapshotFetched, ...renderableOptions,
+            clientEncryptionRequirement: 'require_e2ee',
+            sessionListPath: kind === 'archived' ? '/v2/sessions/archived' : undefined,
+            awaitSessionListHydration: true,
+            requiredHydrationSessionIds: ['searchable'],
+            request: async () => jsonResponse({ sessions: rows, hasNext: false, nextCursor: null }),
+        });
+        const blocked = { ...buildPlainRow('policy-blocked'), metadata: JSON.stringify({ name: 'Blocked private content', path: '/blocked', host: 'blocked' }) };
+        const searchable = { ...buildPlainRow('searchable'), encryptionMode: 'e2ee' as const };
+        try {
+            for (const rows of [[blocked], [blocked, searchable], [searchable], []]) {
+                storage.setState(storage.getInitialState(), true);
+                applySessions.mockClear();
+                decryptMetadata.mockClear();
+                const result = await fetchRows(rows);
+                const allowedIds = rows.filter(row => row.encryptionMode === 'e2ee').map(row => row.id);
+                expect(result.sessionIds).toEqual(allowedIds);
+                expect([...result.sessionMetadataVersions.keys()]).toEqual(allowedIds);
+                expect(onSnapshotFetched).toHaveBeenLastCalledWith(allowedIds);
+                expect(Object.keys(storage.getState().sessionListRenderables)).toEqual(allowedIds);
+                expect(storage.getState().sessions['policy-blocked']).toBeUndefined();
+                expect(applySessions.mock.calls.flatMap(([applied]) => applied.map((row: { id: string }) => row.id))).toEqual(allowedIds);
+                expect(decryptMetadata.mock.calls.map(([, value]) => value)).toEqual(allowedIds.map(() => searchable.metadata));
+                expect(result).toMatchObject({ serverReportedListEnd: true, cancelled: false,
+                    hasUnmaterializedRows: rows.includes(blocked) });
+            }
+        } finally {
+            storage.setState(previousStorage, true);
+        }
+    });
 
     it.each([
         [{ hasNext: false, nextCursor: null }, true],

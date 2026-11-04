@@ -112,6 +112,65 @@ describe('canonical session list paging read API', () => {
         expect(harness.sync.getSessionListPagingState(kind)).toMatchObject({ status: 'exhausted', hasUnmaterializedRows: false });
     });
 
+    it.each(['current', 'archived'] as const)('retains aggregate policy-filtered %s coverage through a terminal page, mixed append and replacement', async kind => {
+        storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'require_e2ee' } });
+        const owner = harness.sync as unknown as { encryption: SessionListEncryption };
+        vi.spyOn(owner.encryption, 'getSessionEncryption').mockReturnValue({
+            decryptMetadata: async (_version, value) => JSON.parse(value), decryptAgentState: async () => ({}),
+        });
+        let blocked = true;
+        let paged = false;
+        let blockedOnTail = false;
+        const original = harness.http.getMockImplementation()!;
+        harness.http.mockImplementation(async path => {
+            const url = new URL(path, 'http://localhost');
+            if (url.pathname !== (kind === 'current' ? '/v2/sessions' : '/v2/sessions/archived')) return original(path);
+            const append = url.searchParams.has('cursor');
+            const rows = [
+                ...(blocked && append === blockedOnTail ? [plainWorkerRecord('policy-blocked')] : []),
+                ...(!append && paged ? [{ ...plainWorkerRecord('policy-searchable'), encryptionMode: 'e2ee' as const }] : []),
+            ];
+            return jsonResponse({ sessions: rows.map(row => ({ ...row, archivedAt: kind === 'archived' ? 10 : null })),
+                includedActive: true, hasNext: paged && !append, nextCursor: paged && !append ? 'tail' : null });
+        });
+        const replace = () => kind === 'current' ? harness.sync.refreshSessions({ awaitSessionListHydration: true }) : harness.sync.fetchArchivedSessions();
+        const append = () => kind === 'current' ? harness.sync.fetchMoreSessions() : harness.sync.fetchMoreArchivedSessions();
+        await replace();
+        expect(storage.getState().sessions['policy-blocked']).toBeUndefined();
+        expect(storage.getState().sessionListRenderables['policy-blocked']).toBeUndefined();
+        expect(harness.sync.isArchivedSessionListRowCurrent('policy-blocked', 1)).toBe(false);
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
+        paged = true;
+        await replace();
+        await vi.waitFor(() => expect(storage.getState().sessions['policy-searchable']?.metadata?.name).toBe('Fixing the build'));
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'more', retry: null, hasUnmaterializedRows: true });
+        await append();
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
+        blockedOnTail = true;
+        await replace();
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'more', retry: null, hasUnmaterializedRows: false });
+        await append();
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
+        expect(storage.getState().sessions['policy-blocked']).toBeUndefined();
+        expect(harness.http.mock.calls.map(([path]) => new URL(path, 'http://localhost').pathname)
+            .filter(path => path.startsWith('/v2/sessions/') && !['/v2/sessions/active', '/v2/sessions/archived'].includes(path))).toEqual([]);
+        blocked = false;
+        await replace();
+        await append();
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
+        paged = false;
+        await replace();
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
+        blocked = true;
+        blockedOnTail = false;
+        await replace();
+        expect(harness.sync.getSessionListPagingState(kind).hasUnmaterializedRows).toBe(true);
+        harness.sync.disconnectServer();
+        blocked = false;
+        await replace();
+        expect(harness.sync.getSessionListPagingState(kind)).toEqual({ status: 'exhausted', retry: null, hasUnmaterializedRows: false });
+    });
+
     it('does not certify a disconnected chain from a late terminal page, and recovers from a fresh head', async () => {
         harness.http.mockImplementation(async () => jsonResponse({ sessions: [], hasNext: true, nextCursor: 'next' }));
         await harness.sync.fetchArchivedSessions();
@@ -305,6 +364,28 @@ describe('canonical session list paging read API', () => {
         }
         const encryptedRow = () => ({ ...plainWorkerRecord('pending-metadata'), encryptionMode: 'e2ee' as const,
             metadata: 'opaque-metadata', agentState: null, metadataVersion: 2 });
+
+        it('does not erase policy-filtered coverage when allowed head metadata hydrates after terminal append', async () => {
+            storage.setState({ settings: { ...storage.getState().settings, clientEncryptionRequirementV1: 'require_e2ee' } });
+            const pending = deferMetadata();
+            const original = harness.http.getMockImplementation()!;
+            harness.http.mockImplementation(async path => {
+                const url = new URL(path, 'http://localhost');
+                if (url.pathname !== '/v2/sessions') return original(path);
+                const append = url.searchParams.has('cursor');
+                return jsonResponse({ sessions: append ? [] : [plainWorkerRecord('policy-blocked'), encryptedRow()],
+                    includedActive: true, hasNext: !append, nextCursor: append ? null : 'tail' });
+            });
+            await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+            await pending.entered.promise;
+            await harness.sync.fetchMoreSessions();
+            expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
+            pending.metadata.resolve({ path: '/repo', host: 'host', name: 'Allowed head' });
+            await expect.poll(() => storage.getState().sessionListRenderables['pending-metadata']?.metadata?.name).toBe('Allowed head');
+            expect(harness.sync.getSessionListPagingState('current')).toEqual({ status: 'unavailable', retry: null, hasUnmaterializedRows: true });
+            expect(storage.getState().sessions['policy-blocked']).toBeUndefined();
+            expect(storage.getState().sessionListRenderables['policy-blocked']).toBeUndefined();
+        });
 
         it.each([false, true])('recomputes terminal coverage after actual decrypt, preserving earlier unreadable=%s', async earlierUnreadable => {
             const pending = deferMetadata();
