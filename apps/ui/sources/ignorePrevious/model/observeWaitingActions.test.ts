@@ -327,6 +327,30 @@ it.each([false, true])('uses canonical same-ID completion equivalence, matched=%
     expect(history.getState().actions.get(key)?.phase).toBe('sent');
 });
 
+it.each(['matching', 'different payload', 'older completion', 'later occurrence'] as const)(
+    'observes a removed target with an independent positive count only for matching occurrence evidence: %s', evidence => {
+        const original = worker(2);
+        original.pendingPermissionRequestCount = 2;
+        original.pendingUserActionRequestCount = 0;
+        if (evidence === 'later occurrence') original.agentState!.requests!.acted.createdAt = 3;
+        storage.getState().applySessions([original]);
+        const { history, key } = watch();
+        setWaitingAction(history, key, { phase: 'sending' });
+        storage.getState().applySessions([{ ...original, agentStateVersion: 3,
+            pendingPermissionRequestCount: 1, agentState: {
+                requests: { other: original.agentState!.requests!.other },
+                completedRequests: { acted: { tool: 'Bash',
+                    arguments: { command: evidence === 'different payload' ? 'different command' : 'echo acted' },
+                    createdAt: evidence === 'older completion' ? 0 : 1,
+                    completedAt: evidence === 'older completion' ? 0 : 2, status: 'denied' } },
+            } }]);
+        expect(storage.getState().sessionMessages['observer-worker']).toBeUndefined();
+        expect(readDeskWaits().items.map(item => item.requestId)).toEqual(['other']);
+        expect(history.getState().departed.has(key)).toBe(evidence === 'matching');
+        expect(history.getState().actions.get(key)?.phase).toBe('sending');
+    },
+);
+
 
 it('keeps positive-count soft interruption unknown when no live agent details are readable', () => {
     seedTranscriptOnly();

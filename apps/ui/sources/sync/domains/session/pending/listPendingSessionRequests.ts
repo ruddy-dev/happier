@@ -356,11 +356,14 @@ function reconcileAgentRequestWithTranscript(request: SessionPendingRequest, sta
  * normalization, completion coverage, terminal precedence and metadata equivalence with the list.
  * Cross-ID deduplication remains a list presentation concern, not evidence that an ID departed.
  * `absent` alone says nothing about transcript completeness or projected-count readability.
+ * A retained observed occurrence can prove completion after live deletion; current pending
+ * evidence takes precedence over that occurrence's completion.
  */
 export function observePendingSessionRequest(
     session: Session,
     requestId: string,
     transcriptState: TranscriptRequestState | undefined,
+    observedRequest?: SessionPendingRequest,
 ): Readonly<{ status: 'pending'; request: SessionPendingRequest }> | Readonly<{ status: 'terminal' | 'absent' }> {
     const transcriptRequest = readUncoveredTranscriptRequest(session, transcriptState);
     const transcriptCovered = transcriptState?.status === 'pending' && !transcriptRequest;
@@ -379,7 +382,10 @@ export function observePendingSessionRequest(
             ? mergePendingRequestMetadata(transcriptRequest, reconciled) : reconciled };
     }
     if (transcriptRequest) return { status: 'pending', request: transcriptRequest };
-    return { status: readHardTerminalCreatedAt(transcriptState) !== null || covered || transcriptCovered
+    const observedCovered = !agentRequest && observedRequest?.id === requestId
+        && isPendingRequestCoveredByCompleted(session.agentState?.completedRequests,
+            requestId, observedRequest.createdAt, observedRequest);
+    return { status: readHardTerminalCreatedAt(transcriptState) !== null || covered || transcriptCovered || observedCovered
         ? 'terminal' : 'absent' };
 }
 

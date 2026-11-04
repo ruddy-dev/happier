@@ -7,7 +7,7 @@ import { fetchJson } from '../http';
 import { fetchSessionV2 } from '../sessions';
 import { createMachineBoundSessionScopedSocketCollector } from '../sessionSocketBinding';
 import type { SocketCollector } from '../socketClient';
-import { SyntheticAgent } from '../syntheticAgent/syntheticAgent';
+import { SyntheticAgent, type SyntheticAgentParams } from '../syntheticAgent/syntheticAgent';
 import { waitFor } from '../timing';
 import type { DeskAccount } from './deskTest';
 import { createDeskPermissionProof, type DeskPermissionEvidence } from './deskPermissionProof';
@@ -112,7 +112,7 @@ export function createDeskSeeder(desk: DeskAccount) {
         },
 
         /** A live worker under `issueTag` (`ATR-1-build`), with a title that names no issue, idle until told otherwise. */
-        async startWorker(params: Readonly<{ issueTag: string; title: string }>): Promise<DeskWorker> {
+        async startWorker(params: Readonly<{ issueTag: string; title: string; permissionResponse?: SyntheticAgentParams['permissionResponse'] }>): Promise<DeskWorker> {
             const { sessionId, dataKey } = await create({
                 name: params.title,
                 path: `/tmp/desk-e2e-workers/${randomUUID()}`,
@@ -120,7 +120,7 @@ export function createDeskSeeder(desk: DeskAccount) {
             });
             const socket = await goOnline(desk, sessionId, register);
             const proof = createDeskPermissionProof(sessionId, dataKey);
-            const agent = new SyntheticAgent({ baseUrl: desk.serverBaseUrl, token: desk.token, sessionId, encryption: dataKey ? { type: 'dataKey', dataKey } : { type: 'plain' }, onPermissionDecision: proof.observe });
+            const agent = new SyntheticAgent({ baseUrl: desk.serverBaseUrl, token: desk.token, sessionId, encryption: dataKey ? { type: 'dataKey', dataKey } : { type: 'plain' }, onPermissionDecision: proof.observe, permissionResponse: params.permissionResponse });
             register(() => agent.stop());
             await agent.start();
             let turnId: string | null = null;

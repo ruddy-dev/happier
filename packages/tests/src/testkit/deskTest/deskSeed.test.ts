@@ -7,6 +7,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { SocketCollector } from '../socketClient';
 import { createDeskSeeder } from './deskSeed';
 import { encrypt, encodeBase64 } from '@/api/encryption';
+import type { SyntheticAgentParams } from '../syntheticAgent/syntheticAgent';
 
 const boundary = vi.hoisted(() => ({ sockets: [] as unknown[], bodies: [] as string[], sessionBody: null as Record<string, unknown> | null }));
 // HTTP and socket collectors are network boundaries; session parsing and SyntheticAgent run real.
@@ -196,5 +197,81 @@ test('plain worker evidence comes from the accepted raw RPC and matches its comp
             { sessionId: worker.sessionId, permissionId: decision.id, encrypted: false, matchesDecision: true },
         ]);
         expect(await worker.readPermissionState()).toEqual({ pending: [], completed: { 'unit-permission': 'approved' } });
+    } finally { await seed.stopAll(); }
+});
+
+// Replace only HTTP/socket transport. The seeder, codecs, receiver, state writer and
+// activity-summary derivation stay real, including the independent pending request.
+async function controlledWorker(mode: 'plain' | 'e2ee', permissionResponse?: SyntheticAgentParams['permissionResponse']) {
+    socket(false);
+    let receiver: ((request: { method: string; params: unknown }) => Promise<unknown>) | undefined;
+    boundary.sockets.push({
+        connect() {}, close() {}, isConnected: () => true,
+        onRpcRequest(handler: typeof receiver) { receiver = handler; },
+        async rpcRegister() {},
+        async emitWithAck(_event: string, data: { agentState: string }) {
+            boundary.sessionBody!.agentState = data.agentState;
+            return { result: 'success' };
+        },
+    });
+    const machineKey = deriveAccountMachineKeyFromRecoverySecret(randomBytes(32));
+    const recipient = tweetnacl.box.keyPair.fromSecretKey(machineKey);
+    const seed = createDeskSeeder({ ...desk, ...(mode === 'e2ee' ? { encryption: { contentPublicKey: recipient.publicKey } } : {}) });
+    const worker = await seed.startWorker({ issueTag: 'ATR-303-build', title: 'Controlled local worker', permissionResponse });
+    const key = mode === 'e2ee' ? openEncryptedDataKeyEnvelopeV1({
+        envelope: Buffer.from(String(boundary.sessionBody!.dataEncryptionKey), 'base64'), recipientSecretKeyOrSeed: machineKey,
+    })! : null;
+    await worker.agent.publishPermissionRequest({ id: 'target', tool: 'Bash', args: { command: 'echo target' } });
+    await worker.agent.publishPermissionRequest({ id: 'independent', tool: 'Bash', args: { command: 'echo independent' } });
+    return {
+        seed, worker,
+        async allow() {
+            const decision = { id: 'target', approved: true };
+            const answer = await receiver!({ method: `${worker.sessionId}:permission`, params: key ? encodeBase64(encrypt(key, 'dataKey', decision)) : decision });
+            return key ? decryptDataKeyBase64(String(answer), key) : answer;
+        },
+    };
+}
+
+test.each(['plain', 'e2ee'] as const)('%s external completion uses the state writer without recording a desk decision', async mode => {
+    const { seed, worker } = await controlledWorker(mode);
+    try {
+        await worker.agent.completePermissionExternally({ id: 'target', approved: false });
+        expect(worker.agent.getReceivedDecisions()).toEqual([]);
+        expect(worker.readPermissionRpcEvidence()).toEqual([]);
+        expect(await worker.readPermissionState()).toEqual({ pending: ['independent'], completed: { target: 'denied' } });
+        if (mode === 'e2ee') await seed.assertPersistedEncryption();
+    } finally { await seed.stopAll(); }
+});
+
+test.each(['plain', 'e2ee'] as const)('%s gates a late RPC error while external completion preserves the other request', async mode => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const error = { ok: false, errorCode: 'permission_request_expired', errorMessage: 'Synthetic expired request' } as const;
+    const { seed, worker, allow } = await controlledWorker(mode, async () => { await gate; return error; });
+    let response: Promise<unknown> | undefined;
+    try {
+        response = allow();
+        expect(worker.agent.getReceivedDecisions()).toEqual([{ id: 'target', approved: true }]);
+        expect(await worker.readPermissionState()).toEqual({ pending: ['independent', 'target'], completed: {} });
+        await worker.agent.completePermissionExternally({ id: 'target', approved: false });
+        release();
+        expect(await response).toEqual(error);
+        expect(await worker.readPermissionState()).toEqual({ pending: ['independent'], completed: { target: 'denied' } });
+        expect(worker.agent.getReceivedDecisions()).toHaveLength(1);
+    } finally { release(); await response; await seed.stopAll(); }
+});
+
+test.each(['plain', 'e2ee'] as const)('%s failed permission reply leaves pending state and a later explicit retry succeeds', async mode => {
+    let attempts = 0;
+    const error = { ok: false, errorCode: 'permission_response_failed', errorMessage: 'Synthetic RPC failure' } as const;
+    const { seed, worker, allow } = await controlledWorker(mode, () => ++attempts === 1 ? error : undefined);
+    try {
+        expect(await allow()).toEqual(error);
+        expect(await worker.readPermissionState()).toEqual({ pending: ['independent', 'target'], completed: {} });
+        expect(worker.agent.getReceivedDecisions()).toEqual([{ id: 'target', approved: true }]);
+        expect(await allow()).toEqual({ ok: true });
+        expect(worker.agent.getReceivedDecisions()).toEqual([{ id: 'target', approved: true }, { id: 'target', approved: true }]);
+        expect(await worker.readPermissionState()).toEqual({ pending: ['independent'], completed: { target: 'approved' } });
     } finally { await seed.stopAll(); }
 });
