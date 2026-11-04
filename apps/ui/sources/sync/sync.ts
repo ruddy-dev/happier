@@ -967,6 +967,14 @@ type ResumeViaChangesOutcome = Readonly<{
     refreshedByCatchUp: Readonly<{ sessions: boolean; machines: boolean }>;
 }>;
 
+export type SessionListKind = 'current' | 'archived';
+export type SessionListPagingState = Readonly<{
+    status: 'not-loaded' | 'loading' | 'more' | 'exhausted' | 'unavailable' | 'error';
+    retry: 'replace' | 'append' | null;
+    hasUnmaterializedRows: boolean;
+}>;
+const unavailableSessionListPagingState: SessionListPagingState = { status: 'unavailable', retry: null, hasUnmaterializedRows: false };
+
 class Sync {
 
         encryption!: Encryption;
@@ -1003,6 +1011,11 @@ class Sync {
     private fetchMoreArchivedSessionsInFlight: Promise<void> | null = null;
     private archivedSessionListNextCursor: string | null = null;
     private archivedSessionListHasMore = false;
+    private readonly sessionListPagingStates: Record<SessionListKind, SessionListPagingState> = { current: { status: 'not-loaded', retry: null, hasUnmaterializedRows: false }, archived: { status: 'not-loaded', retry: null, hasUnmaterializedRows: false } };
+    private readonly sessionListPagingListeners = new Set<() => void>();
+    private readonly sessionListConsumedCursors: Record<SessionListKind, Set<string>> = { current: new Set(), archived: new Set() };
+    private readonly sessionListCoverageContiguous: Record<SessionListKind, boolean> = { current: false, archived: false };
+
     private messagesSync = new Map<string, InvalidateSync>();
     private activeServerSessionIds = new Set<string>();
     private hasFetchedSessionsSnapshotForActiveServer = false;
@@ -2120,6 +2133,12 @@ class Sync {
         this.fetchMoreArchivedSessionsInFlight = null;
         this.archivedSessionListNextCursor = null;
         this.archivedSessionListHasMore = false;
+        this.sessionListConsumedCursors.current.clear();
+        this.sessionListConsumedCursors.archived.clear();
+        this.sessionListCoverageContiguous.current = false;
+        this.sessionListCoverageContiguous.archived = false;
+        this.publishSessionListPagingState('current', 'not-loaded', null, false);
+        this.publishSessionListPagingState('archived', 'not-loaded', null, false);
         this.sessionDataKeys.clear();
         this.sessionDataKeyEnvelopes.clear();
         this.machineDataKeys.clear();
@@ -4152,6 +4171,47 @@ class Sync {
         return shared;
     }
 
+    // A read-only projection of these pagers, not a second cursor or fetch owner.
+    public getSessionListPagingState = (kind: SessionListKind): SessionListPagingState => {
+        return this.credentials ? this.sessionListPagingStates[kind] : unavailableSessionListPagingState;
+    };
+
+    public subscribeSessionListPagingState = (listener: () => void): (() => void) => {
+        this.sessionListPagingListeners.add(listener);
+        return () => { this.sessionListPagingListeners.delete(listener); };
+    };
+
+    private publishSessionListPagingState(kind: SessionListKind, status: SessionListPagingState['status'], retry: SessionListPagingState['retry'] = null, hasUnmaterializedRows = this.sessionListPagingStates[kind].hasUnmaterializedRows): void {
+        if (this.sessionListPagingStates[kind].status === status && this.sessionListPagingStates[kind].retry === retry
+            && this.sessionListPagingStates[kind].hasUnmaterializedRows === hasUnmaterializedRows) return;
+        this.sessionListPagingStates[kind] = { status, retry, hasUnmaterializedRows };
+        for (const listener of this.sessionListPagingListeners) listener();
+    }
+
+    private publishSessionListPage(kind: SessionListKind, requestedCursor: string | null, result: Awaited<ReturnType<typeof fetchAndApplySessions>>): void {
+        const consumed = this.sessionListConsumedCursors[kind];
+        if (result.cancelled) {
+            this.sessionListCoverageContiguous[kind] = false;
+            this.publishSessionListPagingState(kind, 'unavailable');
+            return;
+        }
+        if (requestedCursor === null) {
+            consumed.clear();
+            this.sessionListCoverageContiguous[kind] = result.source === 'v2';
+        } else {
+            if (consumed.has(requestedCursor)) this.sessionListCoverageContiguous[kind] = false;
+            consumed.add(requestedCursor);
+        }
+        const hasUnmaterializedRows = result.hasUnmaterializedRows
+            || (requestedCursor !== null && this.sessionListPagingStates[kind].hasUnmaterializedRows);
+        const cursor = kind === 'current' ? this.sessionListNextCursor : this.archivedSessionListNextCursor;
+        const hasMore = kind === 'current' ? this.sessionListHasMore : this.archivedSessionListHasMore;
+        const canContinue = result.source === 'v2' && hasMore && cursor && !consumed.has(cursor);
+        const exhausted = this.sessionListCoverageContiguous[kind] && result.serverReportedListEnd && !hasUnmaterializedRows;
+        if (!canContinue && !result.serverReportedListEnd) this.sessionListCoverageContiguous[kind] = false;
+        this.publishSessionListPagingState(kind, canContinue ? 'more' : exhausted ? 'exhausted' : 'unavailable', null, hasUnmaterializedRows);
+    }
+
     private fetchSessions = async (options?: FetchSessionsOptions) => {
         if (!this.credentials) return;
         const generation = this.serverScopeGeneration;
@@ -4162,7 +4222,12 @@ class Sync {
             }
         }
         this.sessionListFetchesInFlight += 1;
-        const runFetch = this.fetchSessionsOnce(options, generation).finally(() => {
+        if (options?.mode !== 'append') this.sessionListCoverageContiguous.current = false;
+        this.publishSessionListPagingState('current', 'loading');
+        const runFetch = this.fetchSessionsOnce(options, generation).catch(error => {
+            if (this.serverScopeGeneration === generation) this.publishSessionListPagingState('current', 'error', options?.mode === 'append' ? 'append' : 'replace');
+            throw error;
+        }).finally(() => {
             this.sessionListFetchesInFlight -= 1;
             this.scheduleRecordConsumerHydration();
         });
@@ -4210,6 +4275,7 @@ class Sync {
             || explicitPrioritizedHydrationIdSet.has(sessionId)
         ));
         const isAppend = options?.mode === 'append';
+        const requestedCursor = isAppend ? this.sessionListNextCursor : null;
         const includeActiveSessionRows = !isAppend;
         const includeSessionListAttentionRows = !isAppend && shouldIncludeSessionListAttentionRows(initialState.settings);
         // The list paints pinned rows, folders and manual order from organization state, so a
@@ -4304,7 +4370,7 @@ class Sync {
                 localSettings: storage.getState().settings,
             }),
             serverId: activeServerId,
-            sessionListCursor: isAppend ? this.sessionListNextCursor : null,
+            sessionListCursor: requestedCursor,
             sessionListMaxPages: 1,
             includeActiveSessionRows,
             includeSessionListAttentionRows,
@@ -4359,6 +4425,10 @@ class Sync {
             log,
         });
         if (!shouldContinue()) return;
+        if (result.cancelled) {
+            this.publishSessionListPage('current', requestedCursor, result);
+            return;
+        }
         const fetchedSessionIdSet = new Set(result.sessionIds);
         const missingRequiredHydrationSessionIds = requiredHydrationSessionIds.filter(
             (sessionId) => !fetchedSessionIdSet.has(sessionId),
@@ -4379,6 +4449,7 @@ class Sync {
         if (!shouldContinue()) return;
         this.sessionListNextCursor = result.hasNext ? result.nextCursor : null;
         this.sessionListHasMore = result.hasNext;
+        this.publishSessionListPage('current', requestedCursor, result);
     }
 
     public fetchMoreSessions = async (): Promise<void> => {
@@ -4398,13 +4469,16 @@ class Sync {
         const generation = this.serverScopeGeneration;
         const shouldContinue = () => this.serverScopeGeneration === generation;
         const isAppend = options?.mode === 'append';
+        const requestedCursor = isAppend ? this.archivedSessionListNextCursor : null;
+        if (!isAppend) this.sessionListCoverageContiguous.archived = false;
+        this.publishSessionListPagingState('archived', 'loading');
         const result = await fetchAndApplySessions({
             clientEncryptionRequirement: resolveUiClientEncryptionRequirement({
                 syncedSettings: storage.getState().settings,
                 localSettings: storage.getState().settings,
             }),
             sessionListPath: '/v2/sessions/archived',
-            sessionListCursor: isAppend ? this.archivedSessionListNextCursor : null,
+            sessionListCursor: requestedCursor,
             sessionListMaxPages: 1,
             serverId: String(getActiveServerSnapshot().serverId ?? '').trim() || null,
             credentials: this.credentials,
@@ -4419,10 +4493,18 @@ class Sync {
             },
             repairInvalidReadStateV1: (params) => this.repairInvalidReadStateV1(params),
             log,
+        }).catch(error => {
+            if (shouldContinue()) this.publishSessionListPagingState('archived', 'error', isAppend ? 'append' : 'replace');
+            throw error;
         });
         if (!shouldContinue()) return;
+        if (result.cancelled) {
+            this.publishSessionListPage('archived', requestedCursor, result);
+            return;
+        }
         this.archivedSessionListNextCursor = result.hasNext ? result.nextCursor : null;
         this.archivedSessionListHasMore = result.hasNext;
+        this.publishSessionListPage('archived', requestedCursor, result);
     }
 
     public fetchArchivedSessions = async (): Promise<void> => {

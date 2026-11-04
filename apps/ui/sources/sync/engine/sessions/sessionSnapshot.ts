@@ -68,6 +68,10 @@ export type SessionListFetchResult = Readonly<{
     nextCursor: string | null;
     hasNext: boolean;
     source: 'v2' | 'v1';
+    // Evidence about this fetch only. A caller joining pages still owns chain continuity.
+    serverReportedListEnd: boolean;
+    cancelled: boolean;
+    hasUnmaterializedRows: boolean;
 }>;
 type HydrationApplyFlushReason = 'size' | 'timer' | 'required' | 'final' | 'manual';
 type CurrentSessionListRenderableLookup = (sessionId: string) => SessionListRenderableSession | null | undefined;
@@ -1352,13 +1356,29 @@ export async function fetchAndApplySessions(params: {
     // head and a v2 source: the `/v1/sessions` fallback is capped server-side yet reports no
     // further page. Anything unproven fails closed and retains omitted rows.
     let serverReportedListEnd = false;
+    let validPageChain = true;
     let source: 'v2' | 'v1' = 'v2';
-    const buildFetchResult = (): SessionListFetchResult => ({
-        sessionIds: sessions.map((session) => session.id),
-        nextCursor: nextCursorForMore,
-        hasNext: hasNextForMore,
-        source,
-    });
+    let hasUnmaterializedRows = false;
+    const buildFetchResult = (): SessionListFetchResult => {
+        const cancelled = !shouldContinue();
+        // Renderable hydration may still be running. Only count metadata already
+        // published at the fetched version; old readable cache entries prove no absence.
+        const unreadableRenderables = params.applySessionListRenderables && params.getCurrentSessionListRenderable
+            ? sessions.some(row => {
+                const current = params.getCurrentSessionListRenderable!(row.id);
+                return !current?.metadata || current.metadataUnavailable === true || current.metadataVersion < row.metadataVersion;
+            })
+            : hasUnmaterializedRows;
+        return {
+            sessionIds: sessions.map((session) => session.id),
+            nextCursor: nextCursorForMore,
+            hasNext: hasNextForMore,
+            source,
+            serverReportedListEnd: !cancelled && validPageChain && source === 'v2' && serverReportedListEnd,
+            cancelled,
+            hasUnmaterializedRows: cancelled || unreadableRenderables,
+        };
+    };
     const appendRows = (rows: V2SessionListResponse['sessions']): void => {
         for (const row of rows) {
             if (seenSessionIds.has(row.id)) continue;
@@ -1423,6 +1443,7 @@ export async function fetchAndApplySessions(params: {
                 nextCursor = page.nextCursor;
                 nextCursorForMore = page.nextCursor;
                 hasNextForMore = page.hasNext === true && typeof page.nextCursor === 'string' && page.source === 'v2';
+                if (page.nextCursor && (page.nextCursor === cursor || seenCursors.has(page.nextCursor))) validPageChain = false;
                 serverReportedListEnd = page.hasNext === false;
             },
         );
@@ -1477,6 +1498,7 @@ export async function fetchAndApplySessions(params: {
     }
 
     const sessionsNeedingEncryption = sessions.filter((session) => session.encryptionMode !== 'plain');
+    hasUnmaterializedRows = sessions.length > 0;
     const sessionDataKeyEnvelopes = params.sessionDataKeyEnvelopes;
     if (!shouldContinue()) {
         return buildFetchResult();
@@ -1530,6 +1552,8 @@ export async function fetchAndApplySessions(params: {
             )),
         );
         appliedRenderableCount = renderables.length;
+        hasUnmaterializedRows = renderables.some((row, index) => row.metadata == null
+            || row.metadataUnavailable === true || row.metadataVersion < sessions[index].metadataVersion);
         const staleMetadataPreservedRows = countStaleMetadataPreservedRows(
             renderables,
             params.getCurrentSessionListRenderable,
@@ -1988,6 +2012,8 @@ export async function fetchAndApplySessions(params: {
     );
     const decryptedSessions = decryptedResults.filter((session): session is NonNullable<typeof session> => Boolean(session));
 
+    if (!shouldContinue()) return buildFetchResult();
+
     const appliedSessions = applyHydratedSessions({
         sessions: decryptedSessions,
         applySessions,
@@ -2000,6 +2026,9 @@ export async function fetchAndApplySessions(params: {
         sessions: appliedSessions,
         repairInvalidReadStateV1,
     });
+
+    hasUnmaterializedRows = appliedSessions.length !== sessions.length
+        || appliedSessions.some(session => session.metadata == null);
 
     return buildFetchResult();
 }
