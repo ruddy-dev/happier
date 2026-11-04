@@ -279,6 +279,81 @@ describe('desk readiness through public cold bootstrap', () => {
         },
     );
 
+    it.each(['held', 'timely', 'disconnect'] as const)(
+        'a public refresh begun before restore cannot certify unhydrated bootstrap: %s', async mode => {
+            const harness = await setupBootstrap(true);
+            const { Encryption } = await import('@/sync/encryption/encryption');
+            const { encodeBase64 } = await import('@/encryption/base64');
+            const { getActiveServerSnapshot } = await import('@/sync/domains/server/serverRuntime');
+            const aes = await import('rn-encryption');
+            const { plainWorkerRecord, jsonResponse } = await import('../testkit/sessionRecordHarness');
+            const secret = new Uint8Array(32).fill(7);
+            const writer = await Encryption.create(secret);
+            const reader = await Encryption.create(secret);
+            const key = new Uint8Array(32).fill(11);
+            await writer.initializeSessions(new Map([[harness.workerId, key]]));
+            const cipher = writer.getSessionEncryption(harness.workerId)!;
+            const plain = plainWorkerRecord(harness.workerId);
+            const row = { ...plain, encryptionMode: 'e2ee' as const,
+                dataEncryptionKey: encodeBase64(await writer.encryptEncryptionKey(key)),
+                metadata: await cipher.encryptMetadata(JSON.parse(plain.metadata)),
+                agentState: await cipher.encryptAgentState(JSON.parse(plain.agentState!)),
+            };
+            harness.releaseList();
+            await harness.start(reader);
+            await act(async () => { await vi.waitFor(() => expect(harness.storage.getState().isDataReady).toBe(true)); });
+            // Public disconnect retains credentials/encryption but resets readiness and
+            // the queue. Public refresh is allowed before restore starts bootstrap again.
+            await act(async () => { harness.sync.disconnectServer(); });
+            const serverId = String(getActiveServerSnapshot().serverId);
+            harness.storage.getState().applySessionOrganizationSnapshot(serverId, {
+                schemaVersion: 1, version: 1, pins: [], folders: [], folderAssignments: [], tags: [], tagAssignments: [], orderEntries: [], labels: [],
+            });
+            const response = createDeferred<void>();
+            harness.setListResponse(async () => { await response.promise; return jsonResponse({ sessions: [row], nextCursor: null, hasNext: false }); });
+            harness.http.mockClear();
+            const refresh = harness.sync.refreshSessions();
+            await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+            expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname === '/v2/sessions')).toHaveLength(1);
+            const gate = createDeferred<void>();
+            const entered = createDeferred<void>();
+            const decrypt = aes.decryptAsyncAES;
+            vi.spyOn(aes, 'decryptAsyncAES').mockImplementation(async (...args) => {
+                entered.resolve(); await gate.promise; return decrypt(...args);
+            });
+            const readyMetadata: boolean[] = [];
+            const unsubscribe = harness.storage.subscribe(state => {
+                if (state.isDataReady) readyMetadata.push(state.sessionListRenderables[harness.workerId]?.metadata != null);
+            });
+            try {
+                if (mode === 'timely') gate.resolve();
+                await harness.start(reader);
+                await act(async () => {
+                    const releasedAt = Date.now();
+                    response.resolve(); await entered.promise;
+                    const waitBudget = harness.sync.getSyncTuning().invalidateSyncAwaitTimeoutMs;
+                    if (mode === 'timely') {
+                        await vi.waitFor(() => expect(harness.storage.getState().isDataReady).toBe(true));
+                        expect(Date.now() - releasedAt).toBeLessThan(waitBudget);
+                    } else await vi.advanceTimersByTimeAsync(waitBudget + 1);
+                });
+                if (mode !== 'timely') expect.soft(harness.observe()).toMatchObject({ isDataReady: false, deskReady: false, waitingCount: null });
+                await act(async () => {
+                    if (mode === 'disconnect') harness.sync.disconnectServer();
+                    gate.resolve(); await vi.advanceTimersByTimeAsync(0); await refresh;
+                    if (mode !== 'disconnect') await vi.waitFor(() => expect(harness.storage.getState().isDataReady).toBe(true));
+                });
+                if (mode === 'disconnect') expect(harness.observe()).toMatchObject({ isDataReady: false, fullRecords: 0 });
+                else expect(harness.observe()).toMatchObject({ isDataReady: true, deskRows: 1, waitingCount: 1 });
+                expect(readyMetadata).not.toContain(false);
+                // Coalesced bootstrap consumes the same fetched snapshot, including when timely.
+                expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname === '/v2/sessions')).toHaveLength(1);
+                expect(harness.http.mock.calls.some(([path]) => /^\/v2\/sessions\/bootstrap-/.test(path))).toBe(false);
+                expect(harness.unexpectedPaths).toEqual([]);
+            } finally { gate.resolve(); unsubscribe(); }
+        },
+    );
+
     it.each([
         { name: 'automatic retry after a transient failure', status: 503, direct: false },
         { name: 'explicit retry after a non-retryable failure', status: 400, direct: false },
