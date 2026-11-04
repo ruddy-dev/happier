@@ -51,6 +51,22 @@ it.each(['tokyo', 'terminalPaper', 'mask', 'ordinary'] as const)('exposes actual
         await act(async () => root.render(style === 'ordinary' ? question :
             <CoordinatorTranscriptAppearanceProvider>{question}</CoordinatorTranscriptAppearanceProvider>));
         const stable = option(0, 0);
+        const controls = () => Array.from(container.querySelectorAll<HTMLElement>('button, textarea, input'))
+            .filter(node => node.dataset.testid?.startsWith('ask-user-question.'));
+        const expectedOrder = paint
+            ? ['option:0:0', 'option:0:1', 'freeform:0', 'option:1:0', 'option:1:1', 'submit']
+            : ['freeform:0', 'option:0:0', 'option:0:1', 'option:1:0', 'option:1:1', 'submit'];
+        expect.soft(controls().map(node => node.dataset.testid!.replace('ask-user-question.', ''))).toEqual(expectedOrder);
+        // No tabindex or CSS order workaround: DOM, accessibility and keyboard traversal agree.
+        for (const node of controls().filter(node => !node.hasAttribute('disabled'))) {
+            expect(node.tabIndex).toBe(0);
+            expect(node.style.order).toBe('');
+            await act(async () => node.focus());
+            expect(document.activeElement).toBe(node);
+        }
+        const submit = find('ask-user-question.submit');
+        expect(submit.getAttribute('aria-disabled')).toBe('true');
+
         expect(stable.tagName).toBe('BUTTON');
         expect(stable.getAttribute('aria-pressed')).toBe('false');
         expect(stable.tabIndex).toBe(0);
@@ -75,6 +91,13 @@ it.each(['tokyo', 'terminalPaper', 'mask', 'ordinary'] as const)('exposes actual
         await act(async () => option(1, 0).click());
         expect(option(1, 0).getAttribute('aria-pressed')).toBe('false');
         expect(option(1, 1).getAttribute('aria-pressed')).toBe('true');
+        expect(submit.getAttribute('aria-disabled')).not.toBe('true');
+        await act(async () => submit.focus());
+        expect(document.activeElement).toBe(submit);
+        if (paint) {
+            expect(getComputedStyle(submit).backgroundColor).toBe(toRgb(paint.ink));
+            expect(getComputedStyle(submit).borderTopLeftRadius).toBe('0px');
+        }
         const input = find('ask-user-question.freeform:0') as HTMLTextAreaElement;
         await act(async () => input.focus());
         expect(document.activeElement).toBe(input);

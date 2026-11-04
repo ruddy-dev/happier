@@ -71,6 +71,10 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         expect(brackets().every(node => node.props.importantForAccessibility === 'no')).toBe(true);
         expect(brackets().every(node => node.props['aria-hidden'] === true)).toBe(true);
         expect(option.props.accessibilityLabel).toBe('Stable');
+        const disabledSubmit = screen.findHostByTestId('ask-user-question.submit')!;
+        expect(disabledSubmit.props.disabled).toBe(true);
+        expect(contrast(StyleSheet.flatten(textNode(screen.root, disabledSubmit.props.accessibilityLabel).props.style).color, [paint.panel])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(StyleSheet.flatten(disabledSubmit.props.style).borderColor, [paint.panel])).toBeGreaterThanOrEqual(3);
         act(() => option.props.onFocus());
         const focused = StyleSheet.flatten(option.props.style);
         expect(contrast(focused.borderColor, [paint.panel])).toBeGreaterThanOrEqual(3);
@@ -143,7 +147,11 @@ export function questionPaletteChecks(theme: Theme, palette: TerminalPalette) {
         expect(checkbox.findAll(node => typeof node.type === 'string' && node.children.includes('[✓ '))).toHaveLength(1);
         const submit = screen.findByTestId('ask-user-question.submit')!;
         expect(submit.props.disabled).toBe(false);
+        checkText(submit.props.accessibilityLabel, paint.panel);
+        act(() => submit.props.onFocus());
         checkText(submit.props.accessibilityLabel, StyleSheet.flatten(submit.props.style).backgroundColor);
+        expect(contrast(StyleSheet.flatten(submit.props.style).borderColor, [paint.panel])).toBeGreaterThanOrEqual(3);
+        act(() => submit.props.onBlur());
         act(() => screen.changeTextByTestId('ask-user-question.freeform:0', 'Use the maintained release'));
         expect(screen.findByTestId('ask-user-question.freeform:0')!.props.value).toBe('Use the maintained release');
         expect(screen.findByTestId('ask-user-question.option:0:0')!.props.accessibilityState.selected).toBe(false);

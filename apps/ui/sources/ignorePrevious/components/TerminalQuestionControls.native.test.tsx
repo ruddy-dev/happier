@@ -43,6 +43,9 @@ it.each(['ios', 'android'] as const)('binds Terminal choices through installed n
         const screen = await renderScreen(<CoordinatorTranscriptAppearanceProvider>
             <AskUserQuestionView {...makeToolViewProps(tool, { sessionId: 'native-session' })} />
         </CoordinatorTranscriptAppearanceProvider>);
+        const initialSubmit = screen.findHostByTestId('ask-user-question.submit')!;
+        expect(initialSubmit.props.accessibilityState.disabled).toBe(true);
+        expect(initialSubmit.props.focusable).toBe(false);
         const option = screen.findHostByTestId('ask-user-question.option:0:0')!;
         // A string RN stub cannot satisfy this: the installed Pressable must reach its host.
         expect.soft(option.type).toBe('NativeView');
@@ -67,6 +70,14 @@ it.each(['ios', 'android'] as const)('binds Terminal choices through installed n
         act(() => option.props.onClick(event));
         expect(option.props.accessibilityState.selected).toBe(false);
         expect(second.props.accessibilityState.selected).toBe(true);
+        const submit = screen.findHostByTestId('ask-user-question.submit')!;
+        expect(submit.type).toBe('NativeView');
+        expect(submit.props.accessibilityState.selected).toBeUndefined();
+        expect(submit.props.accessibilityState.disabled).toBe(false);
+        act(() => submit.props.onFocus(event));
+        expect(StyleSheet.flatten(submit.props.style).backgroundColor).toBe(terminalPalettes.tokyo.ink);
+        act(() => submit.props.onBlur(event));
+        expect(StyleSheet.flatten(submit.props.style).backgroundColor).toBe('transparent');
         act(() => option.props.onBlur(event));
         expect(StyleSheet.flatten(option.props.style).backgroundColor).not.toBe(terminalPalettes.tokyo.ink);
         act(() => input.props.onFocus(event));
