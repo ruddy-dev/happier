@@ -522,6 +522,21 @@ describe('coordinator hold Space dictation', () => {
         expect(draft()).toBe('mic speech');
     });
 
+    it('does not start the mic when Space begins on a tab and remains held into the composer', async () => {
+        await renderHook(() => useDeskDictationControls(sessionId, {}));
+        const tab = document.createElement('div');
+        tab.setAttribute('role', 'tab'); tab.tabIndex = 0;
+        document.body.append(tab); tab.focus();
+        await key(tab, 'keydown');
+        const input = sessionInput(); input.focus();
+        await key(input, 'keydown', ' ', { repeat: true });
+        await key(input, 'keyup');
+        expect(getUserMedia).not.toHaveBeenCalled();
+        expect(start).not.toHaveBeenCalled();
+        expect(draft()).toBe('');
+        tab.remove();
+    });
+
     it('passes repeats through when Space was held elsewhere before focusing the empty input', async () => {
         await renderHook(() => useDeskDictationControls(sessionId, {}));
         const input = sessionInput();

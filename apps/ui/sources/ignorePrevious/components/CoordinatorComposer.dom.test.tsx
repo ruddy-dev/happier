@@ -164,15 +164,61 @@ it('R45 keeps draft, cursor and global waits subscriptions out of the transcript
 const safeArea = { top: 0, right: 0, bottom: 0, left: 0 };
 const noSend = () => {};
 const noSuggestions = async () => [];
-function RealComposer({ visible = true, draft = '', desk = true }: { visible?: boolean; draft?: string; desk?: boolean }) {
+function RealComposer({ visible = true, draft = '', desk = true, phone = false }: { visible?: boolean; draft?: string; desk?: boolean; phone?: boolean }) {
     const input = visible ? <AgentInput sessionId="coordinator" value={draft} onChangeText={() => {}} onSend={noSend}
         placeholder={t('ignorePrevious.composer.placeholder')} autocompleteKinds={[]} autocompleteSuggestions={noSuggestions}
         footerLeadingActions={<RunSettingsMenu />} statusTrailingActions={<span data-testid="fixture-context">Context</span>} />
         : <div data-testid="session-unavailable" />;
     return <SafeAreaInsetsContext.Provider value={safeArea}>
-        {desk ? <CoordinatorComposer>{input}</CoordinatorComposer> : input}
+        {desk ? <CoordinatorComposer phone={phone}>{input}</CoordinatorComposer> : input}
     </SafeAreaInsetsContext.Provider>;
 }
+
+it.each(['scroll', 'wrap'] as const)('keeps populated phone controls and send together below the run control in %s mode', async (layout) => {
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: layout });
+    releaseFixture = applyDeskFixture();
+    await renderFixture(false, true);
+    const run = find('ip-run-settings')!;
+    const send = find('session-composer-send')!;
+    const permission = find('agent-input-permission-chip')!;
+    const mode = find('agent-input-session-mode-chip')!;
+    expect(permission).not.toBeNull();
+    expect(mode.textContent).toContain('Plan');
+    const row = find('agent-input-desk-controls-row')!;
+    expect(row).not.toBeNull();
+    expect(row.contains(permission)).toBe(true);
+    expect(row.contains(mode)).toBe(true);
+    expect(row.querySelector('[aria-label="Source control"]')).not.toBeNull();
+    expect(row.contains(send)).toBe(true);
+    expect(row.contains(run)).toBe(false);
+    expect(send.getAttribute('aria-disabled')).toBe('true');
+});
+
+it('scrolls a focused phone mode fully into its own viewport in either direction', async () => {
+    storage.getState().applySettingsLocal({ agentInputActionBarLayout: 'scroll' });
+    releaseFixture = applyDeskFixture();
+    await renderFixture(false, true);
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    const row = find('agent-input-desk-controls-row')!;
+    const scroller = Array.from(row.querySelectorAll<HTMLElement>('div')).find((node) => getComputedStyle(node).overflowX === 'auto')!;
+    const chip = find('agent-input-permission-chip')!;
+    expect(scroller).toBeTruthy();
+    scroller.getBoundingClientRect = () => ({ left: 0, right: 300, width: 300 } as DOMRect);
+    chip.getBoundingClientRect = () => ({ left: 250, right: 360, width: 110 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(60);
+    chip.blur();
+    chip.getBoundingClientRect = () => ({ left: -90, right: 20, width: 110 } as DOMRect);
+    await act(async () => chip.focus());
+    expect(scroller.scrollLeft).toBe(-30);
+});
+
+it('retains the run control across the phone breakpoint', async () => {
+    await act(async () => root.render(<RealComposer phone />));
+    const run = find('ip-run-settings');
+    await act(async () => root.render(<RealComposer phone={false} />));
+    expect(find('ip-run-settings')).toBe(run);
+});
 
 it('R45 removes status with the real composer, then re-observes empty and restored drafts in the same pane', async () => {
     const show = (visible: boolean, draft = '') => act(async () => root.render(<RealComposer visible={visible} draft={draft} />));
