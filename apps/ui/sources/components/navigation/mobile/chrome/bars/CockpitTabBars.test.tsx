@@ -211,6 +211,28 @@ describe('cockpit tab bars', () => {
         expect(screen.findByTestId('session-cockpit-tab-terminal')).toBeNull();
     });
 
+    it('retains native selection state while switching cockpit surfaces', async () => {
+        const { CockpitTabBar } = await import('./CockpitTabBar');
+        const tabs = [
+            { id: 'chat', label: 'Chat', icon: { render: () => null } },
+            { id: 'git', label: 'Git', icon: { render: () => null } },
+        ] as const;
+        function Tabs() {
+            const [active, setActive] = React.useState<'chat' | 'git'>('chat');
+            return <CockpitTabBar activeSurface={active} tabs={tabs} onSurfacePress={setActive}
+                barTestId="cockpit" tabTestIdPrefix="tab-" />;
+        }
+        const screen = await renderScreen(<Tabs />);
+        expect(screen.findByTestId('tab-chat')?.props.accessibilityState).toEqual({ selected: true });
+        expect(screen.findByTestId('tab-git')?.props.accessibilityState).toEqual({ selected: false });
+        await screen.pressByTestIdAsync('tab-git');
+        expect(screen.findByTestId('tab-chat')?.props.accessibilityState).toEqual({ selected: false });
+        expect(screen.findByTestId('tab-git')?.props.accessibilityState).toEqual({ selected: true });
+        await screen.pressByTestIdAsync('tab-chat');
+        expect(screen.findByTestId('tab-chat')?.props.accessibilityState).toEqual({ selected: true });
+        expect(screen.findByTestId('tab-git')?.props.accessibilityState).toEqual({ selected: false });
+    });
+
     it('shows a changed-files count badge by default when the session is dirty', async () => {
         scmState = { isDirty: true, modifiedCount: 3, linesAdded: 42, linesRemoved: 8 };
         const { SessionCockpitTabBar } = await import('./SessionCockpitTabBar');

@@ -229,6 +229,70 @@ for (const width of [390, 1440]) for (const style of ['mask', 'terminal'] as con
                     if (process.env.WORKPR_SHOTS) await page.screenshot({ path: join(process.env.WORKPR_SHOTS, `${style}-${width}-badge.png`), mask: [page.locator('input, textarea')] });
                     await badge.press('Enter');
                     await expect.poll(() => opened).toEqual([reviewUrl]);
+                    await test.step('Original Enter navigation settles before pointer probes', async () => {
+                        await expect.poll(() => context.pages().length, { message: 'Enter opens one review page beside Work' }).toBe(2);
+                        const reviewPage = context.pages().find(candidate => candidate !== page)!;
+                        await expect(reviewPage).toHaveURL(reviewUrl);
+                        await expect(reviewPage.locator('body')).toHaveText('Synthetic review');
+                        expect(opened).toEqual([reviewUrl]);
+                        await expect(page).toHaveURL(workUrl);
+                    });
+                    await test.step('Verified PR anchor exposes the normalized safe URL and external-link protections', async () => {
+                        await expect(badge).toHaveAttribute('href', reviewUrl);
+                        await expect(badge).toHaveJSProperty('href', reviewUrl);
+                        await expect(badge).toHaveAttribute('target', '_blank');
+                        expect((await badge.getAttribute('rel'))?.split(/\s+/)).toEqual(expect.arrayContaining(['noopener', 'noreferrer']));
+                    });
+                    const activations = [
+                        { name: 'Ordinary pointer', button: 'left', modifiers: [], ctrlKey: false, shiftKey: false, defaultPrevented: true },
+                        ...(width === 1440 ? [
+                            { name: 'Desktop Ctrl+click', button: 'left', modifiers: ['Control'], ctrlKey: true, shiftKey: false, defaultPrevented: false },
+                            { name: 'Desktop Shift+click', button: 'left', modifiers: ['Shift'], ctrlKey: false, shiftKey: true, defaultPrevented: false },
+                            { name: 'Desktop middle-click', button: 'middle', modifiers: [], ctrlKey: false, shiftKey: false, defaultPrevented: false },
+                        ] as const : []),
+                    ] as const;
+                    const expectedOpened = [reviewUrl];
+                    for (const activation of activations) {
+                        await test.step(`${activation.name} opens the intercepted PR exactly once with its expected browser default`, async () => {
+                            // Capture passively, retain the real event, then read its final
+                            // cancellation state after RN Web's handlers and dispatch return.
+                            const observer = await badge.evaluateHandle(element => {
+                                const events: MouseEvent[] = [];
+                                const observe = (event: Event) => { if (event instanceof MouseEvent) events.push(event); };
+                                element.addEventListener('click', observe, { capture: true, passive: true });
+                                element.addEventListener('auxclick', observe, { capture: true, passive: true });
+                                return { events, remove: () => {
+                                    element.removeEventListener('click', observe, true);
+                                    element.removeEventListener('auxclick', observe, true);
+                                } };
+                            });
+                            try {
+                                expectedOpened.push(reviewUrl);
+                                const pageCount = context.pages().length;
+                                const [reviewPage] = await Promise.all([
+                                    context.waitForEvent('page'),
+                                    badge.click({ button: activation.button, modifiers: [...activation.modifiers] }),
+                                ]);
+                                expect(await observer.evaluate(({ events }) => events.map(event => ({
+                                    type: event.type, button: event.button, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey,
+                                    altKey: event.altKey, metaKey: event.metaKey, isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented,
+                                })))).toEqual([{
+                                    type: activation.button === 'middle' ? 'auxclick' : 'click', button: activation.button === 'middle' ? 1 : 0,
+                                    ctrlKey: activation.ctrlKey, shiftKey: activation.shiftKey, altKey: false, metaKey: false,
+                                    isTrusted: true, defaultPrevented: activation.defaultPrevented,
+                                }]);
+                                await expect(reviewPage).toHaveURL(reviewUrl);
+                                await expect(reviewPage.locator('body')).toHaveText('Synthetic review');
+                                await expect.poll(() => opened).toEqual(expectedOpened);
+                                expect(context.pages(), 'one new review page per activation').toHaveLength(pageCount + 1);
+                                await expect(page).toHaveURL(workUrl);
+                            } finally {
+                                try { await observer.evaluate(({ remove }) => remove()); }
+                                finally { await observer.dispose(); }
+                            }
+                        });
+                    }
+                    expect(scm!.listRequests, 'link activation must not repeat Find PR').toHaveLength(3);
                 } finally { checkpoint('returned-work'); }
             });
         } finally {
