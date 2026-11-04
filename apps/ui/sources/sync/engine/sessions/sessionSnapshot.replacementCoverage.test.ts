@@ -176,9 +176,10 @@ describe('snapshot search evidence at the producer', () => {
     it('reports missing plaintext metadata as incomplete while still applying the readable sibling', async () => {
         const applySessions = vi.fn();
         const result = await snapshot({ applySessions, request: async () => jsonResponse({
-            sessions: [buildPlainRow('readable'), { ...buildPlainRow('unreadable'), metadata: 'invalid' }], hasNext: false, nextCursor: null,
+            sessions: [buildPlainRow('readable'), { ...buildPlainRow('unreadable'), metadataVersion: 2, metadata: 'invalid' }], hasNext: false, nextCursor: null,
         }) });
         expect(result.hasUnmaterializedRows).toBe(true);
+        expect(result.sessionMetadataVersions).toEqual(new Map([['readable', 1], ['unreadable', 2]]));
         expect(applySessions.mock.calls[0][0]).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'readable', metadata: expect.any(Object) })]));
     });
 

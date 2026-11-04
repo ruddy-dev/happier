@@ -13,6 +13,8 @@ import { buildSessionListRenderableFromSession } from '@/sync/domains/session/li
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { buildScopedSessionRouteHref } from '@/hooks/session/sessionRouteServerScope';
 import { FocusReturnProvider } from '@/keyboard/focusReturn';
+import { getPermissionModeLabelForAgentType } from '@/sync/domains/permissions/permissionModeOptions';
+import { t } from '@/text';
 import { installSessionRecordHarness, jsonResponse, plainWorkerRecord } from '../testkit/sessionRecordHarness';
 import { deskPrefs } from '../deskPrefs';
 import { SessionsSheet } from './SessionsSheet';
@@ -112,6 +114,118 @@ afterEach(async () => {
 });
 
 describe('Sessions sheet, real scoped store and archive paging', () => {
+    it.each(['terminal', 'mask'] as const)('%s renders available state and published mode context for current and archived rows, with honest unknown mode', async style => {
+        deskPrefs.set('chatStyle', style);
+        vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(390);
+        await act(async () => window.dispatchEvent(new Event('resize')));
+        const current = createSessionFixture({ id: 'context-current', serverId, archivedAt: null, presence: 'online',
+            metadata: { name: 'Current context', path: '/fixture/project', host: 'fixture', flavor: 'claude', permissionMode: 'read-only' },
+            permissionMode: 'yolo' });
+        const archived = createSessionFixture({ ...current, id: 'context-archive', archivedAt: 10,
+            metadata: { ...current.metadata!, name: 'Archived context', permissionMode: 'default' } });
+        const unknown = createSessionFixture({ ...current, id: 'context-unknown', metadata: { ...current.metadata!, name: 'Unknown context' } });
+        storage.getState().applySessions([current, archived]);
+        storage.getState().mergeSessionListRenderables([buildSessionListRenderableFromSession(unknown)]);
+        const original = harness.http.getMockImplementation()!;
+        const pending = createDeferred<Response>();
+        harness.http.mockImplementation(path => path === '/v2/sessions/context-unknown' ? pending.promise : original(path));
+        await open();
+        await archivesLoaded();
+        await click('ip-sessions-toggle-archived');
+        const mode = getPermissionModeLabelForAgentType('claude', 'read-only');
+        const defaultMode = getPermissionModeLabelForAgentType('claude', 'default');
+        for (const [id, label] of [['context-current', mode], ['context-archive', defaultMode], ['context-unknown', t('ignorePrevious.workerControl.modeUnknown')]]) {
+            const row = element(`ip-sessions-row-${id}`);
+            expect(row.textContent).toContain(t('ignorePrevious.countIdle'));
+            expect(row.textContent).toContain(label);
+            expect(row.getAttribute('aria-label')).toContain(label);
+            expect(Number.parseInt(row.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
+        }
+        expect(element('ip-sessions-row-context-unknown').textContent).not.toContain(mode);
+        await click('ip-sessions-row-context-current');
+        expect(navigate).toHaveBeenCalledWith(buildScopedSessionRouteHref({ sessionId: current.id, serverId }), expect.anything());
+        // The record can finish after navigation; its label was unknown while mounted.
+        await act(async () => pending.resolve(jsonResponse({ session: { ...plainWorkerRecord(unknown.id),
+            metadata: JSON.stringify(unknown.metadata), metadataVersion: unknown.metadataVersion } })));
+        await vi.waitFor(() => expect(storage.getState().sessions[unknown.id]?.metadataVersion).toBe(unknown.metadataVersion));
+    });
+
+    it.each([false, true])('uses proven whole-list coverage on an empty head, retaining partial pages=%s', async partial => {
+        const rows = [record('moved-worker', 'Needle worker'), record('loaded-neighbor', 'Loaded neighbor')]
+            .map(row => ({ ...row, archivedAt: null }));
+        storage.getState().applySessions(rows.map(row => createSessionFixture({ id: row.id, serverId,
+            metadata: JSON.parse(row.metadata), metadataVersion: row.metadataVersion, archivedAt: null })));
+        const original = harness.http.getMockImplementation()!;
+        let empty = false;
+        harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === '/v2/sessions'
+            ? Promise.resolve(jsonResponse({ sessions: empty ? [] : rows, includedActive: true,
+                hasNext: empty && partial, nextCursor: empty && partial ? 'current-tail' : null })) : original(path));
+        await harness.sync.refreshSessions({ awaitSessionListHydration: true });
+        archivePage(async path => new URL(path, 'http://localhost').searchParams.has('cursor')
+            ? jsonResponse({ sessions: [{ ...record('moved-worker', 'Needle worker'), metadataVersion: 2 }], nextCursor: null, hasNext: false })
+            : jsonResponse({ sessions: [], nextCursor: 'archive-tail', hasNext: true }));
+        await open();
+        await archivesLoaded();
+        await search('needle');
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+        expect(element('ip-sessions-row-moved-worker')).toBeDefined();
+        empty = true;
+        await act(async () => harness.sync.refreshSessions({ awaitSessionListHydration: true }));
+        const archiveAppended = () => harness.http.mock.calls.some(([path]) => path.includes('cursor=archive-tail'));
+        if (partial) {
+            expect(archiveAppended()).toBe(false);
+            expect(storage.getState().sessionListRenderables['moved-worker']).toBeDefined();
+            expect(storage.getState().sessionListRenderables['loaded-neighbor']).toBeDefined();
+        } else {
+            await vi.waitFor(async () => {
+                await act(async () => {});
+                expect(archiveAppended()).toBe(true);
+                expect(element('ip-sessions-archived').contains(element('ip-sessions-row-moved-worker'))).toBe(true);
+            });
+            expect(storage.getState().sessions['loaded-neighbor']).toBeDefined();
+            expect(storage.getState().sessionListRenderables['loaded-neighbor']).toBeUndefined();
+            await search('loaded neighbor');
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+            expect(node('ip-sessions-row-loaded-neighbor')).toBeNull();
+            expect(node('ip-sessions-no-matches')).not.toBeNull();
+        }
+    });
+
+    it.each([
+        ['current', 'missing'], ['current', 'stale'], ['archived', 'missing'], ['archived', 'stale'],
+    ] as const)('waits for authoritative issue identity for a readable %s row with a %s full record, then recovers', async (kind, fullRecord) => {
+        const id = 'issue-identity';
+        const metadata = { name: 'Ordinary worker', host: 'fixture', path: '/fixture/project', tag: 'ATR-98-build' };
+        const current = createSessionFixture({ id, serverId, metadata, metadataVersion: 2, archivedAt: kind === 'archived' ? 10 : null });
+        if (fullRecord === 'stale') storage.getState().applySessions([
+            createSessionFixture({ ...current, metadata: { ...metadata, tag: 'ATR-7-build' }, metadataVersion: 1 }),
+        ]);
+        storage.getState().replaceSessionListRenderables([buildSessionListRenderableFromSession(current)], { coversWholeList: true });
+        const response = createDeferred<Response>();
+        const original = harness.http.getMockImplementation()!;
+        harness.http.mockImplementation(path => new URL(path, 'http://localhost').pathname === `/v2/sessions/${id}`
+            ? response.promise : original(path));
+        await open();
+        await archivesLoaded();
+        await search('ATR-98');
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+        expect(node('ip-sessions-no-matches')).toBeNull();
+        expect(node('ip-sessions-search-partial')).not.toBeNull();
+        expect(node(`ip-sessions-row-${id}`)).toBeNull();
+        expect(harness.http.mock.calls.filter(([path]) => new URL(path, 'http://localhost').pathname === `/v2/sessions/${id}`)).toHaveLength(1);
+        await act(async () => response.resolve(jsonResponse({ session: { ...record(id, metadata.name), archivedAt: current.archivedAt,
+            metadata: JSON.stringify(metadata), metadataVersion: 2 } })));
+        await vi.waitFor(async () => {
+            await act(async () => {});
+            expect(element(`ip-sessions-row-${id}`).textContent).toContain('ATR-98');
+            expect(node('ip-sessions-search-partial')).toBeNull();
+        });
+        if (kind === 'archived') expect(element('ip-sessions-archived').contains(element(`ip-sessions-row-${id}`))).toBe(true);
+        await search('ATR-7');
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+        expect(node('ip-sessions-no-matches')).not.toBeNull();
+    });
+
     it('restores no-match evidence when the owned background metadata decrypt finishes', async () => {
         const metadata = createDeferred<{ path: string; host: string; name: string }>();
         const entered = createDeferred<void>();
