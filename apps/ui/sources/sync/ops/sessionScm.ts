@@ -65,7 +65,11 @@ import type {
     ScmStatusSnapshotRequest,
     ScmStatusSnapshotResponse,
 } from '@happier-dev/protocol';
-import { SCM_OPERATION_ERROR_CODES } from '@happier-dev/protocol';
+import { t } from '@/text';
+import { storage } from '@/sync/domains/state/storage';
+import { readSessionWorkspaceContext } from '@/sync/domains/session/readSessionWorkspaceContext';
+import { deriveTranscriptInteractionFromSession } from '@/utils/sessions/deriveTranscriptInteraction';
+import { ScmPullRequestListResponseSchema, SCM_OPERATION_ERROR_CODES } from '@happier-dev/protocol';
 import { RPC_ERROR_MESSAGES, RPC_METHODS } from '@happier-dev/protocol/rpc';
 
 import { assertScmResponse, runMachineScmRpc, scmFallbackError, withScmBackendPreference } from './scm/machineScm';
@@ -478,15 +482,68 @@ export async function sessionScmStashShow(
     );
 }
 
+/** Scope of a verified PR read; excludes unrelated status/file updates. */
+export function readSessionScmPullRequestScope(sessionId: string): string {
+    const state = storage.getState();
+    const session = state.sessions?.[sessionId];
+    const snapshot = state.getSessionProjectScmSnapshot?.(sessionId);
+    return JSON.stringify([
+        sessionId, state.profileScope, resolvePreferredServerIdForSessionId(sessionId), session?.metadata?.machineId,
+        readSessionWorkspaceContext(state, sessionId), session?.accessLevel,
+        snapshot?.projectKey, snapshot?.repo, snapshot?.branch.head, snapshot?.branch.detached,
+        snapshot?.hostingProvider, snapshot?.capabilities?.readPullRequests,
+    ]);
+}
+
 export async function sessionScmPullRequestList(
     sessionId: string,
     request: ScmPullRequestListRequest,
+    options?: Readonly<{ isCurrent: () => boolean }>,
 ): Promise<ScmPullRequestListResponse> {
-    return await callScmPreferMachine<ScmPullRequestListResponse, ScmPullRequestListRequest>(
+    const scope = readSessionScmPullRequestScope(sessionId);
+    const response = await callScmPreferMachine<ScmPullRequestListResponse, ScmPullRequestListRequest>(
         sessionId,
         RPC_METHODS.SCM_PULL_REQUEST_LIST,
         request,
     );
+    const parsed = ScmPullRequestListResponseSchema.safeParse(response);
+    if (!parsed.success) return { success: false, error: t('ignorePrevious.pullRequest.findFailed') };
+    if (!parsed.data.success) return parsed.data;
+
+    const state = storage.getState();
+    const session = state.sessions?.[sessionId];
+    const snapshot = state.getSessionProjectScmSnapshot?.(sessionId);
+    const provider = snapshot?.hostingProvider;
+    // Only a read for the current checkout/branch can update its canonical snapshot.
+    // Other list queries remain ordinary read-only queries.
+    if (options?.isCurrent() !== false && scope === readSessionScmPullRequestScope(sessionId)
+        && session && deriveTranscriptInteractionFromSession({
+            accessLevel: session.accessLevel,
+            canApprovePermissions: session.canApprovePermissions,
+            active: session.active,
+        }).canOpenFiles === true
+        && snapshot?.repo.isRepo && snapshot.capabilities?.readPullRequests === true
+        && !snapshot.branch.detached && request.head === snapshot.branch.head
+        && request.state === 'open' && !request.cwd && provider && provider.kind !== 'unknown') {
+        const pullRequest = parsed.data.pullRequests.find(pr =>
+            pr.headBranch === request.head && pr.state === 'open'
+            && pr.provider.kind === provider.kind && pr.provider.baseUrl === provider.baseUrl
+            && pr.provider.nameWithOwner === provider.nameWithOwner);
+        if (!pullRequest && parsed.data.pullRequests.length > 0) {
+            return { success: false, error: t('ignorePrevious.pullRequest.findFailed') };
+        }
+        if (pullRequest) {
+            try {
+                if (new URL(pullRequest.url).origin !== new URL(provider.baseUrl).origin) {
+                    return { success: false, error: t('ignorePrevious.pullRequest.findFailed') };
+                }
+            } catch {
+                return { success: false, error: t('ignorePrevious.pullRequest.findFailed') };
+            }
+            state.updateSessionProjectScmSnapshot(sessionId, { ...snapshot, pullRequest });
+        }
+    }
+    return parsed.data;
 }
 
 export async function sessionScmPullRequestGet(

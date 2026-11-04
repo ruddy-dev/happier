@@ -27,7 +27,7 @@ export function SourceControlPullRequestSection(props: Readonly<{
     writeEnabled?: boolean;
 }>) {
     const model = React.useMemo(() => buildPullRequestUiModel(props.snapshot), [props.snapshot]);
-    const operations = useScmPullRequestOperations({ sessionId: props.sessionId });
+    const operations = useScmPullRequestOperations({ sessionId: props.sessionId, snapshot: props.snapshot });
     const actionDisabled = props.disabled === true;
     const writeActionDisabled = props.writeEnabled !== true;
 
@@ -64,6 +64,8 @@ export function SourceControlPullRequestSection(props: Readonly<{
                         disabled={actionDisabled}
                         writeDisabled={writeActionDisabled}
                         busy={operations.busy}
+                        findDisabled={!operations.canFindPullRequest}
+                        onFindPullRequest={operations.findPullRequest}
                         onViewPullRequest={(nextModel) => {
                             void operations.viewPullRequest(nextModel);
                         }}

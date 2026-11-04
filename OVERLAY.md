@@ -168,6 +168,24 @@ Ship guard. A normal build must carry no fixture. After a **cold** export withou
 
 ## Patched upstream files
 
+ATR-99 adds the development-only **Find PR** action to the opened worker's ordinary SCM view.
+It lists open PRs only on click, using the existing file-surface grant and SCM read capability.
+Verified results update the existing project SCM snapshot consumed by Work. Empty results remain
+local status; the snapshot's null PR remains unknown. Existing create/view policy is unchanged.
+
+| File | Reason |
+|---|---|
+| `apps/ui/sources/components/sessions/panes/git/SessionRightPanelGitView.tsx` | Keeps Update reachable when the snapshot supports PR reads, even with remote writes disabled; action grants and write policy remain with their existing owners. |
+| `apps/ui/sources/components/sessions/sourceControl/pullRequests/SourceControlPullRequestSection.tsx` | Wires the clicked read action and its existing operation status into the opened SCM section. |
+| `apps/ui/sources/components/sessions/sourceControl/pullRequests/PullRequestActionRail.tsx` | Adds a secondary Find PR button to each ready branch state, independently of write permission, using the ordinary toolbar button and wrapping rail. |
+| `apps/ui/sources/hooks/session/sourceControl/useScmPullRequestOperations.ts` | Uses the existing read grant, excludes duplicate lookups, presents loading/empty/error states, and discards results after the component or account/session/repository/branch scope changes. |
+| `apps/ui/sources/sync/ops/sessionScm.ts` | Validates list responses and publishes a matching open PR through the existing canonical snapshot updater, preserving newer file status and rejecting obsolete scopes. No new RPC, persistence or cache. |
+| `apps/ui/sources/text/translations/{en,ca,de,es,fr,it,ja,pl,pt,ru,zh-Hans}.ts` | Adds the Find PR label and lookup status/error copy in `ignorePrevious.pullRequest`; the overlay string synchronizer copies English to each overlay locale. |
+
+Rendered regression coverage lives in `apps/ui/sources/ignorePrevious/sourceControl/findPullRequest.test.tsx`;
+it uses the real Git view, operations, store, grant derivation, SCM section and Work badge with RPC/network/native boundaries.
+
+
 ATR-86 ordinary inspection repair also patches the following canonical UI owners. This development
 change keeps ambiguous transcript requests visible while preventing controls displaying one occurrence
 from answering another. It changes no permission grants, RPC payloads or persisted formats.
