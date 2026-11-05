@@ -568,8 +568,24 @@ export async function startUiWebExport(params: {
   testDir: string;
   env: NodeJS.ProcessEnv;
   port?: number;
+  /** False for jobs that may only serve an already-current persisted export. */
+  allowBuild?: boolean;
+  rebuild?: boolean;
 }): Promise<StartedUiWeb> {
-  const distDir = await ensureUiWebExportBuilt(params);
+  let distDir: string;
+  if (params.allowBuild === false) {
+    if (params.rebuild) {
+      throw new Error('Cannot rebuild the UI web export when allowBuild is false.');
+    }
+    // Recheck disk and source here, even if an earlier caller checked or built it.
+    // Never enter the builder, including its in-process cache or pending build.
+    if (!isUiWebExportCurrent(params.env)) {
+      throw new Error('The UI web export is missing or stale: run `yarn desk:export` as an expo-export job first.');
+    }
+    distDir = resolvePath(resolveUiWebExportRootDir(params.env), 'dist');
+  } else {
+    distDir = await ensureUiWebExportBuilt(params);
+  }
   return await startStaticUiServer({
     testDir: params.testDir,
     distDir,
