@@ -7,8 +7,7 @@ import { expect, test as base, type Page } from '@playwright/test';
 import { createRunDirs } from '../runDir';
 import { createTestAuthMtls } from '../auth';
 import { runDeskServerFixture, type DeskServerForFile } from './deskServer';
-import { startUiWeb } from '../process/uiWeb';
-import { isUiWebExportCurrent } from '../process/uiWebExport';
+import { isUiWebExportCurrent, startUiWebExport } from '../process/uiWebExport';
 import { collectBrowserDiagnostics } from '../uiE2e/browserDiagnostics';
 import { startForwardedHeaderProxy } from '../uiE2e/forwardedHeaderProxy';
 import { normalizeLoopbackBaseUrl } from '../uiE2e/pageNavigation';
@@ -133,7 +132,7 @@ export const deskTest = deskGuardTest.extend<DeskFixtures, DeskWorkerFixtures>({
         const testDir = join(testInfo.outputDir, 'ui');
         await mkdir(testDir, { recursive: true });
         try {
-            const ui = await startUiWeb({ testDir, env: { ...uiEnv, EXPO_PUBLIC_HAPPY_SERVER_URL: proxy.baseUrl } });
+            const ui = await startUiWebExport({ testDir, env: { ...uiEnv, EXPO_PUBLIC_HAPPY_SERVER_URL: proxy.baseUrl }, allowBuild: false });
             try {
                 await use({
                     serverBaseUrl: server.baseUrl,
